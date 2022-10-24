@@ -18,6 +18,7 @@ type Session struct {
 	MessageCh     chan BridgeMessage
 	MessageQueue  *deque.Deque[MessageWithTtl]
 	SessionCloser chan interface{}
+	Subscribers   int
 }
 
 type MessageWithTtl struct {
@@ -28,7 +29,7 @@ type MessageWithTtl struct {
 	RequestCloser chan interface{}
 }
 
-func NewSession(sessionId string, c *echo.Context) *Session {
+func NewSession(sessionId string, c *echo.Context, subscribers int) *Session {
 	session := Session{
 		mux:           sync.Mutex{},
 		SessionId:     sessionId,
@@ -36,6 +37,7 @@ func NewSession(sessionId string, c *echo.Context) *Session {
 		MessageCh:     make(chan BridgeMessage),
 		MessageQueue:  deque.New[MessageWithTtl](),
 		SessionCloser: make(chan interface{}),
+		Subscribers:   subscribers,
 	}
 
 	go session.worker()
