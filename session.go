@@ -74,7 +74,7 @@ func (s *Session) worker() {
 					continue
 				}
 				s.MessageCh <- BridgeMessage{
-					From:    base64.RawStdEncoding.EncodeToString([]byte(mes.From)),
+					From:    mes.From,
 					Message: base64.RawStdEncoding.EncodeToString(mes.Message),
 				}
 				mes.RequestCloser <- true
