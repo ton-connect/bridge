@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -46,37 +47,43 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
+	newSession := NewSession(clientId[0], &c) // sessionId = full clientId string
+
+	clientIds := strings.Split(clientId[0], ",")
 	// remove old connection
-	oldSes, ok := h.Connections[clientId[0]]
-	if ok {
-		log.Infof("hijack old connection with id: %v", clientId[0])
-		oldConnection, _, err := (*oldSes.Connection).Response().Hijack()
-		if err != nil {
-			errorMsg := fmt.Sprintf("old connection  hijack error: %v", err)
-			log.Errorf(errorMsg)
-			return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+	for _, id := range clientIds {
+		oldSes, ok := h.Connections[id]
+		if ok {
+			log.Infof("hijack old connection with id: %v", id)
+			oldConnection, _, err := (*oldSes.Connection).Response().Hijack()
+			if err != nil {
+				errorMsg := fmt.Sprintf("old connection  hijack error: %v", err)
+				log.Errorf(errorMsg)
+				return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+			}
+			err = oldConnection.Close()
+			if err != nil {
+				errorMsg := fmt.Sprintf("old connection  close error: %v", err)
+				log.Errorf(errorMsg)
+				return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+			}
 		}
-		err = oldConnection.Close()
-		if err != nil {
-			errorMsg := fmt.Sprintf("old connection  close error: %v", err)
-			log.Errorf(errorMsg)
-			return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
-		}
+
+		h.Mux.Lock()
+		h.Connections[id] = newSession
+		h.Mux.Unlock()
 	}
 
-	newSession := NewSession(clientId[0], &c)
-	h.Mux.Lock()
-	h.Connections[clientId[0]] = newSession
-	h.Mux.Unlock()
 	notify := c.Request().Context().Done()
 	go func() {
 		<-notify
 		newSession.SessionCloser <- true
-		h.Mux.Lock()
-		delete(h.Connections, clientId[0])
-		h.Mux.Unlock()
+		for _, id := range clientIds {
+			h.Mux.Lock()
+			delete(h.Connections, id)
+			h.Mux.Unlock()
+		}
 		log.Infof("remove connection wit clientId: %v from map", clientId[0])
-		return
 	}()
 
 	for {

@@ -13,7 +13,7 @@ import (
 
 type Session struct {
 	mux           sync.Mutex
-	ClientId      string
+	SessionId     string
 	Connection    *echo.Context
 	MessageCh     chan BridgeMessage
 	MessageQueue  *deque.Deque[MessageWithTtl]
@@ -28,10 +28,10 @@ type MessageWithTtl struct {
 	RequestCloser chan interface{}
 }
 
-func NewSession(clientId string, c *echo.Context) *Session {
+func NewSession(sessionId string, c *echo.Context) *Session {
 	session := Session{
 		mux:           sync.Mutex{},
-		ClientId:      clientId,
+		SessionId:     sessionId,
 		Connection:    c,
 		MessageCh:     make(chan BridgeMessage),
 		MessageQueue:  deque.New[MessageWithTtl](),
