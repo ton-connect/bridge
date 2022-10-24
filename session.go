@@ -63,22 +63,18 @@ func (s *Session) worker() {
 			log.Info("close session. remove from worker")
 			return
 		default:
-
 			if s.MessageQueue.Len() > 0 {
 				s.mux.Lock()
 				mes := s.MessageQueue.PopFront()
 				s.mux.Unlock()
 				if time.Now().After(mes.PushTime.Add(time.Duration(mes.Ttl) * time.Second)) {
-					// message timeout
 					log.Info("timeout message")
 					continue
 				}
-				log.Info("send message to chan")
 				s.MessageCh <- BridgeMessage{
 					From:    base64.RawStdEncoding.EncodeToString([]byte(mes.From)),
 					Message: base64.RawStdEncoding.EncodeToString(mes.Message),
 				}
-				log.Info("done")
 				mes.RequestCloser <- true
 			}
 

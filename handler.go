@@ -26,7 +26,6 @@ func newHandler() *handler {
 
 func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	log := log.WithField("prefix", "EventRegistrationHandler")
-	log.Info("event registration")
 	_, ok := c.Response().Writer.(http.Flusher)
 	if !ok {
 		http.Error(c.Response().Writer, "streaming unsupported", http.StatusInternalServerError)
@@ -66,14 +65,13 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}
 
 	newSession := NewSession(clientId[0], &c)
+	h.Mux.Lock()
 	h.Connections[clientId[0]] = newSession
-
+	h.Mux.Unlock()
 	notify := c.Request().Context().Done()
 	go func() {
 		<-notify
-		log.Info("close notify")
 		newSession.SessionCloser <- true
-		log.Info("close session")
 		h.Mux.Lock()
 		delete(h.Connections, clientId[0])
 		h.Mux.Unlock()
@@ -86,7 +84,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		if !open {
 			break
 		}
-		log.Info("new message")
 		c.JSON(http.StatusOK, msg)
 		c.Response().Flush()
 	}
@@ -96,8 +93,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 func (h *handler) SendMessageHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 	log := log.WithContext(ctx).WithField("prefix", "SendMessageHandler")
-	log.Info("event send message")
-
 	params := c.QueryParams()
 	clientId, ok := params["client_id"]
 	if !ok {
@@ -156,7 +151,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	notify := c.Request().Context().Done()
 	go func() {
 		<-notify
-		log.Info("close notify")
 		ttlTimer.Stop()
 		return
 	}()
