@@ -1,9 +1,10 @@
 package main
 
 import (
-	"bridge/config"
 	"fmt"
 	"net/http"
+
+	"github.com/tonkeeper/bridge/config"
 
 	_ "net/http/pprof"
 
