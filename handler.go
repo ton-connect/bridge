@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gammazero/deque"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -96,11 +97,20 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 					activeConnectionMetric.Dec()
 				}
 			}
+			messages := deque.New[MessageWithTtl]()
+
 			for oldSes.MessageQueue.Len() != 0 {
-				if oldSes.MessageQueue.At(0).To == id {
-					newSession.MessageQueue.PushBack(oldSes.MessageQueue.PopFront())
+				m := oldSes.MessageQueue.PopFront()
+				if m.To == id {
+					newSession.mux.Lock()
+					newSession.MessageQueue.PushBack(m)
+					newSession.mux.Unlock()
+				} else {
+					messages.PushBack(m)
 				}
+
 			}
+			oldSes.MessageQueue = messages
 			oldSes.mux.Unlock()
 		}
 		h.Mux.Lock()
