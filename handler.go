@@ -1,7 +1,6 @@
 package main
 
 import (
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -9,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gammazero/deque"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -16,27 +16,27 @@ import (
 )
 
 var (
-	ActiveConnectionMetric = promauto.NewGauge(prometheus.GaugeOpts{
+	activeConnectionMetric = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "number_of_acitve_connections",
 		Help: "The number of active connections",
 	})
-	ActiveSubscriptionsMetric = promauto.NewGauge(prometheus.GaugeOpts{
+	activeSubscriptionsMetric = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "number_of_active_subscriptions",
 		Help: "The number of active subscriptions",
 	})
-	TransferedMessagesNumMetric = promauto.NewCounter(prometheus.CounterOpts{
+	transferedMessagesNumMetric = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "number_of_transfered_messages",
 		Help: "The total number of transfered_messages",
 	})
-	DeliveredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
+	deliveredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "number_of_delivered_messages",
 		Help: "The total number of delivered_messages",
 	})
-	ExpiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
+	expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "number_of_expired_messages",
 		Help: "The total number of expired messages",
 	})
-	BadRequestMetric = promauto.NewCounter(prometheus.CounterOpts{
+	badRequestMetric = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "number_of_bad_requests",
 		Help: "The total number of bad requests",
 	})
@@ -45,13 +45,19 @@ var (
 type handler struct {
 	Mux         sync.Mutex
 	Connections map[string]*Session
+	SessionKill chan SessionChan
 }
 
 func newHandler() *handler {
-	return &handler{
+
+	h := handler{
 		Mux:         sync.Mutex{},
 		Connections: make(map[string]*Session),
+		SessionKill: make(chan SessionChan, 10),
 	}
+
+	go h.SessionRemover()
+	return &h
 }
 
 func (h *handler) EventRegistrationHandler(c echo.Context) error {
@@ -71,66 +77,56 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	params := c.QueryParams()
 	clientId, ok := params["client_id"]
 	if !ok {
-		BadRequestMetric.Inc()
+		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
 	clientIds := strings.Split(clientId[0], ",")
-	newSession := NewSession(clientId[0], &c, len(clientIds)) // sessionId = full clientId string
-	// remove old connection
+	newSession := NewSession(clientId[0], &c, len(clientIds), h.SessionKill)
 	for _, id := range clientIds {
 		oldSes, ok := h.Connections[id]
-		if ok {
+		if ok { // remove old connection
+			oldSes.mux.Lock()
 			oldSes.Subscribers--
+			activeSubscriptionsMetric.Dec()
 			if oldSes.Subscribers < 1 {
-				log.Infof("hijack old connection with id: %v", id)
-				oldConnection, _, err := (*oldSes.Connection).Response().Hijack()
-				if err != nil {
-					errorMsg := fmt.Sprintf("old connection  hijack error: %v", err)
-					log.Errorf(errorMsg)
-					return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+				if oldSes.Connection != nil {
+					oldSes.Connection = nil
+					activeConnectionMetric.Dec()
 				}
-				oldSes.SessionCloser <- true
-				err = oldConnection.Close()
-				if err != nil {
-					errorMsg := fmt.Sprintf("old connection  close error: %v", err)
-					log.Errorf(errorMsg)
-					return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+			}
+			messages := deque.New[MessageWithTtl]()
+
+			for oldSes.MessageQueue.Len() != 0 {
+				m := oldSes.MessageQueue.PopFront()
+				if m.To == id {
+					newSession.mux.Lock()
+					newSession.MessageQueue.PushBack(m)
+					newSession.mux.Unlock()
+				} else {
+					messages.PushBack(m)
 				}
-				ActiveConnectionMetric.Dec()
 
 			}
-			h.Mux.Lock()
-			delete(h.Connections, id)
-			h.Mux.Unlock()
-			ActiveSubscriptionsMetric.Dec()
+			oldSes.MessageQueue = messages
+			oldSes.mux.Unlock()
 		}
 		h.Mux.Lock()
 		h.Connections[id] = newSession
 		h.Mux.Unlock()
-		ActiveSubscriptionsMetric.Inc()
+		activeSubscriptionsMetric.Inc()
 	}
-	ActiveConnectionMetric.Inc()
+	activeConnectionMetric.Inc()
 	notify := c.Request().Context().Done()
 	go func() {
 		<-notify
-		newSession.SessionCloser <- true
-		ActiveConnectionMetric.Dec()
-		for _, id := range clientIds {
-			h.Mux.Lock()
-			con, ok := h.Connections[id]
-			if ok {
-				if con.SessionId == clientId[0] {
-					delete(h.Connections, id)
-					ActiveSubscriptionsMetric.Dec()
-				}
-			}
-			h.Mux.Unlock()
-
-		}
-		log.Infof("remove connection wit clientId: %v from map", clientId[0])
+		newSession.mux.Lock()
+		newSession.Connection = nil
+		newSession.mux.Unlock()
+		activeConnectionMetric.Dec()
+		log.Infof("remove connection with clientId: %v from map", clientId[0])
 	}()
 
 	for {
@@ -141,6 +137,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		c.JSON(http.StatusOK, msg)
 		c.Response().Flush()
 	}
+	log.Info("connection closed")
 	return nil
 }
 
@@ -151,35 +148,30 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	params := c.QueryParams()
 	clientId, ok := params["client_id"]
 	if !ok {
-		BadRequestMetric.Inc()
+		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
-		log.Error(errorMsg)
-		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
-	}
-	if _, ok := h.Connections[clientId[0]]; !ok {
-		errorMsg := fmt.Sprintf("client with client_id: %v not connected", clientId[0])
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
 	toId, ok := params["to"]
 	if !ok {
-		BadRequestMetric.Inc()
+		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 	toIdSession, ok := h.Connections[toId[0]]
 	if !ok {
-		BadRequestMetric.Inc()
-		errorMsg := fmt.Sprintf("client with client_id: %v not connected", toId[0])
-		log.Error(errorMsg)
-		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+		newSession := NewSession(toId[0], nil, 0, h.SessionKill)
+		h.Connections[toId[0]] = newSession
+		toIdSession = newSession
+		activeSubscriptionsMetric.Inc()
 	}
 
 	ttlParam, ok := params["ttl"]
 	if !ok {
-		BadRequestMetric.Inc()
+		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
@@ -187,43 +179,62 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
-		BadRequestMetric.Inc()
+		badRequestMetric.Inc()
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
 	if ttl > 300 { // TODO: config
-		BadRequestMetric.Inc()
+		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" too high"
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 	message, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		BadRequestMetric.Inc()
+		badRequestMetric.Inc()
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
-	done := make(chan interface{})
-
-	toIdSession.addMessageToDeque(clientId[0], ttl, message, done)
-	TransferedMessagesNumMetric.Inc()
+	done := make(chan interface{}, 1)
+	remove := make(chan interface{}, 1)
+	toIdSession.addMessageToDeque(clientId[0], toId[0], ttl, message, done, remove)
+	transferedMessagesNumMetric.Inc()
 	ttlTimer := time.NewTimer(time.Duration(ttl) * time.Second)
 
 	for {
 		select {
 		case <-c.Request().Context().Done():
 			ttlTimer.Stop()
-			log.Info("connection has been closed")
+			log.Info("connection has been closed by client. Remove message from queue")
+			remove <- true
 			return nil
 		case <-done:
-			DeliveredMessagesMetric.Inc()
+			deliveredMessagesMetric.Inc()
 			ttlTimer.Stop()
 			return c.JSON(http.StatusOK, HttpResOk())
 		case <-ttlTimer.C:
-			ExpiredMessagesMetric.Inc()
 			log.Info("message expired")
+			expiredMessagesMetric.Inc()
 			return c.JSON(HttpResError("timeout", http.StatusBadRequest))
 		}
+	}
+}
+
+func (h *handler) SessionRemover() {
+	log := log.WithField("prefix", "SessionRemover")
+	for {
+		sn := <-h.SessionKill
+		for _, id := range sn.Ids {
+			ses, ok := h.Connections[id]
+			if ok && ses.SessionId == sn.SessionId {
+				h.Mux.Lock()
+				delete(h.Connections, id)
+				h.Mux.Unlock()
+				activeSubscriptionsMetric.Dec()
+				log.Infof("remove connection: %v", id)
+			}
+		}
+
 	}
 }
