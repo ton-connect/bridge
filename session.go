@@ -93,7 +93,6 @@ func (s *Session) worker() {
 					}
 					mes.RequestCloser <- true
 				}
-
 			}
 		} else {
 			if time.Now().After(lastCheckTime.Add(time.Second)) {
