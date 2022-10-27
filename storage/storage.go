@@ -45,7 +45,6 @@ func NewStorage[T any]() *Storage[T] {
 
 func (s *Storage[T]) checkTtlExp(value T) bool {
 	v := reflect.ValueOf(value).Interface().(MessageWithTtl)
-
 	return time.Now().After(v.PushTime.Add(time.Duration(int(v.Ttl)) * time.Second))
 }
 

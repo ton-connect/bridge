@@ -13,14 +13,16 @@ type Session struct {
 	ClientIds []string
 	MessageCh chan BridgeMessage
 	storage   *storage.Storage[storage.MessageWithTtl]
+	Closer    chan interface{}
 }
 
 func NewSession(s *storage.Storage[storage.MessageWithTtl], clientIds []string) *Session {
 	session := Session{
 		mux:       sync.Mutex{},
 		ClientIds: clientIds,
-		MessageCh: make(chan BridgeMessage),
+		MessageCh: make(chan BridgeMessage, 1),
 		storage:   s,
+		Closer:    make(chan interface{}, 1),
 	}
 
 	go session.worker()
@@ -31,25 +33,34 @@ func NewSession(s *storage.Storage[storage.MessageWithTtl], clientIds []string) 
 func (s *Session) worker() {
 	log := log.WithField("prefix", "Session.worker")
 	for {
-		for _, id := range s.ClientIds {
-			v, err := s.storage.Get(id)
-			if err != nil {
-				continue
-			}
-			if v == nil {
-				continue
-			}
-			select {
-			case <-v.RemoveMessage:
-				log.Info("request closed. remove message")
-
-			default:
-				s.MessageCh <- BridgeMessage{
-					From:    v.From,
-					Message: v.Message,
+		select {
+		case <-s.Closer:
+			close(s.MessageCh)
+			return
+		default:
+			s.mux.Lock()
+			ids := s.ClientIds
+			s.mux.Unlock()
+			for _, id := range ids {
+				v, err := s.storage.Get(id)
+				if err != nil {
+					continue
+				}
+				if v == nil {
+					continue
+				}
+				select {
+				case <-v.RemoveMessage:
+					log.Info("request closed. remove message")
+				default:
+					s.MessageCh <- BridgeMessage{
+						From:    v.From,
+						Message: v.Message,
+					}
+					v.RequestCloser <- true
 				}
 			}
-
 		}
+
 	}
 }

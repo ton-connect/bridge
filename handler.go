@@ -82,6 +82,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 	clientIds := strings.Split(clientId[0], ",")
+
 	newSession := NewSession(h.storage, clientIds)
 	for _, id := range clientIds {
 		h.Mux.Lock()
@@ -102,6 +103,15 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	notify := c.Request().Context().Done()
 	go func() {
 		<-notify
+		h.Mux.Lock()
+		defer h.Mux.Unlock()
+		newSession.mux.Lock()
+		for _, id := range newSession.ClientIds {
+			delete(h.Connections, id)
+		}
+		newSession.Closer <- true
+		newSession.mux.Unlock()
+		log.Infof("connection: %v closed", clientId[0])
 	}()
 
 	for {
