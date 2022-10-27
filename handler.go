@@ -88,12 +88,17 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		h.Mux.Lock()
 		con, ok := h.Connections[id]
 		if ok {
+			log.Infof("remove id: %v from old conn", id)
 			con.mux.Lock()
 			for i := range con.ClientIds {
 				if con.ClientIds[i] == id {
 					con.ClientIds[i] = con.ClientIds[len(con.ClientIds)-1]
 					con.ClientIds = con.ClientIds[:len(con.ClientIds)-1]
+					break
 				}
+			}
+			if len(con.ClientIds) == 0 {
+				con.Closer <- true
 			}
 			con.mux.Unlock()
 		}
@@ -111,7 +116,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		}
 		newSession.Closer <- true
 		newSession.mux.Unlock()
-		log.Infof("connection: %v closed", clientId[0])
+		log.Infof("connection: %v closed", newSession.ClientIds)
 	}()
 
 	for {

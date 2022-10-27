@@ -33,14 +33,15 @@ func NewSession(s *storage.Storage[storage.MessageWithTtl], clientIds []string) 
 func (s *Session) worker() {
 	log := log.WithField("prefix", "Session.worker")
 	for {
+		s.mux.Lock()
+		ids := s.ClientIds
+		s.mux.Unlock()
 		select {
 		case <-s.Closer:
+			log.Info("close session")
 			close(s.MessageCh)
 			return
 		default:
-			s.mux.Lock()
-			ids := s.ClientIds
-			s.mux.Unlock()
 			for _, id := range ids {
 				v, err := s.storage.Get(id)
 				if err != nil {
