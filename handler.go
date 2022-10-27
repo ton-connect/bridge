@@ -8,11 +8,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gammazero/deque"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
+	"github.com/tonkeeper/bridge/storage"
 )
 
 var (
@@ -45,7 +45,7 @@ var (
 type handler struct {
 	Mux         sync.Mutex
 	Connections map[string]*Session
-	SessionKill chan SessionChan
+	storage     *storage.Storage[storage.MessageWithTtl]
 }
 
 func newHandler() *handler {
@@ -53,10 +53,9 @@ func newHandler() *handler {
 	h := handler{
 		Mux:         sync.Mutex{},
 		Connections: make(map[string]*Session),
-		SessionKill: make(chan SessionChan, 10),
+		storage:     storage.NewStorage[storage.MessageWithTtl](),
 	}
 
-	go h.SessionRemover()
 	return &h
 }
 
@@ -82,51 +81,27 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
-
 	clientIds := strings.Split(clientId[0], ",")
-	newSession := NewSession(clientId[0], &c, len(clientIds), h.SessionKill)
+	newSession := NewSession(h.storage, clientIds)
 	for _, id := range clientIds {
-		oldSes, ok := h.Connections[id]
-		if ok { // remove old connection
-			oldSes.mux.Lock()
-			oldSes.Subscribers--
-			activeSubscriptionsMetric.Dec()
-			if oldSes.Subscribers < 1 {
-				if oldSes.Connection != nil {
-					oldSes.Connection = nil
-					activeConnectionMetric.Dec()
-				}
-			}
-			messages := deque.New[MessageWithTtl]()
-
-			for oldSes.MessageQueue.Len() != 0 {
-				m := oldSes.MessageQueue.PopFront()
-				if m.To == id {
-					newSession.mux.Lock()
-					newSession.MessageQueue.PushBack(m)
-					newSession.mux.Unlock()
-				} else {
-					messages.PushBack(m)
-				}
-
-			}
-			oldSes.MessageQueue = messages
-			oldSes.mux.Unlock()
-		}
 		h.Mux.Lock()
+		con, ok := h.Connections[id]
+		if ok {
+			con.mux.Lock()
+			for i := range con.ClientIds {
+				if con.ClientIds[i] == id {
+					con.ClientIds[i] = con.ClientIds[len(con.ClientIds)-1]
+					con.ClientIds = con.ClientIds[:len(con.ClientIds)-1]
+				}
+			}
+			con.mux.Unlock()
+		}
 		h.Connections[id] = newSession
 		h.Mux.Unlock()
-		activeSubscriptionsMetric.Inc()
 	}
-	activeConnectionMetric.Inc()
 	notify := c.Request().Context().Done()
 	go func() {
 		<-notify
-		newSession.mux.Lock()
-		newSession.Connection = nil
-		newSession.mux.Unlock()
-		activeConnectionMetric.Dec()
-		log.Infof("remove connection with clientId: %v from map", clientId[0])
 	}()
 
 	for {
@@ -161,13 +136,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
-	toIdSession, ok := h.Connections[toId[0]]
-	if !ok {
-		newSession := NewSession(toId[0], nil, 0, h.SessionKill)
-		h.Connections[toId[0]] = newSession
-		toIdSession = newSession
-		activeSubscriptionsMetric.Inc()
-	}
 
 	ttlParam, ok := params["ttl"]
 	if !ok {
@@ -198,7 +166,15 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 	done := make(chan interface{}, 1)
 	remove := make(chan interface{}, 1)
-	toIdSession.addMessageToDeque(clientId[0], toId[0], ttl, message, done, remove)
+	h.storage.Add(toId[0], storage.MessageWithTtl{
+		PushTime:      time.Now(),
+		Ttl:           ttl,
+		From:          clientId[0],
+		To:            toId[0],
+		Message:       message,
+		RequestCloser: done,
+		RemoveMessage: remove,
+	})
 	transferedMessagesNumMetric.Inc()
 	ttlTimer := time.NewTimer(time.Duration(ttl) * time.Second)
 
@@ -218,23 +194,5 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			expiredMessagesMetric.Inc()
 			return c.JSON(HttpResError("timeout", http.StatusBadRequest))
 		}
-	}
-}
-
-func (h *handler) SessionRemover() {
-	log := log.WithField("prefix", "SessionRemover")
-	for {
-		sn := <-h.SessionKill
-		for _, id := range sn.Ids {
-			ses, ok := h.Connections[id]
-			if ok && ses.SessionId == sn.SessionId {
-				h.Mux.Lock()
-				delete(h.Connections, id)
-				h.Mux.Unlock()
-				activeSubscriptionsMetric.Dec()
-				log.Infof("remove connection: %v", id)
-			}
-		}
-
 	}
 }
