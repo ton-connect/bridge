@@ -48,6 +48,7 @@ func (s *Session) worker() {
 		case <-s.Closer:
 			log.Info("close session")
 			close(s.MessageCh)
+			s.mux.Unlock()
 			return
 		default:
 			for s.queue.Len() != 0 {

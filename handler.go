@@ -95,10 +95,11 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 					break
 				}
 			}
+			con.mux.Unlock()
 			if len(con.ClientIds) == 0 {
 				con.Closer <- true
 			}
-			con.mux.Unlock()
+
 		}
 		h.Connections[id] = newSession
 		h.Mux.Unlock()
@@ -113,9 +114,8 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			delete(h.Connections, id)
 			activeSubscriptionsMetric.Dec()
 		}
-		newSession.Closer <- true
 		newSession.mux.Unlock()
-		activeConnectionMetric.Dec()
+		newSession.Closer <- true
 		log.Infof("connection: %v closed", newSession.ClientIds)
 	}()
 
@@ -128,6 +128,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		c.Response().Flush()
 		deliveredMessagesMetric.Inc()
 	}
+	activeConnectionMetric.Dec()
 	log.Info("connection closed")
 	return nil
 }
