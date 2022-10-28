@@ -43,20 +43,18 @@ func (s *Session) worker() {
 		s.queue.PushBack(m)
 	}
 	for {
-		s.mux.Lock()
 		select {
 		case <-s.Closer:
 			log.Info("close session")
 			close(s.MessageCh)
-			s.mux.Unlock()
 			return
 		default:
+			s.mux.Lock()
 			for s.queue.Len() != 0 {
 				s.MessageCh <- s.queue.PopFront()
 			}
-
+			s.mux.Unlock()
 		}
-		s.mux.Unlock()
 	}
 }
 
