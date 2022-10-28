@@ -3,8 +3,8 @@ package main
 import (
 	"sync"
 
+	"github.com/gammazero/deque"
 	log "github.com/sirupsen/logrus"
-
 	"github.com/tonkeeper/bridge/storage"
 )
 
@@ -12,17 +12,19 @@ type Session struct {
 	mux       sync.Mutex
 	ClientIds []string
 	MessageCh chan BridgeMessage
-	storage   *storage.Storage[storage.MessageWithTtl]
+	storage   *storage.Storage
 	Closer    chan interface{}
+	queue     *deque.Deque[BridgeMessage]
 }
 
-func NewSession(s *storage.Storage[storage.MessageWithTtl], clientIds []string) *Session {
+func NewSession(s *storage.Storage, clientIds []string) *Session {
 	session := Session{
 		mux:       sync.Mutex{},
 		ClientIds: clientIds,
 		MessageCh: make(chan BridgeMessage, 1),
 		storage:   s,
 		Closer:    make(chan interface{}, 1),
+		queue:     deque.New[BridgeMessage](),
 	}
 
 	go session.worker()
@@ -32,36 +34,34 @@ func NewSession(s *storage.Storage[storage.MessageWithTtl], clientIds []string) 
 
 func (s *Session) worker() {
 	log := log.WithField("prefix", "Session.worker")
+	q := s.storage.GetQueue(s.ClientIds)
+	for q.Len() != 0 {
+		m, ok := q.PopFront().(BridgeMessage)
+		if !ok {
+			continue
+		}
+		s.queue.PushBack(m)
+	}
 	for {
 		s.mux.Lock()
-		ids := s.ClientIds
-		s.mux.Unlock()
 		select {
 		case <-s.Closer:
 			log.Info("close session")
 			close(s.MessageCh)
 			return
 		default:
-			for _, id := range ids {
-				v, err := s.storage.Get(id)
-				if err != nil {
-					continue
-				}
-				if v == nil {
-					continue
-				}
-				select {
-				case <-v.RemoveMessage:
-					log.Info("request closed. remove message")
-				default:
-					s.MessageCh <- BridgeMessage{
-						From:    v.From,
-						Message: v.Message,
-					}
-					v.RequestCloser <- true
-				}
+			for s.queue.Len() != 0 {
+				s.MessageCh <- s.queue.PopFront()
 			}
-		}
 
+		}
+		s.mux.Unlock()
 	}
+}
+
+func (s *Session) AddMessageToQueue(mes BridgeMessage) {
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	s.queue.PushBack(mes)
+
 }

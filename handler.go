@@ -6,7 +6,6 @@ import (
 	"strconv"
 	"strings"
 	"sync"
-	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
@@ -32,10 +31,6 @@ var (
 		Name: "number_of_delivered_messages",
 		Help: "The total number of delivered_messages",
 	})
-	expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "number_of_expired_messages",
-		Help: "The total number of expired messages",
-	})
 	badRequestMetric = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "number_of_bad_requests",
 		Help: "The total number of bad requests",
@@ -45,7 +40,7 @@ var (
 type handler struct {
 	Mux         sync.Mutex
 	Connections map[string]*Session
-	storage     *storage.Storage[storage.MessageWithTtl]
+	storage     *storage.Storage
 }
 
 func newHandler() *handler {
@@ -53,7 +48,7 @@ func newHandler() *handler {
 	h := handler{
 		Mux:         sync.Mutex{},
 		Connections: make(map[string]*Session),
-		storage:     storage.NewStorage[storage.MessageWithTtl](),
+		storage:     storage.NewStorage(),
 	}
 
 	return &h
@@ -82,11 +77,13 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 	clientIds := strings.Split(clientId[0], ",")
-
+	log.Infof("make new session with ids: %v", clientIds)
 	newSession := NewSession(h.storage, clientIds)
+	activeConnectionMetric.Inc()
 	for _, id := range clientIds {
 		h.Mux.Lock()
 		con, ok := h.Connections[id]
+		activeSubscriptionsMetric.Inc()
 		if ok {
 			log.Infof("remove id: %v from old conn", id)
 			con.mux.Lock()
@@ -94,6 +91,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 				if con.ClientIds[i] == id {
 					con.ClientIds[i] = con.ClientIds[len(con.ClientIds)-1]
 					con.ClientIds = con.ClientIds[:len(con.ClientIds)-1]
+					activeSubscriptionsMetric.Dec()
 					break
 				}
 			}
@@ -113,9 +111,11 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		newSession.mux.Lock()
 		for _, id := range newSession.ClientIds {
 			delete(h.Connections, id)
+			activeSubscriptionsMetric.Dec()
 		}
 		newSession.Closer <- true
 		newSession.mux.Unlock()
+		activeConnectionMetric.Dec()
 		log.Infof("connection: %v closed", newSession.ClientIds)
 	}()
 
@@ -126,6 +126,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		}
 		c.JSON(http.StatusOK, msg)
 		c.Response().Flush()
+		deliveredMessagesMetric.Inc()
 	}
 	log.Info("connection closed")
 	return nil
@@ -178,36 +179,18 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
-
-	done := make(chan interface{}, 1)
-	remove := make(chan interface{}, 1)
-	h.storage.Add(toId[0], storage.MessageWithTtl{
-		PushTime:      time.Now(),
-		Ttl:           ttl,
-		From:          clientId[0],
-		To:            toId[0],
-		Message:       message,
-		RequestCloser: done,
-		RemoveMessage: remove,
-	})
-	transferedMessagesNumMetric.Inc()
-	ttlTimer := time.NewTimer(time.Duration(ttl) * time.Second)
-
-	for {
-		select {
-		case <-c.Request().Context().Done():
-			ttlTimer.Stop()
-			log.Info("connection has been closed by client. Remove message from queue")
-			remove <- true
-			return nil
-		case <-done:
-			deliveredMessagesMetric.Inc()
-			ttlTimer.Stop()
-			return c.JSON(http.StatusOK, HttpResOk())
-		case <-ttlTimer.C:
-			log.Info("message expired")
-			expiredMessagesMetric.Inc()
-			return c.JSON(HttpResError("timeout", http.StatusBadRequest))
-		}
+	mes := BridgeMessage{
+		From:    clientId[0],
+		Message: message,
 	}
+	transferedMessagesNumMetric.Inc()
+	ses, ok := h.Connections[toId[0]]
+	if ok {
+		ses.AddMessageToQueue(mes)
+	} else {
+		h.storage.Add(toId[0], ttl, mes)
+	}
+
+	return c.JSON(http.StatusOK, HttpResOk())
+
 }
