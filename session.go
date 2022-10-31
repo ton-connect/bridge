@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"sync"
 
 	"github.com/gammazero/deque"
@@ -11,20 +12,20 @@ import (
 type Session struct {
 	mux       sync.Mutex
 	ClientIds []string
-	MessageCh chan BridgeMessage
+	MessageCh chan []byte
 	storage   *storage.Storage
 	Closer    chan interface{}
-	queue     *deque.Deque[BridgeMessage]
+	queue     *deque.Deque[[]byte]
 }
 
 func NewSession(s *storage.Storage, clientIds []string) *Session {
 	session := Session{
 		mux:       sync.Mutex{},
 		ClientIds: clientIds,
-		MessageCh: make(chan BridgeMessage, 1),
+		MessageCh: make(chan []byte, 1),
 		storage:   s,
 		Closer:    make(chan interface{}, 1),
-		queue:     deque.New[BridgeMessage](),
+		queue:     deque.New[[]byte](),
 	}
 
 	go session.worker()
@@ -34,12 +35,12 @@ func NewSession(s *storage.Storage, clientIds []string) *Session {
 
 func (s *Session) worker() {
 	log := log.WithField("prefix", "Session.worker")
-	q := s.storage.GetQueue(s.ClientIds)
+	q, err := s.storage.GetQueue(context.TODO(), s.ClientIds)
+	if err != nil {
+		log.Info("get queue error: ", err)
+	}
 	for q.Len() != 0 {
-		m, ok := q.PopFront().(BridgeMessage)
-		if !ok {
-			continue
-		}
+		m := q.PopFront()
 		s.queue.PushBack(m)
 	}
 	for {
@@ -58,9 +59,8 @@ func (s *Session) worker() {
 	}
 }
 
-func (s *Session) AddMessageToQueue(mes BridgeMessage) {
+func (s *Session) AddMessageToQueue(ctx context.Context, mes []byte) {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 	s.queue.PushBack(mes)
-
 }

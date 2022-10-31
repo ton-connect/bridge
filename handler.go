@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"io"
 	"net/http"
 	"strconv"
@@ -43,12 +44,12 @@ type handler struct {
 	storage     *storage.Storage
 }
 
-func newHandler() *handler {
+func newHandler(db *storage.Storage) *handler {
 
 	h := handler{
 		Mux:         sync.Mutex{},
 		Connections: make(map[string]*Session),
-		storage:     storage.NewStorage(),
+		storage:     db,
 	}
 
 	return &h
@@ -66,7 +67,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
 	c.Response().Header().Set("Transfer-Encoding", "chunked")
-	c.Response().WriteHeader(http.StatusOK)
 
 	params := c.QueryParams()
 	clientId, ok := params["client_id"]
@@ -124,7 +124,10 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		if !open {
 			break
 		}
-		c.JSON(http.StatusOK, msg)
+		err := c.JSONBlob(http.StatusOK, append(msg, '\n'))
+		if err != nil {
+			log.Info(err)
+		}
 		c.Response().Flush()
 		deliveredMessagesMetric.Inc()
 	}
@@ -180,18 +183,25 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
-	mes := BridgeMessage{
+	mes, err := json.Marshal(BridgeMessage{
 		From:    clientId[0],
 		Message: message,
+	})
+	if err != nil {
+		badRequestMetric.Inc()
+		log.Error(err)
+		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
-	transferedMessagesNumMetric.Inc()
 	ses, ok := h.Connections[toId[0]]
 	if ok {
-		ses.AddMessageToQueue(mes)
+		ses.AddMessageToQueue(ctx, mes)
 	} else {
-		h.storage.Add(toId[0], ttl, mes)
+		err := h.storage.Add(ctx, toId[0], ttl, mes)
+		if err != nil {
+			return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+		}
 	}
-
+	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, HttpResOk())
 
 }
