@@ -4,11 +4,8 @@ import (
 	"context"
 	"embed"
 	"errors"
-	"fmt"
-	"sync"
 	"time"
 
-	"github.com/gammazero/deque"
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/postgres"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
@@ -23,14 +20,8 @@ var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "The total number of expired messages",
 })
 
-type MessageWithTtl struct {
-	EndTime time.Time
-	Message interface{}
-}
-
+type Message []byte
 type Storage struct {
-	mux      sync.Mutex
-	queues   map[string]*deque.Deque[MessageWithTtl]
 	postgres *pgxpool.Pool
 }
 
@@ -74,8 +65,6 @@ func NewStorage(postgresURI string) (*Storage, error) {
 		return nil, err
 	}
 	s := Storage{
-		mux:      sync.Mutex{},
-		queues:   make(map[string]*deque.Deque[MessageWithTtl]),
 		postgres: c,
 	}
 	go s.worker()
@@ -84,26 +73,20 @@ func NewStorage(postgresURI string) (*Storage, error) {
 
 func (s *Storage) worker() {
 	log := log.WithField("prefix", "Storage.worker")
-
-	nextCheck := time.Now().Add(time.Minute)
 	for {
-		if time.Now().After(nextCheck) {
-			s.mux.Lock()
+		select {
+		case <-time.NewTimer(time.Minute).C:
 			_, err := s.postgres.Exec(context.TODO(),
 				`DELETE FROM bridge.messages 
 			 	 WHERE current_timestamp > end_time`)
 			if err != nil {
 				log.Infof("remove expired messages error: %v", err)
 			}
-			nextCheck = time.Now().Add(time.Minute)
-			s.mux.Unlock()
 		}
 	}
 }
 
 func (s *Storage) Add(ctx context.Context, key string, ttl int64, value []byte) error {
-	s.mux.Lock()
-	defer s.mux.Unlock()
 	_, err := s.postgres.Exec(ctx, `
 		INSERT INTO bridge.messages
 		(
@@ -119,45 +102,32 @@ func (s *Storage) Add(ctx context.Context, key string, ttl int64, value []byte) 
 	return nil
 }
 
-func (s *Storage) GetQueue(ctx context.Context, keys []string) (*deque.Deque[[]byte], error) { // interface{}
+func (s *Storage) GetMessages(ctx context.Context, keys []string) ([][]byte, error) { // interface{}
 	log := log.WithField("prefix", "Storage.GetQueue")
-	s.mux.Lock()
-	defer s.mux.Unlock()
-	sessionQueue := deque.New[[]byte]()
-	query := `SELECT bridge_message
+	var messages [][]byte
+	rows, err := s.postgres.Query(ctx, `SELECT bridge_message
 	FROM bridge.messages
-	WHERE current_timestamp < end_time AND `
-	eq := ""
-	if len(keys) > 0 {
-		eq += fmt.Sprintf("client_id = '%v' ", keys[0])
-	} else {
-		log.Info("ids slice is empty")
-		return nil, nil
-	}
-	for i := 1; i < len(keys); i++ {
-		eq += fmt.Sprintf("OR client_id = '%v' ", keys[i])
-	}
-	rows, err := s.postgres.Query(ctx, query+eq)
+	WHERE current_timestamp < end_time AND client_id = any($1)`, keys)
 	if err != nil {
 		log.Info(err)
 		return nil, err
 	}
 	for rows.Next() {
-		var message []byte
-		err = rows.Scan(&message)
+		var mes []byte
+		err = rows.Scan(&mes)
 		if err != nil {
 			log.Info(err)
 			return nil, err
 		}
-		sessionQueue.PushBack(message)
+		messages = append(messages, mes)
 	}
 
 	_, err = s.postgres.Exec(context.TODO(), `
 		DELETE FROM bridge.messages 
-		WHERE `+eq)
+		WHERE client_id = any($1)`, keys)
 	if err != nil {
 		log.Infof("remove readed messages error: %v", err)
 	}
 
-	return sessionQueue, nil
+	return messages, nil
 }

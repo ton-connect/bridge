@@ -119,6 +119,8 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		log.Infof("connection: %v closed", newSession.ClientIds)
 	}()
 
+	newSession.Start()
+
 	for {
 		msg, open := <-newSession.MessageCh
 		if !open {
