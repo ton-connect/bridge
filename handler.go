@@ -1,6 +1,9 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -67,7 +70,8 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		http.Error(c.Response().Writer, "streaming unsupported", http.StatusInternalServerError)
 		return c.JSON(HttpResError("streaming unsupported", http.StatusBadRequest))
 	}
-
+	c.Response().Header().Set("Access-Control-Allow-Origin", "*")
+	c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -134,7 +138,10 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		if !open {
 			break
 		}
-		c.JSON(http.StatusOK, msg)
+		var buf bytes.Buffer
+		enc := json.NewEncoder(&buf)
+		enc.Encode(msg)
+		fmt.Fprintf(c.Response(), "data: %v\n\n", buf.String())
 		c.Response().Flush()
 	}
 	log.Info("connection closed")
