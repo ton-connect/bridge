@@ -14,5 +14,5 @@ func registerHandlers(e *echo.Echo, h *handler) {
 	bridge.POST("/message", h.SendMessageHandler, middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: []string{"*"},
 		AllowMethods: []string{"POST"},
-	}), middleware.CORSWithConfig(cors))
+	}))
 }
