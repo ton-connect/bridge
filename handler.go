@@ -63,7 +63,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		http.Error(c.Response().Writer, "streaming unsupported", http.StatusInternalServerError)
 		return c.JSON(HttpResError("streaming unsupported", http.StatusBadRequest))
 	}
-
 	c.Response().Header().Set("Access-Control-Allow-Origin", "*")
 	c.Response().Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding")
 	c.Response().Header().Set("Content-Type", "text/event-stream")
