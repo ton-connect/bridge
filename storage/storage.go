@@ -94,8 +94,8 @@ func (s *Storage) Add(ctx context.Context, key string, ttl int64, value []byte) 
 		end_time,
 		bridge_message
 		)
-		VALUES ($1, $2, $3)
-	`, key, time.Now().Add(time.Duration(ttl)*time.Second), value)
+		VALUES ($1, to_timestamp($2), $3)
+	`, key, time.Now().Add(time.Duration(ttl)*time.Second).Unix(), value)
 	if err != nil {
 		return err
 	}
