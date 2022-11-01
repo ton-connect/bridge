@@ -24,7 +24,7 @@ func NewSession(s *storage.Storage, clientIds []string) *Session {
 		MessageCh: make(chan []byte, 1),
 		storage:   s,
 		Closer:    make(chan interface{}, 1),
-		queue:     make([][]byte, 1),
+		queue:     make([][]byte, 0),
 	}
 
 	return &session
@@ -45,10 +45,12 @@ func (s *Session) worker() {
 			return
 		default:
 			s.mux.Lock()
-			for _, m := range s.queue {
-				s.MessageCh <- m
+			if len(s.queue) != 0 {
+				for _, m := range s.queue {
+					s.MessageCh <- m
+				}
+				s.queue = s.queue[:0]
 			}
-			s.queue = s.queue[:0]
 			s.mux.Unlock()
 		}
 	}

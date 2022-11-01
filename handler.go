@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -63,11 +64,13 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		return c.JSON(HttpResError("streaming unsupported", http.StatusBadRequest))
 	}
 
+	c.Response().Header().Set("Access-Control-Allow-Origin", "*")
+	c.Response().Header().Set("Access-Control-Allow-Headers", "Content-Type")
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
 	c.Response().Header().Set("Transfer-Encoding", "chunked")
-
+	// c.Response().Header().Set(echo.HeaderOrigin, echo.HeaderAccessControlAllowOrigin)
 	params := c.QueryParams()
 	clientId, ok := params["client_id"]
 	if !ok {
@@ -126,10 +129,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		if !open {
 			break
 		}
-		err := c.JSONBlob(http.StatusOK, append(msg, '\n'))
-		if err != nil {
-			log.Info(err)
-		}
+		fmt.Fprintf(c.Response(), "data: %v\n\n", string(msg))
 		c.Response().Flush()
 		deliveredMessagesMetric.Inc()
 	}
