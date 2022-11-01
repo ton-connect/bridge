@@ -69,6 +69,8 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().Header().Set("Cache-Control", "no-cache")
 	c.Response().Header().Set("Connection", "keep-alive")
 	c.Response().Header().Set("Transfer-Encoding", "chunked")
+	c.Response().WriteHeader(http.StatusOK)
+	c.Response().Flush()
 	params := c.QueryParams()
 	clientId, ok := params["client_id"]
 	if !ok {
