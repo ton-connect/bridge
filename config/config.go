@@ -7,7 +7,8 @@ import (
 )
 
 var Config = struct {
-	Port int `env:"PORT" envDefault:"8081"`
+	Port  int    `env:"PORT" envDefault:"8081"`
+	DbURI string `env:"POSTGRES_URI,required"`
 }{}
 
 func LoadConfig() {

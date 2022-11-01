@@ -5,6 +5,7 @@ import (
 	"net/http"
 
 	"github.com/tonkeeper/bridge/config"
+	"github.com/tonkeeper/bridge/storage"
 
 	_ "net/http/pprof"
 
@@ -18,6 +19,11 @@ import (
 func main() {
 	log.Info("Bridge is running")
 	config.LoadConfig()
+	db, err := storage.NewStorage(config.Config.DbURI)
+	if err != nil {
+		log.Fatalf("db connection %v", err)
+	}
+
 	metricsMux := http.NewServeMux()
 
 	metricsMux.Handle("/metrics", promhttp.Handler())
@@ -34,7 +40,7 @@ func main() {
 	e.Use(middleware.Logger())
 	p := prometheus.NewPrometheus("http", nil)
 	p.Use(e)
-	h := newHandler()
+	h := newHandler(db)
 
 	registerHandlers(e, h)
 
