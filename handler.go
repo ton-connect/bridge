@@ -185,7 +185,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}
 	mes, err := json.Marshal(BridgeMessage{
 		From:    clientId[0],
-		Message: message,
+		Message: string(message),
 	})
 	if err != nil {
 		badRequestMetric.Inc()
