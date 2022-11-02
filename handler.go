@@ -8,11 +8,13 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
+	"github.com/tonkeeper/bridge/datatype"
 	"github.com/tonkeeper/bridge/storage"
 )
 
@@ -40,16 +42,16 @@ var (
 )
 
 type handler struct {
-	Mux         sync.Mutex
-	Connections map[string]*Session
+	Mux         sync.RWMutex
+	Connections map[string][]*Session
 	storage     *storage.Storage
 }
 
 func newHandler(db *storage.Storage) *handler {
 
 	h := handler{
-		Mux:         sync.Mutex{},
-		Connections: make(map[string]*Session),
+		Mux:         sync.RWMutex{},
+		Connections: make(map[string][]*Session),
 		storage:     db,
 	}
 
@@ -71,6 +73,17 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	fmt.Fprint(c.Response(), "\n")
 	c.Response().Flush()
 	params := c.QueryParams()
+
+	var lastEventID int64
+	var err error
+	lastEventIDStr := c.Request().Header.Get("Last-Event-ID")
+	if lastEventIDStr != "" {
+		lastEventID, err = strconv.ParseInt(lastEventIDStr, 10, 64)
+		if err != nil {
+			c.JSON(HttpResError("Last-Event-ID should be int", http.StatusBadRequest))
+
+		}
+	}
 	clientId, ok := params["client_id"]
 	if !ok {
 		badRequestMetric.Inc()
@@ -80,55 +93,47 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}
 	clientIds := strings.Split(clientId[0], ",")
 	log.Infof("make new session with ids: %v", clientIds)
-	newSession := NewSession(h.storage, clientIds)
+
+	newSession := NewSession(clientId[0], h.storage, clientIds, lastEventID)
 	activeConnectionMetric.Inc()
 	for _, id := range clientIds {
 		h.Mux.Lock()
-		con, ok := h.Connections[id]
-		activeSubscriptionsMetric.Inc()
-		if ok {
-			log.Infof("remove id: %v from old conn", id)
-			con.mux.Lock()
-			for i := range con.ClientIds {
-				if con.ClientIds[i] == id {
-					con.ClientIds[i] = con.ClientIds[len(con.ClientIds)-1]
-					con.ClientIds = con.ClientIds[:len(con.ClientIds)-1]
-					activeSubscriptionsMetric.Dec()
-					break
-				}
-			}
-			con.mux.Unlock()
-			if len(con.ClientIds) == 0 {
-				con.Closer <- true
-			}
-
-		}
-		h.Connections[id] = newSession
+		h.Connections[id] = append(h.Connections[id], newSession)
 		h.Mux.Unlock()
+		activeSubscriptionsMetric.Inc()
 	}
 	notify := c.Request().Context().Done()
 	go func() {
 		<-notify
-		h.Mux.Lock()
-		defer h.Mux.Unlock()
-		newSession.mux.Lock()
-		for _, id := range newSession.ClientIds {
-			delete(h.Connections, id)
+		close(newSession.Closer)
+		for _, id := range clientIds {
+			h.Mux.Lock()
+			sessions, ok := h.Connections[id]
+			h.Mux.Unlock()
+			if ok {
+				for i := range sessions {
+					if sessions[i].SessionId == clientId[0] {
+						sessions[i] = sessions[len(sessions)-1]
+						sessions = sessions[:len(sessions)-1]
+						h.Mux.Lock()
+						h.Connections[id] = sessions
+						if len(sessions) == 0 {
+							delete(h.Connections, id)
+						}
+						h.Mux.Unlock()
+						break
+					}
+				}
+			}
 			activeSubscriptionsMetric.Dec()
 		}
-		newSession.mux.Unlock()
-		newSession.Closer <- true
 		log.Infof("connection: %v closed", newSession.ClientIds)
 	}()
 
 	newSession.Start()
 
-	for {
-		msg, open := <-newSession.MessageCh
-		if !open {
-			break
-		}
-		fmt.Fprintf(c.Response(), "data: %v\n\n", string(msg))
+	for msg := range newSession.MessageCh {
+		fmt.Fprintf(c.Response(), "id: %v\ndata: %v\n\n", msg.EventId, string(msg.Message)) //
 		c.Response().Flush()
 		deliveredMessagesMetric.Inc()
 	}
@@ -165,7 +170,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
-
 	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
@@ -184,7 +188,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
-	mes, err := json.Marshal(BridgeMessage{
+	mes, err := json.Marshal(datatype.BridgeMessage{
 		From:    clientId[0],
 		Message: string(message),
 	})
@@ -193,14 +197,18 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
-	ses, ok := h.Connections[toId[0]]
+	sessions, ok := h.Connections[toId[0]]
 	if ok {
-		ses.AddMessageToQueue(ctx, mes)
-	} else {
-		err := h.storage.Add(ctx, toId[0], ttl, mes)
-		if err != nil {
-			return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+		for _, ses := range sessions {
+			ses.AddMessageToQueue(ctx, datatype.SseMessage{
+				EventId: time.Now().UnixMicro(),
+				Message: mes,
+			})
 		}
+	}
+	err = h.storage.Add(ctx, toId[0], time.Now().UnixMicro(), ttl, mes)
+	if err != nil {
+		log.Errorf("db error: %v", err)
 	}
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, HttpResOk())

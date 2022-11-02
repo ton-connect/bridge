@@ -13,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
+	"github.com/tonkeeper/bridge/datatype"
 )
 
 var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
@@ -86,48 +87,43 @@ func (s *Storage) worker() {
 	}
 }
 
-func (s *Storage) Add(ctx context.Context, key string, ttl int64, value []byte) error {
+func (s *Storage) Add(ctx context.Context, key string, eventId, ttl int64, value []byte) error {
 	_, err := s.postgres.Exec(ctx, `
 		INSERT INTO bridge.messages
 		(
 		client_id,
+		event_id,
 		end_time,
 		bridge_message
 		)
-		VALUES ($1, to_timestamp($2), $3)
-	`, key, time.Now().Add(time.Duration(ttl)*time.Second).Unix(), value)
+		VALUES ($1, $2, to_timestamp($3), $4)
+	`, key, eventId, time.Now().Add(time.Duration(ttl)*time.Second).Unix(), value)
 	if err != nil {
 		return err
 	}
 	return nil
 }
 
-func (s *Storage) GetMessages(ctx context.Context, keys []string) ([][]byte, error) { // interface{}
+func (s *Storage) GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error) { // interface{}
 	log := log.WithField("prefix", "Storage.GetQueue")
-	var messages [][]byte
-	rows, err := s.postgres.Query(ctx, `SELECT bridge_message
+	var messages []datatype.SseMessage
+	rows, err := s.postgres.Query(ctx, `SELECT event_id, bridge_message
 	FROM bridge.messages
-	WHERE current_timestamp < end_time AND client_id = any($1)`, keys)
+	WHERE current_timestamp < end_time 
+	AND event_id > $1
+	AND client_id = any($2)`, lastEventId, keys)
 	if err != nil {
 		log.Info(err)
 		return nil, err
 	}
 	for rows.Next() {
-		var mes []byte
-		err = rows.Scan(&mes)
+		var mes datatype.SseMessage
+		err = rows.Scan(&mes.EventId, &mes.Message)
 		if err != nil {
 			log.Info(err)
 			return nil, err
 		}
 		messages = append(messages, mes)
 	}
-
-	_, err = s.postgres.Exec(context.TODO(), `
-		DELETE FROM bridge.messages 
-		WHERE client_id = any($1)`, keys)
-	if err != nil {
-		log.Infof("remove readed messages error: %v", err)
-	}
-
 	return messages, nil
 }
