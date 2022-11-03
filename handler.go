@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -41,20 +42,25 @@ var (
 	})
 )
 
-type handler struct {
-	Mux         sync.RWMutex
+type streams struct {
 	Connections map[string][]*Session
-	storage     *storage.Storage
+}
+type handler struct {
+	Mux     sync.RWMutex
+	Streams streams
+	storage *storage.Storage
+	Remover chan *Session
 }
 
 func newHandler(db *storage.Storage) *handler {
-
 	h := handler{
-		Mux:         sync.RWMutex{},
-		Connections: make(map[string][]*Session),
-		storage:     db,
+		Mux: sync.RWMutex{},
+		Streams: streams{
+			Connections: make(map[string][]*Session),
+		},
+		storage: db,
+		Remover: make(chan *Session, 10),
 	}
-
 	return &h
 }
 
@@ -74,11 +80,11 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().Flush()
 	params := c.QueryParams()
 
-	var lastEventID int64
+	var lastEventId int64
 	var err error
 	lastEventIDStr := c.Request().Header.Get("Last-Event-ID")
 	if lastEventIDStr != "" {
-		lastEventID, err = strconv.ParseInt(lastEventIDStr, 10, 64)
+		lastEventId, err = strconv.ParseInt(lastEventIDStr, 10, 64)
 		if err != nil {
 			c.JSON(HttpResError("Last-Event-ID should be int", http.StatusBadRequest))
 
@@ -92,48 +98,19 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 	clientIds := strings.Split(clientId[0], ",")
-	log.Infof("make new session with ids: %v", clientIds)
+	session := h.CreateSession(clientId[0], clientIds, lastEventId)
 
-	newSession := NewSession(clientId[0], h.storage, clientIds, lastEventID)
-	activeConnectionMetric.Inc()
-	for _, id := range clientIds {
-		h.Mux.Lock()
-		h.Connections[id] = append(h.Connections[id], newSession)
-		h.Mux.Unlock()
-		activeSubscriptionsMetric.Inc()
-	}
 	notify := c.Request().Context().Done()
 	go func() {
 		<-notify
-		close(newSession.Closer)
-		for _, id := range clientIds {
-			h.Mux.Lock()
-			sessions, ok := h.Connections[id]
-			h.Mux.Unlock()
-			if ok {
-				for i := range sessions {
-					if sessions[i].SessionId == clientId[0] {
-						sessions[i] = sessions[len(sessions)-1]
-						sessions = sessions[:len(sessions)-1]
-						h.Mux.Lock()
-						h.Connections[id] = sessions
-						if len(sessions) == 0 {
-							delete(h.Connections, id)
-						}
-						h.Mux.Unlock()
-						break
-					}
-				}
-			}
-			activeSubscriptionsMetric.Dec()
-		}
-		log.Infof("connection: %v closed", newSession.ClientIds)
+		close(session.Closer)
+		h.removeConnection(session)
+		log.Infof("connection: %v closed", session.ClientIds)
 	}()
 
-	newSession.Start()
-
-	for msg := range newSession.MessageCh {
-		fmt.Fprintf(c.Response(), "id: %v\ndata: %v\n\n", msg.EventId, string(msg.Message)) //
+	session.Start()
+	for msg := range session.MessageCh {
+		fmt.Fprintf(c.Response(), "id: %v\ndata: %v\n\n", msg.EventId, string(msg.Message))
 		c.Response().Flush()
 		deliveredMessagesMetric.Inc()
 	}
@@ -197,20 +174,62 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
-	sessions, ok := h.Connections[toId[0]]
+	sseMessage := datatype.SseMessage{
+		EventId: time.Now().UnixMicro(),
+		Message: mes,
+	}
 	if ok {
-		for _, ses := range sessions {
-			ses.AddMessageToQueue(ctx, datatype.SseMessage{
-				EventId: time.Now().UnixMicro(),
-				Message: mes,
-			})
+		for _, ses := range h.Streams.Connections[toId[0]] {
+			ses.AddMessageToQueue(ctx, sseMessage)
 		}
 	}
-	err = h.storage.Add(ctx, toId[0], time.Now().UnixMicro(), ttl, mes)
-	if err != nil {
-		log.Errorf("db error: %v", err)
-	}
+	go func() {
+		log := log.WithField("prefix", "SendMessageHandler.storge.Add")
+		err = h.storage.Add(context.Background(), toId[0], ttl, sseMessage)
+		if err != nil {
+			log.Errorf("db error: %v", err)
+		}
+	}()
+
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, HttpResOk())
 
+}
+
+func (h *handler) removeConnection(s *Session) {
+	log := log.WithField("prefix", "removeConnection")
+	log.Infof("remove session: %v", s.ClientIds)
+	for _, id := range s.ClientIds {
+		h.Mux.RLock()
+		ses := h.Streams.Connections[id]
+		h.Mux.RUnlock()
+		for i := range ses {
+			if ses[i] == s {
+				ses[i] = ses[len(ses)-1]
+				ses = ses[:len(ses)-1]
+				break
+			}
+		}
+		if len(ses) == 0 {
+			h.Mux.Lock()
+			delete(h.Streams.Connections, id)
+			h.Mux.Unlock()
+		}
+	}
+	activeSubscriptionsMetric.Dec()
+
+}
+
+func (h *handler) CreateSession(sessionId string, clientIds []string, lastEventId int64) *Session {
+	log := log.WithField("prefix", "CreateSession")
+	log.Infof("make new session with ids: %v", clientIds)
+	session := NewSession(h.storage, clientIds, lastEventId)
+	activeConnectionMetric.Inc()
+	for _, id := range clientIds {
+		h.Mux.Lock()
+		h.Streams.Connections[id] = append(h.Streams.Connections[id], session)
+		h.Mux.Unlock()
+		activeSubscriptionsMetric.Inc()
+	}
+	return session
 }

@@ -75,19 +75,19 @@ func NewStorage(postgresURI string) (*Storage, error) {
 func (s *Storage) worker() {
 	log := log.WithField("prefix", "Storage.worker")
 	for {
-		select {
-		case <-time.NewTimer(time.Minute).C:
-			_, err := s.postgres.Exec(context.TODO(),
-				`DELETE FROM bridge.messages 
+		<-time.NewTimer(time.Minute).C
+		log.Info("time to db check")
+		_, err := s.postgres.Exec(context.TODO(),
+			`DELETE FROM bridge.messages 
 			 	 WHERE current_timestamp > end_time`)
-			if err != nil {
-				log.Infof("remove expired messages error: %v", err)
-			}
+		if err != nil {
+			log.Infof("remove expired messages error: %v", err)
 		}
 	}
+
 }
 
-func (s *Storage) Add(ctx context.Context, key string, eventId, ttl int64, value []byte) error {
+func (s *Storage) Add(ctx context.Context, key string, ttl int64, mes datatype.SseMessage) error {
 	_, err := s.postgres.Exec(ctx, `
 		INSERT INTO bridge.messages
 		(
@@ -97,7 +97,7 @@ func (s *Storage) Add(ctx context.Context, key string, eventId, ttl int64, value
 		bridge_message
 		)
 		VALUES ($1, $2, to_timestamp($3), $4)
-	`, key, eventId, time.Now().Add(time.Duration(ttl)*time.Second).Unix(), value)
+	`, key, mes.EventId, time.Now().Add(time.Duration(ttl)*time.Second).Unix(), mes.Message)
 	if err != nil {
 		return err
 	}
