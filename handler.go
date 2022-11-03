@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -42,24 +43,23 @@ var (
 	})
 )
 
-type streams struct {
-	Connections map[string][]*Session
+type stream struct {
+	Sessions []*Session
+	mux      sync.RWMutex
 }
 type handler struct {
-	Mux     sync.RWMutex
-	Streams streams
-	storage *storage.Storage
-	Remover chan *Session
+	Mux         sync.RWMutex
+	Connections map[string]*stream
+	storage     *storage.Storage
+	_eventIDs   int64
 }
 
 func newHandler(db *storage.Storage) *handler {
 	h := handler{
-		Mux: sync.RWMutex{},
-		Streams: streams{
-			Connections: make(map[string][]*Session),
-		},
-		storage: db,
-		Remover: make(chan *Session, 10),
+		Mux:         sync.RWMutex{},
+		Connections: make(map[string]*stream),
+		storage:     db,
+		_eventIDs:   time.Now().UnixMicro(),
 	}
 	return &h
 }
@@ -175,13 +175,16 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
 	sseMessage := datatype.SseMessage{
-		EventId: time.Now().UnixMicro(),
+		EventId: h.nextID(),
 		Message: mes,
 	}
+	s, ok := h.Connections[toId[0]]
 	if ok {
-		for _, ses := range h.Streams.Connections[toId[0]] {
+		s.mux.Lock()
+		for _, ses := range s.Sessions {
 			ses.AddMessageToQueue(ctx, sseMessage)
 		}
+		s.mux.Unlock()
 	}
 	go func() {
 		log := log.WithField("prefix", "SendMessageHandler.storge.Add")
@@ -196,25 +199,33 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 }
 
-func (h *handler) removeConnection(s *Session) {
+func (h *handler) removeConnection(ses *Session) {
 	log := log.WithField("prefix", "removeConnection")
-	log.Infof("remove session: %v", s.ClientIds)
-	for _, id := range s.ClientIds {
+	log.Infof("remove session: %v", ses.ClientIds)
+	for _, id := range ses.ClientIds {
 		h.Mux.RLock()
-		ses := h.Streams.Connections[id]
+		s, ok := h.Connections[id]
 		h.Mux.RUnlock()
-		for i := range ses {
-			if ses[i] == s {
-				ses[i] = ses[len(ses)-1]
-				ses = ses[:len(ses)-1]
+		if !ok {
+			log.Info("alredy removed")
+			continue
+		}
+		s.mux.Lock()
+		for i := range s.Sessions {
+			if s.Sessions[i] == ses {
+				s.Sessions[i] = s.Sessions[len(s.Sessions)-1]
+				s.Sessions = s.Sessions[:len(s.Sessions)-1]
 				break
 			}
 		}
-		if len(ses) == 0 {
+		s.mux.Unlock()
+
+		if len(s.Sessions) == 0 {
 			h.Mux.Lock()
-			delete(h.Streams.Connections, id)
+			delete(h.Connections, id)
 			h.Mux.Unlock()
 		}
+
 	}
 	activeSubscriptionsMetric.Dec()
 
@@ -226,10 +237,27 @@ func (h *handler) CreateSession(sessionId string, clientIds []string, lastEventI
 	session := NewSession(h.storage, clientIds, lastEventId)
 	activeConnectionMetric.Inc()
 	for _, id := range clientIds {
-		h.Mux.Lock()
-		h.Streams.Connections[id] = append(h.Streams.Connections[id], session)
-		h.Mux.Unlock()
+		h.Mux.RLock()
+		s, ok := h.Connections[id]
+		h.Mux.RUnlock()
+		if ok {
+			s.mux.Lock()
+			s.Sessions = append(s.Sessions, session)
+			s.mux.Unlock()
+		} else {
+			h.Mux.Lock()
+			h.Connections[id] = &stream{
+				mux:      sync.RWMutex{},
+				Sessions: []*Session{session},
+			}
+			h.Mux.Unlock()
+		}
+
 		activeSubscriptionsMetric.Inc()
 	}
 	return session
+}
+
+func (h *handler) nextID() int64 {
+	return atomic.AddInt64(&h._eventIDs, 1)
 }
