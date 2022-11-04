@@ -6,6 +6,6 @@ type SseMessage struct {
 }
 
 type BridgeMessage struct {
-	From    string
-	Message string
+	From    string `json:"from"`
+	Message string `json:"message"`
 }
