@@ -86,8 +86,20 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	if lastEventIDStr != "" {
 		lastEventId, err = strconv.ParseInt(lastEventIDStr, 10, 64)
 		if err != nil {
-			c.JSON(HttpResError("Last-Event-ID should be int", http.StatusBadRequest))
-
+			badRequestMetric.Inc()
+			errorMsg := "Last-Event-ID should be int"
+			log.Error(errorMsg)
+			return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+		}
+	}
+	lastEventIdQuery, ok := params["last_event_id"]
+	if ok {
+		lastEventId, err = strconv.ParseInt(lastEventIdQuery[0], 10, 64)
+		if err != nil {
+			badRequestMetric.Inc()
+			errorMsg := "last_event_id should be int"
+			log.Error(errorMsg)
+			return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
 	clientId, ok := params["client_id"]
