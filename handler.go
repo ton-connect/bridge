@@ -93,7 +93,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		}
 	}
 	lastEventIdQuery, ok := params["last_event_id"]
-	if ok {
+	if ok && lastEventId == 0 {
 		lastEventId, err = strconv.ParseInt(lastEventIdQuery[0], 10, 64)
 		if err != nil {
 			badRequestMetric.Inc()
