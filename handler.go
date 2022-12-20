@@ -112,12 +112,13 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	clientIds := strings.Split(clientId[0], ",")
 	session := h.CreateSession(clientId[0], clientIds, lastEventId)
 
-	notify := c.Request().Context().Done()
+	ctx := c.Request().Context()
+	notify := ctx.Done()
 	go func() {
 		<-notify
 		close(session.Closer)
 		h.removeConnection(session)
-		log.Infof("connection: %v closed", session.ClientIds)
+		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
 	}()
 
 	session.Start()
