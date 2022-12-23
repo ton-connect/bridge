@@ -122,10 +122,16 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}()
 
 	session.Start()
-	for msg := range session.MessageCh {
-		fmt.Fprintf(c.Response(), "id: %v\ndata: %v\n\n", msg.EventId, string(msg.Message))
-		c.Response().Flush()
-		deliveredMessagesMetric.Inc()
+	for {
+		select {
+		case msg := <-session.MessageCh:
+			fmt.Fprintf(c.Response(), "id: %v\ndata: %v\n\n", msg.EventId, string(msg.Message))
+			c.Response().Flush()
+			deliveredMessagesMetric.Inc()
+		case <-time.NewTimer(time.Second * 2).C:
+			fmt.Fprintf(c.Response(), "body: heartbeat\n\n")
+			c.Response().Flush()
+		}
 	}
 	activeConnectionMetric.Dec()
 	log.Info("connection closed")
