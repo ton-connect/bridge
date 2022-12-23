@@ -125,11 +125,19 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	for {
 		select {
 		case msg := <-session.MessageCh:
-			fmt.Fprintf(c.Response(), "id: %v\ndata: %v\n\n", msg.EventId, string(msg.Message))
+			_, err = fmt.Fprintf(c.Response(), "id: %v\ndata: %v\n\n", msg.EventId, string(msg.Message))
+			if err != nil {
+				log.Errorf("can't write to connection: %v", err)
+				break
+			}
 			c.Response().Flush()
 			deliveredMessagesMetric.Inc()
 		case <-time.NewTimer(time.Second * 2).C:
-			fmt.Fprintf(c.Response(), "body: heartbeat\n\n")
+			_, err = fmt.Fprintf(c.Response(), "body: heartbeat\n\n")
+			if err != nil {
+				log.Errorf("can't write to connection: %v", err)
+				break
+			}
 			c.Response().Flush()
 		}
 	}
