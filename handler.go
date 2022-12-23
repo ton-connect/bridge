@@ -122,13 +122,14 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}()
 
 	session.Start()
+loop:
 	for {
 		select {
 		case msg := <-session.MessageCh:
 			_, err = fmt.Fprintf(c.Response(), "id: %v\ndata: %v\n\n", msg.EventId, string(msg.Message))
 			if err != nil {
 				log.Errorf("can't write to connection: %v", err)
-				break
+				break loop
 			}
 			c.Response().Flush()
 			deliveredMessagesMetric.Inc()
@@ -136,7 +137,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			_, err = fmt.Fprintf(c.Response(), "body: heartbeat\n\n")
 			if err != nil {
 				log.Errorf("can't write to connection: %v", err)
-				break
+				break loop
 			}
 			c.Response().Flush()
 		}
