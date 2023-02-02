@@ -6,19 +6,18 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/datatype"
-	"github.com/tonkeeper/bridge/storage"
 )
 
 type Session struct {
 	mux         sync.RWMutex
 	ClientIds   []string
 	MessageCh   chan datatype.SseMessage
-	storage     *storage.Storage
+	storage     db
 	Closer      chan interface{}
 	lastEventId int64
 }
 
-func NewSession(s *storage.Storage, clientIds []string, lastEventId int64) *Session {
+func NewSession(s db, clientIds []string, lastEventId int64) *Session {
 	session := Session{
 		mux:         sync.RWMutex{},
 		ClientIds:   clientIds,

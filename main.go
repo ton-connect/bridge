@@ -2,10 +2,11 @@ package main
 
 import (
 	"fmt"
+	"github.com/tonkeeper/bridge/storage/memory"
+	"github.com/tonkeeper/bridge/storage/pg"
 	"net/http"
 
 	"github.com/tonkeeper/bridge/config"
-	"github.com/tonkeeper/bridge/storage"
 
 	_ "net/http/pprof"
 
@@ -19,10 +20,17 @@ import (
 func main() {
 	log.Info("Bridge is running")
 	config.LoadConfig()
-	db, err := storage.NewStorage(config.Config.DbURI)
-	if err != nil {
-		log.Fatalf("db connection %v", err)
+	var db db
+	var err error
+	if config.Config.DbURI != "" {
+		db, err = pg.NewStorage(config.Config.DbURI)
+		if err != nil {
+			log.Fatalf("db connection %v", err)
+		}
+	} else {
+		db = memory.NewStorage()
 	}
+
 
 	metricsMux := http.NewServeMux()
 

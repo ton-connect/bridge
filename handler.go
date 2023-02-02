@@ -17,7 +17,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/datatype"
-	"github.com/tonkeeper/bridge/storage"
 )
 
 var (
@@ -50,11 +49,16 @@ type stream struct {
 type handler struct {
 	Mux         sync.RWMutex
 	Connections map[string]*stream
-	storage     *storage.Storage
+	storage     db
 	_eventIDs   int64
 }
 
-func newHandler(db *storage.Storage) *handler {
+type db interface {
+	GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error)
+	Add(ctx context.Context, key string, ttl int64, mes datatype.SseMessage) error
+}
+
+func newHandler(db db) *handler {
 	h := handler{
 		Mux:         sync.RWMutex{},
 		Connections: make(map[string]*stream),
