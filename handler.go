@@ -206,6 +206,14 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
+
+	topic, ok := params["topic"]
+	if ok {
+		go func(clientID, topic string) {
+			SendWebhook(clientID, WebhookData{Topic: topic})
+		}(clientId[0], topic[0])
+	}
+
 	sseMessage := datatype.SseMessage{
 		EventId: h.nextID(),
 		Message: mes,
