@@ -209,9 +209,9 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 	topic, ok := params["topic"]
 	if ok {
-		go func(clientID, topic string) {
-			SendWebhook(clientID, WebhookData{Topic: topic})
-		}(clientId[0], topic[0])
+		go func(clientID, topic, message string) {
+			SendWebhook(clientID, WebhookData{Topic: topic, Hash: message})
+		}(clientId[0], topic[0], string(message))
 	}
 
 	sseMessage := datatype.SseMessage{

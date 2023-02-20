@@ -11,6 +11,7 @@ import (
 
 type WebhookData struct {
 	Topic string `json:"topic"`
+	Hash  string `json:"hash"`
 }
 
 func SendWebhook(clientID string, body WebhookData) error {
