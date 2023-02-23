@@ -130,7 +130,7 @@ loop:
 	for {
 		select {
 		case msg := <-session.MessageCh:
-			_, err = fmt.Fprintf(c.Response(), "id: %v\ndata: %v\n\n", msg.EventId, string(msg.Message))
+			_, err = fmt.Fprintf(c.Response(), "event: %v\nid: %v\ndata: %v\n\n", "message", msg.EventId, string(msg.Message))
 			if err != nil {
 				log.Errorf("can't write to connection: %v", err)
 				break loop
@@ -138,7 +138,7 @@ loop:
 			c.Response().Flush()
 			deliveredMessagesMetric.Inc()
 		case <-time.NewTimer(time.Second * 2).C:
-			_, err = fmt.Fprintf(c.Response(), "body: heartbeat\n\n")
+			_, err = fmt.Fprintf(c.Response(), "event: heartbeat\n\n")
 			if err != nil {
 				log.Errorf("can't write to connection: %v", err)
 				break loop
