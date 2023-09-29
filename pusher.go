@@ -4,9 +4,11 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"strings"
+
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/config"
-	"net/http"
 )
 
 type WebhookData struct {
@@ -14,27 +16,38 @@ type WebhookData struct {
 	Hash  string `json:"hash"`
 }
 
-func SendWebhook(clientID string, body WebhookData) error {
+func SendWebhook(clientID string, body WebhookData) {
 	if config.Config.WebhookURL == "" {
-		return nil
+		return
 	}
+	webhooks := strings.Split(config.Config.WebhookURL, ",")
+	for _, webhook := range webhooks {
+		go func(webhook string) {
+			err := sendWebhook(clientID, body, webhook)
+			if err != nil {
+				log.Errorf("failed to trigger webhook '%s': %v", webhook, err)
+			}
+		}(webhook)
+	}
+}
 
-	postBody, _ := json.Marshal(body)
-	req, err := http.NewRequest(http.MethodPost, config.Config.WebhookURL+"/"+clientID, bytes.NewReader(postBody))
+func sendWebhook(clientID string, body WebhookData, webhook string) error {
+	postBody, err := json.Marshal(body)
 	if err != nil {
-		log.Errorf("failed to init request: %v", err)
-		return err
+		return fmt.Errorf("failed to marshal body: %w", err)
+	}
+	req, err := http.NewRequest(http.MethodPost, webhook+"/"+clientID, bytes.NewReader(postBody))
+	if err != nil {
+		return fmt.Errorf("failed to init request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 	res, err := http.DefaultClient.Do(req)
 	if err != nil {
-		log.Errorf("failed send request: %v", err)
-		return err
+		return fmt.Errorf("failed send request: %w", err)
 	}
 	defer res.Body.Close()
 	if res.StatusCode != http.StatusOK {
-		err = fmt.Errorf("bad status code: %v", res.StatusCode)
-		return err
+		return fmt.Errorf("bad status code: %v", res.StatusCode)
 	}
 	return nil
 }
