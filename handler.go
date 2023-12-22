@@ -218,7 +218,9 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		EventId: h.nextID(),
 		Message: mes,
 	}
+	h.Mux.RLock()
 	s, ok := h.Connections[toId[0]]
+	h.Mux.RUnlock()
 	if ok {
 		s.mux.Lock()
 		for _, ses := range s.Sessions {
