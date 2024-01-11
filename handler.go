@@ -267,10 +267,8 @@ func (h *handler) removeConnection(ses *Session) {
 			delete(h.Connections, id)
 			h.Mux.Unlock()
 		}
-
+		activeSubscriptionsMetric.Dec()
 	}
-	activeSubscriptionsMetric.Dec()
-
 }
 
 func (h *handler) CreateSession(sessionId string, clientIds []string, lastEventId int64) *Session {
