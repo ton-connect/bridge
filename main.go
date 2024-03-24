@@ -9,6 +9,7 @@ import (
 	"github.com/tonkeeper/bridge/storage/memory"
 	"github.com/tonkeeper/bridge/storage/pg"
 	"golang.org/x/exp/slices"
+	"golang.org/x/time/rate"
 
 	"github.com/tonkeeper/bridge/config"
 
@@ -50,9 +51,9 @@ func main() {
 		Skipper: func(c echo.Context) bool {
 			return c.Path() != "/bridge/message"
 		},
-		Store: middleware.NewRateLimiterMemoryStore(1),
+		Store: middleware.NewRateLimiterMemoryStore(rate.Limit(config.Config.RPSLimit)),
 	}))
-	e.Use(connectionsLimitMiddleware(newConnectionLimiter(50), func(c echo.Context) bool {
+	e.Use(connectionsLimitMiddleware(newConnectionLimiter(config.Config.ConnectionsLimit), func(c echo.Context) bool {
 		return c.Path() != "/bridge/events"
 	}))
 
