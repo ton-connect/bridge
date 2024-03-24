@@ -6,10 +6,13 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
-func connectionsLimitMiddleware(authenticator *Authenticator) echo.MiddlewareFunc {
+func connectionsLimitMiddleware(counter *ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
-			release, err := authenticator.leaseConnection(c.Request())
+			if skipper(c) {
+				return next(c)
+			}
+			release, err := counter.leaseConnection(c.Request())
 			if err != nil {
 				return c.JSON(HttpResError(err.Error(), http.StatusTooManyRequests))
 			}

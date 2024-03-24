@@ -46,7 +46,15 @@ func main() {
 		DisablePrintStack: false,
 	}))
 	e.Use(middleware.Logger())
-	e.Use(connectionsLimitMiddleware(newAuthenticator()))
+	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
+		Skipper: func(c echo.Context) bool {
+			return c.Path() != "/bridge/message"
+		},
+		Store: middleware.NewRateLimiterMemoryStore(1),
+	}))
+	e.Use(connectionsLimitMiddleware(newConnectionLimiter(50), func(c echo.Context) bool {
+		return c.Path() != "/bridge/events"
+	}))
 
 	h := newHandler(dbConn)
 

@@ -6,50 +6,32 @@ import (
 	"net/http"
 	"strings"
 	"sync"
-
-	"golang.org/x/time/rate"
 )
 
-const (
-	maxStreamingConnectionsPerIP = 100
-)
-
-// Authenticator authenticates and authorizes a request.
-// Strictly speaking it should be AuthenticatorAndAuthorizer
-type Authenticator struct {
+// ConnectionsLimiter is a middleware that limits the number of simultaneous connections per IP.
+type ConnectionsLimiter struct {
 	mu          sync.Mutex
-	ipLimits    *rateLimiter
 	connections map[string]int
+	max         int
 }
 
-type rateLimiter struct {
-	m map[string]*rate.Limiter
-	sync.RWMutex
-}
-
-func newAuthenticator() *Authenticator {
-	return &Authenticator{
-		ipLimits:    newRateLimiter(),
+func newConnectionLimiter(i int) *ConnectionsLimiter {
+	return &ConnectionsLimiter{
 		connections: map[string]int{},
+		max:         i,
 	}
-}
-
-func newRateLimiter() *rateLimiter {
-	return &rateLimiter{m: map[string]*rate.Limiter{}}
 }
 
 // leaseConnection increases a number of connections per given token and
 // returns a release function to be called once a request is finished.
 // If the token reaches the limit of max simultaneous connections, leaseConnection returns an error.
-func (auth *Authenticator) leaseConnection(request *http.Request) (release func(), err error) {
+func (auth *ConnectionsLimiter) leaseConnection(request *http.Request) (release func(), err error) {
 	key := fmt.Sprintf("ip-%v", realIP(request))
-	max := maxStreamingConnectionsPerIP
-
 	auth.mu.Lock()
 	defer auth.mu.Unlock()
 
-	if auth.connections[key] >= max {
-		return nil, fmt.Errorf("you have reached the limit of streaming connections: %v max", max)
+	if auth.connections[key] >= auth.max {
+		return nil, fmt.Errorf("you have reached the limit of streaming connections: %v max", auth.max)
 	}
 	auth.connections[key] += 1
 
