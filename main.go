@@ -32,11 +32,9 @@ func main() {
 		db = memory.NewStorage()
 	}
 
-	metricsMux := http.NewServeMux()
-
-	metricsMux.Handle("/metrics", promhttp.Handler())
+	http.Handle("/metrics", promhttp.Handler())
 	go func() {
-		log.Fatal(http.ListenAndServe(":9103", metricsMux))
+		log.Fatal(http.ListenAndServe(":9103", nil))
 	}()
 
 	e := echo.New()
@@ -57,6 +55,6 @@ func main() {
 	p := prometheus.NewPrometheus("http", func(c echo.Context) bool {
 		return !slices.Contains(existedPaths, c.Path())
 	})
-	p.Use(e)
+	e.Use(p.HandlerFunc)
 	log.Fatal(e.Start(fmt.Sprintf(":%v", config.Config.Port)))
 }
