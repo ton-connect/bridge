@@ -2,15 +2,15 @@ package main
 
 import (
 	"fmt"
+	"net/http"
+	_ "net/http/pprof"
+
 	"github.com/labstack/echo-contrib/prometheus"
 	"github.com/tonkeeper/bridge/storage/memory"
 	"github.com/tonkeeper/bridge/storage/pg"
 	"golang.org/x/exp/slices"
-	"net/http"
 
 	"github.com/tonkeeper/bridge/config"
-
-	_ "net/http/pprof"
 
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -21,15 +21,17 @@ import (
 func main() {
 	log.Info("Bridge is running")
 	config.LoadConfig()
-	var db db
-	var err error
+	var (
+		dbConn db
+		err    error
+	)
 	if config.Config.DbURI != "" {
-		db, err = pg.NewStorage(config.Config.DbURI)
+		dbConn, err = pg.NewStorage(config.Config.DbURI)
 		if err != nil {
 			log.Fatalf("db connection %v", err)
 		}
 	} else {
-		db = memory.NewStorage()
+		dbConn = memory.NewStorage()
 	}
 
 	http.Handle("/metrics", promhttp.Handler())
@@ -44,8 +46,9 @@ func main() {
 		DisablePrintStack: false,
 	}))
 	e.Use(middleware.Logger())
+	e.Use(connectionsLimitMiddleware(newAuthenticator()))
 
-	h := newHandler(db)
+	h := newHandler(dbConn)
 
 	registerHandlers(e, h)
 	var existedPaths []string
