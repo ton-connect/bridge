@@ -20,5 +20,4 @@ func LoadConfig() {
 	if err := env.Parse(&Config); err != nil {
 		log.Fatalf("config parsing failed: %v\n", err)
 	}
-	Config.SelfSignedTLS = true
 }
