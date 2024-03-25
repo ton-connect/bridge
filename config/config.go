@@ -13,10 +13,12 @@ var Config = struct {
 	CorsEnable       bool   `env:"CORS_ENABLE"`
 	RPSLimit         int    `env:"RPS_LIMIT" envDefault:"1"`
 	ConnectionsLimit int    `env:"CONNECTIONS_LIMIT" envDefault:"50"`
+	SelfSignedTLS    bool   `env:"SELF_SIGNED_TLS" envDefault:"false"`
 }{}
 
 func LoadConfig() {
 	if err := env.Parse(&Config); err != nil {
 		log.Fatalf("config parsing failed: %v\n", err)
 	}
+	Config.SelfSignedTLS = true
 }

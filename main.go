@@ -68,5 +68,13 @@ func main() {
 		return !slices.Contains(existedPaths, c.Path())
 	})
 	e.Use(p.HandlerFunc)
-	log.Fatal(e.Start(fmt.Sprintf(":%v", config.Config.Port)))
+	if config.Config.SelfSignedTLS {
+		cert, key, err := generateSelfSignedCertificate()
+		if err != nil {
+			log.Fatalf("failed to generate self signed certificate: %v", err)
+		}
+		log.Fatal(e.StartTLS(fmt.Sprintf(":%v", config.Config.Port), cert, key))
+	} else {
+		log.Fatal(e.Start(fmt.Sprintf(":%v", config.Config.Port)))
+	}
 }
