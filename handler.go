@@ -129,7 +129,10 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 loop:
 	for {
 		select {
-		case msg := <-session.MessageCh:
+		case msg, ok := <-session.MessageCh:
+			if !ok {
+				break loop
+			}
 			_, err = fmt.Fprintf(c.Response(), "event: %v\nid: %v\ndata: %v\n\n", "message", msg.EventId, string(msg.Message))
 			if err != nil {
 				log.Errorf("can't write to connection: %v", err)
