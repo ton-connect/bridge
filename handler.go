@@ -47,10 +47,11 @@ type stream struct {
 	mux      sync.RWMutex
 }
 type handler struct {
-	Mux         sync.RWMutex
-	Connections map[string]*stream
-	storage     db
-	_eventIDs   int64
+	Mux               sync.RWMutex
+	Connections       map[string]*stream
+	storage           db
+	_eventIDs         int64
+	heartbeatInterval time.Duration
 }
 
 type db interface {
@@ -58,12 +59,13 @@ type db interface {
 	Add(ctx context.Context, key string, ttl int64, mes datatype.SseMessage) error
 }
 
-func newHandler(db db) *handler {
+func newHandler(db db, heartbeatInterval time.Duration) *handler {
 	h := handler{
-		Mux:         sync.RWMutex{},
-		Connections: make(map[string]*stream),
-		storage:     db,
-		_eventIDs:   time.Now().UnixMicro(),
+		Mux:               sync.RWMutex{},
+		Connections:       make(map[string]*stream),
+		storage:           db,
+		_eventIDs:         time.Now().UnixMicro(),
+		heartbeatInterval: heartbeatInterval,
 	}
 	return &h
 }
@@ -124,7 +126,8 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		h.removeConnection(session)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
 	}()
-
+	ticker := time.NewTicker(h.heartbeatInterval)
+	defer ticker.Stop()
 	session.Start()
 loop:
 	for {
@@ -140,7 +143,7 @@ loop:
 			}
 			c.Response().Flush()
 			deliveredMessagesMetric.Inc()
-		case <-time.NewTimer(time.Second * 2).C:
+		case <-ticker.C:
 			_, err = fmt.Fprintf(c.Response(), "event: heartbeat\n\n")
 			if err != nil {
 				log.Errorf("can't write to connection: %v", err)

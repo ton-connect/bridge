@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	_ "net/http/pprof"
+	"time"
 
 	"github.com/labstack/echo-contrib/prometheus"
 	"github.com/tonkeeper/bridge/storage/memory"
@@ -57,7 +58,7 @@ func main() {
 		return c.Path() != "/bridge/events"
 	}))
 
-	h := newHandler(dbConn)
+	h := newHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second)
 
 	registerHandlers(e, h)
 	var existedPaths []string
