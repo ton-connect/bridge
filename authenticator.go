@@ -6,6 +6,9 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+
+	"github.com/tonkeeper/bridge/config"
+	"golang.org/x/exp/slices"
 )
 
 // ConnectionsLimiter is a middleware that limits the number of simultaneous connections per IP.
@@ -59,4 +62,20 @@ func realIP(request *http.Request) string {
 	}
 	ra, _, _ := net.SplitHostPort(request.RemoteAddr)
 	return ra
+}
+
+func skipRateLimitsByToken(request *http.Request) bool {
+	if request == nil {
+		return false
+	}
+	authorization := request.Header.Get("Authorization")
+	if authorization == "" {
+		return false
+	}
+	token := strings.TrimPrefix(authorization, "Bearer ")
+	exist := slices.Contains(config.Config.RateLimitsByPassToken, token)
+	if exist {
+		return true
+	}
+	return false
 }

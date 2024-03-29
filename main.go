@@ -50,12 +50,18 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
 		Skipper: func(c echo.Context) bool {
-			return c.Path() != "/bridge/message"
+			if skipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/message" {
+				return true
+			}
+			return false
 		},
 		Store: middleware.NewRateLimiterMemoryStore(rate.Limit(config.Config.RPSLimit)),
 	}))
 	e.Use(connectionsLimitMiddleware(newConnectionLimiter(config.Config.ConnectionsLimit), func(c echo.Context) bool {
-		return c.Path() != "/bridge/events"
+		if skipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/events" {
+			return true
+		}
+		return false
 	}))
 
 	h := newHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second)
