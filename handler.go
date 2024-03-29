@@ -134,11 +134,12 @@ loop:
 		select {
 		case msg, ok := <-session.MessageCh:
 			if !ok {
+				log.Errorf("can't read from channel")
 				break loop
 			}
 			_, err = fmt.Fprintf(c.Response(), "event: %v\nid: %v\ndata: %v\n\n", "message", msg.EventId, string(msg.Message))
 			if err != nil {
-				log.Errorf("can't write to connection: %v", err)
+				log.Errorf("msg can't write to connection: %v", err)
 				break loop
 			}
 			c.Response().Flush()
@@ -146,7 +147,7 @@ loop:
 		case <-ticker.C:
 			_, err = fmt.Fprintf(c.Response(), "event: heartbeat\n\n")
 			if err != nil {
-				log.Errorf("can't write to connection: %v", err)
+				log.Errorf("ticker can't write to connection: %v", err)
 				break loop
 			}
 			c.Response().Flush()
