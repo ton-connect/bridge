@@ -64,6 +64,14 @@ func main() {
 		return false
 	}))
 
+	if config.Config.CorsEnable {
+		corsConfig := middleware.CORSWithConfig(middleware.CORSConfig{
+			AllowOrigins: []string{"*"},
+			AllowMethods: []string{echo.GET, echo.POST, echo.OPTIONS},
+		})
+		e.Use(corsConfig)
+	}
+
 	h := newHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second)
 
 	registerHandlers(e, h)
