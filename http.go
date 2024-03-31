@@ -5,8 +5,6 @@ import (
 )
 
 func registerHandlers(e *echo.Echo, h *handler) {
-	bridge := e.Group("/bridge")
-
-	bridge.GET("/events", h.EventRegistrationHandler)
-	bridge.POST("/message", h.SendMessageHandler)
+	e.GET("/bridge/events", h.EventRegistrationHandler)
+	e.POST("/bridge/message", h.SendMessageHandler)
 }

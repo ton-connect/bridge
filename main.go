@@ -66,8 +66,11 @@ func main() {
 
 	if config.Config.CorsEnable {
 		corsConfig := middleware.CORSWithConfig(middleware.CORSConfig{
-			AllowOrigins: []string{"*"},
-			AllowMethods: []string{echo.GET, echo.POST, echo.OPTIONS},
+			AllowOrigins:     []string{"*"},
+			AllowMethods:     []string{echo.GET, echo.POST, echo.OPTIONS},
+			AllowHeaders:     []string{"DNT", "X-CustomHeader", "Keep-Alive", "User-Agent", "X-Requested-With", "If-Modified-Since", "Cache-Control", "Content-Type", "Authorization"},
+			AllowCredentials: true,
+			MaxAge:           86400,
 		})
 		e.Use(corsConfig)
 	}
