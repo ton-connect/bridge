@@ -40,6 +40,10 @@ var (
 		Name: "number_of_bad_requests",
 		Help: "The total number of bad requests",
 	})
+	clientIdsPerConnectionMetric = promauto.NewHistogram(prometheus.HistogramOpts{
+		Name:    "number_of_client_ids_per_connection",
+		Buckets: []float64{1, 2, 3, 4, 5, 10, 20, 30, 40, 50, 100},
+	})
 )
 
 type stream struct {
@@ -116,6 +120,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 	clientIds := strings.Split(clientId[0], ",")
+	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
 	session := h.CreateSession(clientId[0], clientIds, lastEventId)
 
 	ctx := c.Request().Context()
