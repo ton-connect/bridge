@@ -7,9 +7,15 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/tonkeeper/bridge/config"
 	"golang.org/x/exp/slices"
 )
+
+var tokenUsageMetric = promauto.NewCounterVec(prometheus.CounterOpts{
+	Name: "bridge_token_usage",
+}, []string{"token"})
 
 // ConnectionsLimiter is a middleware that limits the number of simultaneous connections per IP.
 type ConnectionsLimiter struct {
@@ -75,6 +81,7 @@ func skipRateLimitsByToken(request *http.Request) bool {
 	token := strings.TrimPrefix(authorization, "Bearer ")
 	exist := slices.Contains(config.Config.RateLimitsByPassToken, token)
 	if exist {
+		tokenUsageMetric.WithLabelValues(token).Inc()
 		return true
 	}
 	return false

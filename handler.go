@@ -1,11 +1,13 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 	"sync"
@@ -16,6 +18,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	log "github.com/sirupsen/logrus"
+	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/datatype"
 )
 
@@ -218,7 +221,20 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
-
+	if config.Config.CopyToURL != "" {
+		go func() {
+			u, err := url.Parse(config.Config.CopyToURL)
+			if err != nil {
+				return
+			}
+			u.RawQuery = params.Encode()
+			req, err := http.NewRequest(http.MethodPost, u.String(), bytes.NewReader(message))
+			if err != nil {
+				return
+			}
+			http.DefaultClient.Do(req)
+		}()
+	}
 	topic, ok := params["topic"]
 	if ok {
 		go func(clientID, topic, message string) {

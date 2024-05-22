@@ -10,6 +10,7 @@ var Config = struct {
 	Port                  int      `env:"PORT" envDefault:"8081"`
 	DbURI                 string   `env:"POSTGRES_URI"`
 	WebhookURL            string   `env:"WEBHOOK_URL"`
+	CopyToURL             string   `env:"COPY_TO_URL"`
 	CorsEnable            bool     `env:"CORS_ENABLE"`
 	HeartbeatInterval     int      `env:"HEARTBEAT_INTERVAL" envDefault:"10"`
 	RPSLimit              int      `env:"RPS_LIMIT" envDefault:"1"`
