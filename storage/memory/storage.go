@@ -66,7 +66,7 @@ func (s *Storage) GetMessages(ctx context.Context, keys []string, lastEventId in
 			if m.IsExpired(now) {
 				continue
 			}
-			if m.EventId < lastEventId {
+			if m.EventId <= lastEventId {
 				continue
 			}
 			results = append(results, m.SseMessage)
