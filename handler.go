@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,9 +19,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/datatype"
+	"github.com/tonkeeper/bridge/storage"
 )
 
 var (
@@ -152,6 +156,7 @@ loop:
 			}
 			c.Response().Flush()
 			deliveredMessagesMetric.Inc()
+			storage.GlobalExpiredCache.MarkDelivered(msg.EventId)
 		case <-ticker.C:
 			_, err = fmt.Fprintf(c.Response(), "event: heartbeat\n\n")
 			if err != nil {
@@ -260,7 +265,27 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log := log.WithField("prefix", "SendMessageHandler.storge.Add")
 		err = h.storage.Add(context.Background(), toId[0], ttl, sseMessage)
 		if err != nil {
+			// TODO ooops
 			log.Errorf("db error: %v", err)
+		} else {
+			var bridgeMsg datatype.BridgeMessage
+			fromId := "unknown"
+
+			hash := sha256.Sum256(sseMessage.Message)
+			messageHash := hex.EncodeToString(hash[:])
+
+			if err := json.Unmarshal(sseMessage.Message, &bridgeMsg); err == nil {
+				fromId = bridgeMsg.From
+				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+				messageHash = hex.EncodeToString(contentHash[:])
+			}
+
+			log.WithFields(logrus.Fields{
+				"hash":     messageHash,
+				"from":     fromId,
+				"to":       toId[0],
+				"event_id": sseMessage.EventId,
+			}).Debug("message sent")
 		}
 	}()
 

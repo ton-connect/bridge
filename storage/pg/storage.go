@@ -2,7 +2,10 @@ package pg
 
 import (
 	"context"
+	"crypto/sha256"
 	"embed"
+	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -12,8 +15,10 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/datatype"
+	"github.com/tonkeeper/bridge/storage"
 )
 
 var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
@@ -77,14 +82,60 @@ func (s *Storage) worker() {
 	for {
 		<-time.NewTimer(time.Minute).C
 		log.Info("time to db check")
-		_, err := s.postgres.Exec(context.TODO(),
+
+		storage.GlobalExpiredCache.Cleanup()
+
+		// Get expired messages before deleting them
+		rows, err := s.postgres.Query(context.TODO(),
+			`SELECT event_id, client_id, bridge_message 
+			 FROM bridge.messages 
+			 WHERE current_timestamp > end_time`)
+		if err != nil {
+			log.Infof("get expired messages error: %v", err)
+		} else {
+			for rows.Next() {
+				var eventID int64
+				var clientID string
+				var bridgeMessageBytes []byte
+
+				err = rows.Scan(&eventID, &clientID, &bridgeMessageBytes)
+				if err != nil {
+					continue
+				}
+
+				delivered := storage.GlobalExpiredCache.IsDelivered(eventID)
+
+				if !delivered {
+					fromID := "unknown"
+					hash := sha256.Sum256(bridgeMessageBytes)
+					messageHash := hex.EncodeToString(hash[:])
+
+					var bridgeMsg datatype.BridgeMessage
+					if err := json.Unmarshal(bridgeMessageBytes, &bridgeMsg); err == nil {
+						fromID = bridgeMsg.From
+						contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+						messageHash = hex.EncodeToString(contentHash[:])
+					}
+
+					log.WithFields(logrus.Fields{
+						"hash":     messageHash,
+						"from":     fromID,
+						"to":       clientID,
+						"event_id": eventID,
+					}).Debug("message expired")
+				}
+			}
+			rows.Close()
+		}
+
+		// Delete expired messages
+		_, err = s.postgres.Exec(context.TODO(),
 			`DELETE FROM bridge.messages 
-			 	 WHERE current_timestamp > end_time`)
+			 WHERE current_timestamp > end_time`)
 		if err != nil {
 			log.Infof("remove expired messages error: %v", err)
 		}
 	}
-
 }
 
 func (s *Storage) Add(ctx context.Context, key string, ttl int64, mes datatype.SseMessage) error {

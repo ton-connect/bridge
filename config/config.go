@@ -2,11 +2,14 @@ package config
 
 import (
 	"log"
+	"strings"
 
 	"github.com/caarlos0/env/v6"
+	"github.com/sirupsen/logrus"
 )
 
 var Config = struct {
+	LogLevel              string   `env:"LOG_LEVEL" envDefault:"info"`
 	Port                  int      `env:"PORT" envDefault:"8081"`
 	DbURI                 string   `env:"POSTGRES_URI"`
 	WebhookURL            string   `env:"WEBHOOK_URL"`
@@ -23,4 +26,12 @@ func LoadConfig() {
 	if err := env.Parse(&Config); err != nil {
 		log.Fatalf("config parsing failed: %v\n", err)
 	}
+
+	// Set logrus log level from LOG_LEVEL environment variable
+	level, err := logrus.ParseLevel(strings.ToLower(Config.LogLevel))
+	if err != nil {
+		log.Printf("Invalid LOG_LEVEL '%s', using default 'info'. Valid levels: panic, fatal, error, warn, info, debug, trace", Config.LogLevel)
+		level = logrus.InfoLevel
+	}
+	logrus.SetLevel(level)
 }

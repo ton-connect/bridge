@@ -2,9 +2,13 @@ package main
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"strings"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/datatype"
 )
 
@@ -30,12 +34,32 @@ func NewSession(s db, clientIds []string, lastEventId int64) *Session {
 }
 
 func (s *Session) worker() {
-	log := log.WithField("prefix", "Session.worker")
+	log := logrus.WithField("prefix", "Session.worker")
 	queue, err := s.storage.GetMessages(context.TODO(), s.ClientIds, s.lastEventId)
 	if err != nil {
 		log.Info("get queue error: ", err)
 	}
 	for _, m := range queue {
+		fromId := "unknown"
+		toId := strings.Join(s.ClientIds, ",")
+
+		hash := sha256.Sum256(m.Message)
+		messageHash := hex.EncodeToString(hash[:])
+
+		var bridgeMsg datatype.BridgeMessage
+		if err := json.Unmarshal(m.Message, &bridgeMsg); err == nil {
+			fromId = bridgeMsg.From
+			contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+			messageHash = hex.EncodeToString(contentHash[:])
+		}
+
+		logrus.WithFields(logrus.Fields{
+			"hash":     messageHash,
+			"from":     fromId,
+			"to":       toId,
+			"event_id": m.EventId,
+		}).Debug("message received")
+
 		select {
 		case <-s.Closer:
 			break
