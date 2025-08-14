@@ -2,10 +2,6 @@ package main
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
-	"strings"
 	"sync"
 
 	"github.com/sirupsen/logrus"
@@ -40,26 +36,6 @@ func (s *Session) worker() {
 		log.Info("get queue error: ", err)
 	}
 	for _, m := range queue {
-		fromId := "unknown"
-		toId := strings.Join(s.ClientIds, ",")
-
-		hash := sha256.Sum256(m.Message)
-		messageHash := hex.EncodeToString(hash[:])
-
-		var bridgeMsg datatype.BridgeMessage
-		if err := json.Unmarshal(m.Message, &bridgeMsg); err == nil {
-			fromId = bridgeMsg.From
-			contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
-			messageHash = hex.EncodeToString(contentHash[:])
-		}
-
-		logrus.WithFields(logrus.Fields{
-			"hash":     messageHash,
-			"from":     fromId,
-			"to":       toId,
-			"event_id": m.EventId,
-		}).Debug("message received")
-
 		select {
 		case <-s.Closer:
 			break

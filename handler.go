@@ -155,6 +155,27 @@ loop:
 				break loop
 			}
 			c.Response().Flush()
+
+			fromId := "unknown"
+			toId := strings.Join(session.ClientIds, ",")
+
+			hash := sha256.Sum256(msg.Message)
+			messageHash := hex.EncodeToString(hash[:])
+
+			var bridgeMsg datatype.BridgeMessage
+			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+				fromId = bridgeMsg.From
+				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+				messageHash = hex.EncodeToString(contentHash[:])
+			}
+
+			logrus.WithFields(logrus.Fields{
+				"hash":     messageHash,
+				"from":     fromId,
+				"to":       toId,
+				"event_id": msg.EventId,
+			}).Debug("message sent")
+
 			deliveredMessagesMetric.Inc()
 			storage.GlobalExpiredCache.MarkDelivered(msg.EventId)
 		case <-ticker.C:
@@ -267,27 +288,28 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		if err != nil {
 			// TODO ooops
 			log.Errorf("db error: %v", err)
-		} else {
-			var bridgeMsg datatype.BridgeMessage
-			fromId := "unknown"
-
-			hash := sha256.Sum256(sseMessage.Message)
-			messageHash := hex.EncodeToString(hash[:])
-
-			if err := json.Unmarshal(sseMessage.Message, &bridgeMsg); err == nil {
-				fromId = bridgeMsg.From
-				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
-				messageHash = hex.EncodeToString(contentHash[:])
-			}
-
-			log.WithFields(logrus.Fields{
-				"hash":     messageHash,
-				"from":     fromId,
-				"to":       toId[0],
-				"event_id": sseMessage.EventId,
-			}).Debug("message sent")
 		}
 	}()
+
+
+	var bridgeMsg datatype.BridgeMessage
+	fromId := "unknown"
+
+	hash := sha256.Sum256(sseMessage.Message)
+	messageHash := hex.EncodeToString(hash[:])
+
+	if err := json.Unmarshal(sseMessage.Message, &bridgeMsg); err == nil {
+		fromId = bridgeMsg.From
+		contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+		messageHash = hex.EncodeToString(contentHash[:])
+	}
+
+	log.WithFields(logrus.Fields{
+		"hash":     messageHash,
+		"from":     fromId,
+		"to":       toId[0],
+		"event_id": sseMessage.EventId,
+	}).Debug("message received")
 
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, HttpResOk())
