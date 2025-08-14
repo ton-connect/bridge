@@ -131,7 +131,7 @@ func (s *Storage) worker() {
 		// Delete expired messages
 		_, err = s.postgres.Exec(context.TODO(),
 			`DELETE FROM bridge.messages 
-			 WHERE current_timestamp > end_time`)
+			 	 WHERE current_timestamp > end_time`)
 		if err != nil {
 			log.Infof("remove expired messages error: %v", err)
 		}

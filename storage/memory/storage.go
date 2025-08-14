@@ -8,7 +8,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/sirupsen/logrus"
+	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/datatype"
 	"github.com/tonkeeper/bridge/storage"
 )
@@ -36,6 +36,7 @@ func NewStorage() *Storage {
 }
 
 func removeExpiredMessages(ms []message, now time.Time, clientID string) []message {
+	log := log.WithField("prefix", "removeExpiredMessages")
 	results := make([]message, 0)
 	for _, m := range ms {
 		if m.IsExpired(now) {
@@ -51,7 +52,7 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 					messageHash = hex.EncodeToString(contentHash[:])
 				}
 
-				logrus.WithFields(logrus.Fields{
+				log.WithFields(map[string]interface{}{
 					"hash":     messageHash,
 					"from":     fromID,
 					"to":       clientID,
