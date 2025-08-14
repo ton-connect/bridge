@@ -27,7 +27,6 @@ func LoadConfig() {
 		log.Fatalf("config parsing failed: %v\n", err)
 	}
 
-	// Set logrus log level from LOG_LEVEL environment variable
 	level, err := logrus.ParseLevel(strings.ToLower(Config.LogLevel))
 	if err != nil {
 		log.Printf("Invalid LOG_LEVEL '%s', using default 'info'. Valid levels: panic, fatal, error, warn, info, debug, trace", Config.LogLevel)

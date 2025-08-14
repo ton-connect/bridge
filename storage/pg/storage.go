@@ -85,9 +85,11 @@ func (s *Storage) worker() {
 
 		storage.GlobalExpiredCache.Cleanup()
 
+		var lastProcessedEndTime *time.Time
+
 		// Get expired messages before deleting them
 		rows, err := s.postgres.Query(context.TODO(),
-			`SELECT event_id, client_id, bridge_message 
+			`SELECT event_id, client_id, bridge_message, end_time
 			 FROM bridge.messages 
 			 WHERE current_timestamp > end_time`)
 		if err != nil {
@@ -97,10 +99,16 @@ func (s *Storage) worker() {
 				var eventID int64
 				var clientID string
 				var bridgeMessageBytes []byte
+				var endTime time.Time
 
-				err = rows.Scan(&eventID, &clientID, &bridgeMessageBytes)
+				err = rows.Scan(&eventID, &clientID, &bridgeMessageBytes, &endTime)
 				if err != nil {
 					continue
+				}
+
+				// Keep track of the latest end_time
+				if lastProcessedEndTime == nil || endTime.After(*lastProcessedEndTime) {
+					lastProcessedEndTime = &endTime
 				}
 
 				delivered := storage.GlobalExpiredCache.IsDelivered(eventID)
@@ -117,6 +125,7 @@ func (s *Storage) worker() {
 						messageHash = hex.EncodeToString(contentHash[:])
 					}
 
+					expiredMessagesMetric.Inc()
 					log.WithFields(logrus.Fields{
 						"hash":     messageHash,
 						"from":     fromID,
@@ -128,12 +137,14 @@ func (s *Storage) worker() {
 			rows.Close()
 		}
 
-		// Delete expired messages
-		_, err = s.postgres.Exec(context.TODO(),
-			`DELETE FROM bridge.messages 
-			 	 WHERE current_timestamp > end_time`)
-		if err != nil {
-			log.Infof("remove expired messages error: %v", err)
+		// Delete only messages that were processed above
+		if lastProcessedEndTime != nil {
+			_, err = s.postgres.Exec(context.TODO(),
+				`DELETE FROM bridge.messages 
+				 WHERE end_time <= $1`, *lastProcessedEndTime)
+			if err != nil {
+				log.Infof("remove expired messages error: %v", err)
+			}
 		}
 	}
 }
