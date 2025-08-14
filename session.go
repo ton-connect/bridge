@@ -4,7 +4,7 @@ import (
 	"context"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
+	"github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/datatype"
 )
 
@@ -30,7 +30,7 @@ func NewSession(s db, clientIds []string, lastEventId int64) *Session {
 }
 
 func (s *Session) worker() {
-	log := log.WithField("prefix", "Session.worker")
+	log := logrus.WithField("prefix", "Session.worker")
 	queue, err := s.storage.GetMessages(context.TODO(), s.ClientIds, s.lastEventId)
 	if err != nil {
 		log.Info("get queue error: ", err)
