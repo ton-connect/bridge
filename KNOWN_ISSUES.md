@@ -12,6 +12,6 @@ Some proxies may have default buffering settings that can be overridden, meaning
 To resolve this, ensure you're passing these headers:
 ```
 Content-Type: text/event-stream
-Cache-Control: no-cache
+Cache-Control: private, no-cache, no-transform
 X-Accel-Buffering: no
 ```
