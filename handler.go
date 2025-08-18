@@ -3,6 +3,8 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -17,9 +19,11 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/datatype"
+	"github.com/tonkeeper/bridge/storage"
 )
 
 var (
@@ -151,7 +155,29 @@ loop:
 				break loop
 			}
 			c.Response().Flush()
+
+			fromId := "unknown"
+			toId := strings.Join(session.ClientIds, ",")
+
+			hash := sha256.Sum256(msg.Message)
+			messageHash := hex.EncodeToString(hash[:])
+
+			var bridgeMsg datatype.BridgeMessage
+			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+				fromId = bridgeMsg.From
+				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+				messageHash = hex.EncodeToString(contentHash[:])
+			}
+
+			logrus.WithFields(logrus.Fields{
+				"hash":     messageHash,
+				"from":     fromId,
+				"to":       toId,
+				"event_id": msg.EventId,
+			}).Debug("message sent")
+
 			deliveredMessagesMetric.Inc()
+			storage.GlobalExpiredCache.MarkDelivered(msg.EventId)
 		case <-ticker.C:
 			_, err = fmt.Fprintf(c.Response(), "event: message\ndata: heartbeat\n\n")
 			if err != nil {
@@ -260,9 +286,30 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log := log.WithField("prefix", "SendMessageHandler.storge.Add")
 		err = h.storage.Add(context.Background(), toId[0], ttl, sseMessage)
 		if err != nil {
+			// TODO ooops
 			log.Errorf("db error: %v", err)
 		}
 	}()
+
+
+	var bridgeMsg datatype.BridgeMessage
+	fromId := "unknown"
+
+	hash := sha256.Sum256(sseMessage.Message)
+	messageHash := hex.EncodeToString(hash[:])
+
+	if err := json.Unmarshal(sseMessage.Message, &bridgeMsg); err == nil {
+		fromId = bridgeMsg.From
+		contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+		messageHash = hex.EncodeToString(contentHash[:])
+	}
+
+	log.WithFields(logrus.Fields{
+		"hash":     messageHash,
+		"from":     fromId,
+		"to":       toId[0],
+		"event_id": sseMessage.EventId,
+	}).Debug("message received")
 
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, HttpResOk())
