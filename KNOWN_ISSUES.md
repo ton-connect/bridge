@@ -1,8 +1,13 @@
-# Known Issues
+# known issues
 
-## Nginx Buffering Issues with Server-Sent Events
+## buffering
 
-If you're experiencing issues with Server-Sent Events (SSE) being buffered when using nginx, this might be due to nginx buffering responses even with `X-Accel-Buffering: no` header. This commonly occurs when you have nginx in front of nginx - the internal nginx may "eat" the header and the external nginx will buffer the response.
+Some proxies may have default buffering settings that can be overridden, meaning the proxy may also modify headers.
+
+- [Cloudflare](https://community.cloudflare.com/t/using-server-sent-events-sse-with-cloudflare-proxy/656279) and other CDNs may also utilize this header to optimize performance. 
+
+- Some proxies, like [Nginx](https://nginx.org/en/docs/http/ngx_http_proxy_module.html), may have default buffering settings that can be overridden with this header. 
+
 
 To resolve this, ensure you're passing these headers:
 ```
