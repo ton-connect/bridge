@@ -1,5 +1,7 @@
 # bridge
-[http bridge](https://github.com/ton-connect/docs/blob/main/bridge.md) for tonconnect 2.0:
+[http bridge](https://github.com/ton-connect/docs/blob/main/bridge.md) for tonconnect 2.0
+
+**note:** for common issues and troubleshooting, see [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
 
 ## requirements
 - golang 1.18
@@ -12,6 +14,14 @@
 - go run bridge
 
 ## environments
-PORT
-
-POSTGRES_URI ##example"postgres://user:pass@host/dbname"
+- LOG_LEVEL ##example"info"
+- PORT ##example"8081"
+- POSTGRES_URI ##example"postgres://user:pass@host/dbname"
+- WEBHOOK_URL ##example"https://your-webhook-url.com"
+- COPY_TO_URL ##example"https://your-copy-url.com"
+- CORS_ENABLE ##example"true"
+- HEARTBEAT_INTERVAL ##example"10"
+- RPS_LIMIT ##example"1"
+- RATE_LIMITS_BY_PASS_TOKEN ##example"token1,token2"
+- CONNECTIONS_LIMIT ##example"50"
+- SELF_SIGNED_TLS ##example"false"
