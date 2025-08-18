@@ -16,6 +16,7 @@ var Config = struct {
 	CopyToURL             string   `env:"COPY_TO_URL"`
 	CorsEnable            bool     `env:"CORS_ENABLE"`
 	HeartbeatInterval     int      `env:"HEARTBEAT_INTERVAL" envDefault:"10"`
+	HeartbeatMessage      string   `env:"HEARTBEAT_MESSAGE" envDefault:""event: heartbeat\n\n""`
 	RPSLimit              int      `env:"RPS_LIMIT" envDefault:"1"`
 	RateLimitsByPassToken []string `env:"RATE_LIMITS_BY_PASS_TOKEN"`
 	ConnectionsLimit      int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`

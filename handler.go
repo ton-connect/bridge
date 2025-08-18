@@ -179,7 +179,7 @@ loop:
 			deliveredMessagesMetric.Inc()
 			storage.GlobalExpiredCache.MarkDelivered(msg.EventId)
 		case <-ticker.C:
-			_, err = fmt.Fprintf(c.Response(), "event: message\ndata: heartbeat\n\n")
+			_, err = fmt.Fprintf(c.Response(), config.Config.HeartbeatMessage)
 			if err != nil {
 				log.Errorf("ticker can't write to connection: %v", err)
 				break loop
