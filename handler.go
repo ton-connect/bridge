@@ -27,7 +27,7 @@ import (
 )
 
 var validHeartbeatTypes = map[string]string{
-	"legacy":  "heartbeat\n\n",
+	"legacy":  "event: heartbeat\n\n",
 	"message": "event: message\ndata: heartbeat\n\n",
 }
 
