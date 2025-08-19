@@ -26,6 +26,11 @@ import (
 	"github.com/tonkeeper/bridge/storage"
 )
 
+var validHeartbeatTypes = map[string]string{
+	"legacy":  "event: heartbeat\n\n",
+	"message": "event: message\r\ndata: heartbeat\r\n\r\n",
+}
+
 var (
 	activeConnectionMetric = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "number_of_acitve_connections",
@@ -97,6 +102,19 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	fmt.Fprint(c.Response(), "\n")
 	c.Response().Flush()
 	params := c.QueryParams()
+
+	heartbeatType := "legacy"
+	if heartbeatParam, exists := params["heartbeat"]; exists && len(heartbeatParam) > 0 {
+		heartbeatType = heartbeatParam[0]
+	}
+
+	heartbeatMsg, ok := validHeartbeatTypes[heartbeatType]
+	if !ok {
+		badRequestMetric.Inc()
+		errorMsg := "invalid heartbeat type. Supported: legacy and message"
+		log.Error(errorMsg)
+		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+	}
 
 	var lastEventId int64
 	var err error
@@ -180,7 +198,7 @@ loop:
 			deliveredMessagesMetric.Inc()
 			storage.GlobalExpiredCache.MarkDelivered(msg.EventId)
 		case <-ticker.C:
-			_, err = fmt.Fprintf(c.Response(), "event: message\ndata: heartbeat\n\n")
+			_, err = fmt.Fprintf(c.Response(), heartbeatMsg)
 			if err != nil {
 				log.Errorf("ticker can't write to connection: %v", err)
 				break loop
@@ -291,7 +309,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			log.Errorf("db error: %v", err)
 		}
 	}()
-
 
 	var bridgeMsg datatype.BridgeMessage
 	fromId := "unknown"
