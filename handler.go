@@ -165,7 +165,7 @@ loop:
 		select {
 		case msg, ok := <-session.MessageCh:
 			if !ok {
-				log.Errorf("can't read from channel")
+				// can't read from channel, session is closed
 				break loop
 			}
 			_, err = fmt.Fprintf(c.Response(), "event: %v\nid: %v\ndata: %v\n\n", "message", msg.EventId, string(msg.Message))
