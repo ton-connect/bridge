@@ -57,6 +57,7 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 					"from":     fromID,
 					"to":       clientID,
 					"event_id": m.EventId,
+					"trace_id": bridgeMsg.TraceId,
 				}).Debug("message expired")
 			}
 		} else {

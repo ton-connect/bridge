@@ -89,7 +89,7 @@ func (s *Storage) worker() {
 
 		// Get expired messages before deleting them
 		rows, err := s.postgres.Query(context.TODO(),
-			`SELECT event_id, client_id, bridge_message, end_time
+			`SELECT event_id, client_id, bridge_message, end_time, trace_id
 			 FROM bridge.messages 
 			 WHERE current_timestamp > end_time`)
 		if err != nil {
@@ -100,8 +100,9 @@ func (s *Storage) worker() {
 				var clientID string
 				var bridgeMessageBytes []byte
 				var endTime time.Time
+				var traceID string
 
-				err = rows.Scan(&eventID, &clientID, &bridgeMessageBytes, &endTime)
+				err = rows.Scan(&eventID, &clientID, &bridgeMessageBytes, &endTime, &traceID)
 				if err != nil {
 					continue
 				}
@@ -131,6 +132,7 @@ func (s *Storage) worker() {
 						"from":     fromID,
 						"to":       clientID,
 						"event_id": eventID,
+						"trace_id": traceID,
 					}).Debug("message expired")
 				}
 			}
