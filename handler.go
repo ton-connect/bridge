@@ -72,7 +72,7 @@ type handler struct {
 
 type db interface {
 	GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error)
-	Add(ctx context.Context, key string, ttl int64, mes datatype.SseMessage) error
+	Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error
 }
 
 func newHandler(db db, heartbeatInterval time.Duration) *handler {
@@ -147,7 +147,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}
 	clientIds := strings.Split(clientId[0], ",")
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
-	session := h.CreateSession(clientId[0], clientIds, lastEventId)
+	session := h.CreateSession(clientIds, lastEventId)
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
@@ -176,7 +176,7 @@ loop:
 			c.Response().Flush()
 
 			fromId := "unknown"
-			toId := strings.Join(session.ClientIds, ",")
+			toId := msg.To
 
 			hash := sha256.Sum256(msg.Message)
 			messageHash := hex.EncodeToString(hash[:])
@@ -290,6 +290,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	sseMessage := datatype.SseMessage{
 		EventId: h.nextID(),
 		Message: mes,
+		To:      toId[0],
 	}
 	h.Mux.RLock()
 	s, ok := h.Connections[toId[0]]
@@ -303,7 +304,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}
 	go func() {
 		log := log.WithField("prefix", "SendMessageHandler.storge.Add")
-		err = h.storage.Add(context.Background(), toId[0], ttl, sseMessage)
+		err = h.storage.Add(context.Background(), sseMessage, ttl)
 		if err != nil {
 			// TODO ooops
 			log.Errorf("db error: %v", err)
@@ -364,7 +365,7 @@ func (h *handler) removeConnection(ses *Session) {
 	}
 }
 
-func (h *handler) CreateSession(sessionId string, clientIds []string, lastEventId int64) *Session {
+func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session {
 	log := log.WithField("prefix", "CreateSession")
 	log.Infof("make new session with ids: %v", clientIds)
 	session := NewSession(h.storage, clientIds, lastEventId)

@@ -149,7 +149,7 @@ func (s *Storage) worker() {
 	}
 }
 
-func (s *Storage) Add(ctx context.Context, key string, ttl int64, mes datatype.SseMessage) error {
+func (s *Storage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error {
 	_, err := s.postgres.Exec(ctx, `
 		INSERT INTO bridge.messages
 		(
@@ -159,7 +159,7 @@ func (s *Storage) Add(ctx context.Context, key string, ttl int64, mes datatype.S
 		bridge_message
 		)
 		VALUES ($1, $2, to_timestamp($3), $4)
-	`, key, mes.EventId, time.Now().Add(time.Duration(ttl)*time.Second).Unix(), mes.Message)
+	`, mes.To, mes.EventId, time.Now().Add(time.Duration(ttl)*time.Second).Unix(), mes.Message)
 	if err != nil {
 		return err
 	}

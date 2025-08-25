@@ -104,10 +104,10 @@ func (s *Storage) GetMessages(ctx context.Context, keys []string, lastEventId in
 	return results, nil
 }
 
-func (s *Storage) Add(ctx context.Context, key string, ttl int64, mes datatype.SseMessage) error {
+func (s *Storage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
-	s.db[key] = append(s.db[key], message{SseMessage: mes, expireAt: time.Now().Add(time.Duration(ttl) * time.Second)})
+	s.db[mes.To] = append(s.db[mes.To], message{SseMessage: mes, expireAt: time.Now().Add(time.Duration(ttl) * time.Second)})
 	return nil
 }

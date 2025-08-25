@@ -3,6 +3,7 @@ package datatype
 type SseMessage struct {
 	EventId int64
 	Message []byte
+	To      string
 }
 
 type BridgeMessage struct {

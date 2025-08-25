@@ -64,10 +64,10 @@ func Test_removeExpiredMessages(t *testing.T) {
 
 func TestStorage(t *testing.T) {
 	s := &Storage{db: map[string][]message{}}
-	s.Add(context.Background(), "1", 2, datatype.SseMessage{EventId: 1})
-	s.Add(context.Background(), "2", 2, datatype.SseMessage{EventId: 2})
-	s.Add(context.Background(), "2", 2, datatype.SseMessage{EventId: 3})
-	s.Add(context.Background(), "1", 2, datatype.SseMessage{EventId: 4})
+	s.Add(context.Background(), datatype.SseMessage{EventId: 1, To: "1"}, 2)
+	s.Add(context.Background(), datatype.SseMessage{EventId: 2, To: "2"}, 2)
+	s.Add(context.Background(), datatype.SseMessage{EventId: 3, To: "2"}, 2)
+	s.Add(context.Background(), datatype.SseMessage{EventId: 4, To: "1"}, 2)
 	tests := []struct {
 		name        string
 		keys        []string
@@ -78,8 +78,8 @@ func TestStorage(t *testing.T) {
 			name: "one key",
 			keys: []string{"1"},
 			want: []datatype.SseMessage{
-				{EventId: 1},
-				{EventId: 4},
+				{EventId: 1, To: "1"},
+				{EventId: 4, To: "1"},
 			},
 		},
 		{
@@ -91,10 +91,10 @@ func TestStorage(t *testing.T) {
 			name: "get all keys",
 			keys: []string{"1", "2"},
 			want: []datatype.SseMessage{
-				{EventId: 1},
-				{EventId: 4},
-				{EventId: 2},
-				{EventId: 3},
+				{EventId: 1, To: "1"},
+				{EventId: 4, To: "1"},
+				{EventId: 2, To: "2"},
+				{EventId: 3, To: "2"},
 			},
 		},
 	}
