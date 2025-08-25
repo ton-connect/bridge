@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gofrs/uuid/v5"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -24,7 +25,6 @@ import (
 	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/datatype"
 	"github.com/tonkeeper/bridge/storage"
-	"github.com/gofrs/uuid/v5"
 )
 
 var validHeartbeatTypes = map[string]string{
@@ -169,7 +169,7 @@ loop:
 				log.Errorf("can't read from channel")
 				break loop
 			}
-			_, err = fmt.Fprintf(c.Response(), "event: message\nid: %v\ndata: %v\ntrace_id: %s\n\n", msg.EventId, string(msg.Message), msg.TraceId)
+			_, err = fmt.Fprintf(c.Response(), "event: %v\nid: %v\ndata: %v\n\n", "message", msg.EventId, string(msg.Message))
 			if err != nil {
 				log.Errorf("msg can't write to connection: %v", err)
 				break loop
@@ -306,17 +306,16 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	mes, err := json.Marshal(datatype.BridgeMessage{
 		From:    clientId[0],
 		Message: string(message),
+		TraceId: traceId,
 	})
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
-
 	sseMessage := datatype.SseMessage{
 		EventId: h.nextID(),
 		Message: mes,
-		TraceId: traceId,
 	}
 	h.Mux.RLock()
 	s, ok := h.Connections[toId[0]]
