@@ -16,6 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -193,6 +194,7 @@ loop:
 				"from":     fromId,
 				"to":       toId,
 				"event_id": msg.EventId,
+				"trace_id": bridgeMsg.TraceId,
 			}).Debug("message sent")
 
 			deliveredMessagesMetric.Inc()
@@ -257,15 +259,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
-	mes, err := json.Marshal(datatype.BridgeMessage{
-		From:    clientId[0],
-		Message: string(message),
-	})
-	if err != nil {
-		badRequestMetric.Inc()
-		log.Error(err)
-		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
-	}
+
 	if config.Config.CopyToURL != "" {
 		go func() {
 			u, err := url.Parse(config.Config.CopyToURL)
@@ -287,6 +281,38 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}(clientId[0], topic[0], string(message))
 	}
 
+	traceIdParam, ok := params["trace_id"]
+	traceId := "unknown"
+	if ok {
+		uuids, err := uuid.Parse(traceIdParam[0])
+		if err != nil {
+			log.WithFields(logrus.Fields{
+				"error":            err,
+				"invalid_trace_id": traceIdParam[0],
+			}).Warn("generating a new trace_id")
+		} else {
+			traceId = uuids.String()
+		}
+	}
+	if traceId == "unknown" {
+		uuids, err := uuid.NewV7()
+		if err != nil {
+			log.Error(err)
+		} else {
+			traceId = uuids.String()
+		}
+	}
+
+	mes, err := json.Marshal(datatype.BridgeMessage{
+		From:    clientId[0],
+		Message: string(message),
+		TraceId: traceId,
+	})
+	if err != nil {
+		badRequestMetric.Inc()
+		log.Error(err)
+		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+	}
 	sseMessage := datatype.SseMessage{
 		EventId: h.nextID(),
 		Message: mes,
@@ -328,6 +354,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"from":     fromId,
 		"to":       toId[0],
 		"event_id": sseMessage.EventId,
+		"trace_id": bridgeMsg.TraceId,
 	}).Debug("message received")
 
 	transferedMessagesNumMetric.Inc()

@@ -1,4 +1,5 @@
 BEGIN;
+
 create schema if not exists bridge;
 drop table if exists bridge.messages;
 create table bridge.messages

@@ -9,4 +9,5 @@ type SseMessage struct {
 type BridgeMessage struct {
 	From    string `json:"from"`
 	Message string `json:"message"`
+	TraceId string `json:"trace_id"`
 }

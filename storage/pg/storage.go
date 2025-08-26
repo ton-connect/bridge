@@ -100,6 +100,7 @@ func (s *Storage) worker() {
 				var clientID string
 				var bridgeMessageBytes []byte
 				var endTime time.Time
+				var traceID string
 
 				err = rows.Scan(&eventID, &clientID, &bridgeMessageBytes, &endTime)
 				if err != nil {
@@ -121,6 +122,7 @@ func (s *Storage) worker() {
 					var bridgeMsg datatype.BridgeMessage
 					if err := json.Unmarshal(bridgeMessageBytes, &bridgeMsg); err == nil {
 						fromID = bridgeMsg.From
+						traceID = bridgeMsg.TraceId
 						contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
 						messageHash = hex.EncodeToString(contentHash[:])
 					}
@@ -131,6 +133,7 @@ func (s *Storage) worker() {
 						"from":     fromID,
 						"to":       clientID,
 						"event_id": eventID,
+						"trace_id": traceID,
 					}).Debug("message expired")
 				}
 			}
