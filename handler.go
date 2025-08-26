@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/gofrs/uuid/v5"
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -284,7 +284,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	traceIdParam, ok := params["trace_id"]
 	traceId := "unknown"
 	if ok {
-		uuids, err := uuid.FromString(traceIdParam[0])
+		uuids, err := uuid.Parse(traceIdParam[0])
 		if err != nil {
 			badRequestMetric.Inc()
 			return c.JSON(HttpResError("invalid trace_id format: must be a valid UUID", http.StatusBadRequest))

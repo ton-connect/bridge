@@ -4,8 +4,8 @@ go 1.18
 
 require (
 	github.com/caarlos0/env/v6 v6.10.1
-	github.com/gofrs/uuid/v5 v5.3.2
 	github.com/golang-migrate/migrate/v4 v4.15.2
+	github.com/google/uuid v1.6.0
 	github.com/jackc/pgx/v4 v4.17.2
 	github.com/labstack/echo-contrib v0.13.0
 	github.com/labstack/echo/v4 v4.9.1
