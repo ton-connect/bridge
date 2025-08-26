@@ -286,15 +286,15 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if ok {
 		uuids, err := uuid.Parse(traceIdParam[0])
 		if err != nil {
-			badRequestMetric.Inc()
-			return c.JSON(HttpResError("invalid trace_id format: must be a valid UUID", http.StatusBadRequest))
+			log.WithFields(logrus.Fields{
+				"error":            err,
+				"invalid_trace_id": traceIdParam[0],
+			}).Warn("generating a new trace_id")
+		} else {
+			traceId = uuids.String()
 		}
-		if uuids.Version() != 7 {
-			badRequestMetric.Inc()
-			return c.JSON(HttpResError("invalid trace_id: must be UUIDv7", http.StatusBadRequest))
-		}
-		traceId = uuids.String()
-	} else {
+	}
+	if traceId == "unknown" {
 		uuids, err := uuid.NewV7()
 		if err != nil {
 			log.Error(err)
