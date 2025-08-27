@@ -16,7 +16,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/datatype"
 	"github.com/tonkeeper/bridge/storage"
 )
@@ -35,7 +34,7 @@ type Storage struct {
 var fs embed.FS
 
 func MigrateDb(postgresURI string) error {
-	log := log.WithField("prefix", "MigrateDb")
+	log := logrus.WithField("prefix", "MigrateDb")
 	d, err := iofs.New(fs, "migrations")
 	if err != nil {
 		log.Info("iofs err: ", err)
@@ -59,7 +58,7 @@ func MigrateDb(postgresURI string) error {
 
 func NewStorage(postgresURI string) (*Storage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	log := log.WithField("prefix", "NewStorage")
+	log := logrus.WithField("prefix", "NewStorage")
 	defer cancel()
 	c, err := pgxpool.Connect(ctx, postgresURI)
 	if err != nil {
@@ -78,7 +77,7 @@ func NewStorage(postgresURI string) (*Storage, error) {
 }
 
 func (s *Storage) worker() {
-	log := log.WithField("prefix", "Storage.worker")
+	log := logrus.WithField("prefix", "Storage.worker")
 	for {
 		<-time.NewTimer(time.Minute).C
 		log.Info("time to db check")
@@ -170,7 +169,7 @@ func (s *Storage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) e
 }
 
 func (s *Storage) GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error) { // interface{}
-	log := log.WithField("prefix", "Storage.GetQueue")
+	log := logrus.WithField("prefix", "Storage.GetQueue")
 	var messages []datatype.SseMessage
 	rows, err := s.postgres.Query(ctx, `SELECT event_id, bridge_message
 	FROM bridge.messages

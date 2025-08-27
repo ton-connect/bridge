@@ -64,10 +64,10 @@ func Test_removeExpiredMessages(t *testing.T) {
 
 func TestStorage(t *testing.T) {
 	s := &Storage{db: map[string][]message{}}
-	s.Add(context.Background(), datatype.SseMessage{EventId: 1, To: "1"}, 2)
-	s.Add(context.Background(), datatype.SseMessage{EventId: 2, To: "2"}, 2)
-	s.Add(context.Background(), datatype.SseMessage{EventId: 3, To: "2"}, 2)
-	s.Add(context.Background(), datatype.SseMessage{EventId: 4, To: "1"}, 2)
+	_ = s.Add(context.Background(), datatype.SseMessage{EventId: 1, To: "1"}, 2)
+	_ = s.Add(context.Background(), datatype.SseMessage{EventId: 2, To: "2"}, 2)
+	_ = s.Add(context.Background(), datatype.SseMessage{EventId: 3, To: "2"}, 2)
+	_ = s.Add(context.Background(), datatype.SseMessage{EventId: 4, To: "1"}, 2)
 	tests := []struct {
 		name        string
 		keys        []string

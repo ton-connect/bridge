@@ -45,7 +45,11 @@ func sendWebhook(clientID string, body WebhookData, webhook string) error {
 	if err != nil {
 		return fmt.Errorf("failed send request: %w", err)
 	}
-	defer res.Body.Close()
+	defer func() {
+		if closeErr := res.Body.Close(); closeErr != nil {
+			log.Errorf("failed to close response body: %v", closeErr)
+		}
+	}()
 	if res.StatusCode != http.StatusOK {
 		return fmt.Errorf("bad status code: %v", res.StatusCode)
 	}
