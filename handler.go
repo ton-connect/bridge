@@ -282,7 +282,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}
 
 	traceIdParam, ok := params["trace_id"]
-	traceId := "unknown"
+	traceId := "known"
 	if ok {
 		uuids, err := uuid.Parse(traceIdParam[0])
 		if err != nil {
