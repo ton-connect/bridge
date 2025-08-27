@@ -47,7 +47,7 @@ run:
 		echo "Please install Docker Desktop from https://www.docker.com/products/docker-desktop"; \
 		exit 1; \
 	fi
-	@echo "Environment started! Access the load bridge at http://localhost:8081"
+	@echo "Environment started! Access the bridge at http://localhost:8081"
 	@echo "Use 'make logs' to view logs, 'make stop' to stop services"
 
 run-memory:
@@ -127,7 +127,7 @@ status-postgres:
 
 help:
 	@echo "Available storage backends:"
-	@echo "  postgres - Use postgres (Redis-compatible) storage"
+	@echo "  postgres - Use postgres storage"
 	@echo "  memory   - Use in-memory storage (no persistence)"
 	@echo ""
 	@echo "Usage examples:"

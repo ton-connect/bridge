@@ -5,7 +5,6 @@ services:
     environment:
       PORT: 8081
       CORS_ENABLE: "true"
-      STORAGE: "memory"
       HEARTBEAT_INTERVAL: 10
       RPS_LIMIT: 1000
       CONNECTIONS_LIMIT: 200
