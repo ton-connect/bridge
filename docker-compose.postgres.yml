@@ -1,0 +1,44 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: bridge
+      POSTGRES_USER: bridge_user
+      POSTGRES_PASSWORD: bridge_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-db.sh:/docker-entrypoint-initdb.d/init-db.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bridge_user -d bridge"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+    networks:
+      - bridge_network
+
+  bridge:
+    build: .
+    environment:
+      PORT: 8081
+      POSTGRES_URI: "postgres://bridge_user:bridge_password@postgres:5432/bridge?sslmode=disable"
+      CORS_ENABLE: "true"
+      HEARTBEAT_INTERVAL: 10
+      RPS_LIMIT: 1000
+      CONNECTIONS_LIMIT: 200
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - bridge_network
+    restart: unless-stopped
+
+volumes:
+  postgres_data:
+
+networks:
+  bridge_network:
+    driver: bridge

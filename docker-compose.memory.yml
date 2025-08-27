@@ -1,0 +1,33 @@
+services:
+  bridge:
+    container_name: bridge
+    build: .
+    environment:
+      PORT: 8081
+      CORS_ENABLE: "true"
+      STORAGE: "memory"
+      HEARTBEAT_INTERVAL: 10
+      RPS_LIMIT: 1000
+      CONNECTIONS_LIMIT: 200
+    networks:
+      - bridge_network
+    restart: unless-stopped
+
+  integration:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    container_name: bridge-integration
+    environment:
+      BRIDGE_URL: "http://bridge:8081/bridge"
+    depends_on:
+      bridge:
+        condition: service_started
+    networks:
+      - bridge_network
+    command: ["/bin/bash", "-c", "make test-bridge-sdk"]
+    # command: ["/bin/bash", "-c", "tail -f /dev/null"]
+
+networks:
+  bridge_network:
+    driver: bridge
