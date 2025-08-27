@@ -1,6 +1,9 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+	"net/url"
+)
 
 type HttpRes struct {
 	Message    string `json:"message,omitempty" example:"status ok"`
@@ -19,4 +22,18 @@ func HttpResError(errMsg string, statusCode int) (int, HttpRes) {
 		Message:    errMsg,
 		StatusCode: statusCode,
 	}
+}
+
+func ExtractOrigin(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return rawURL
+	}
+	return u.Scheme + "://" + u.Host
 }

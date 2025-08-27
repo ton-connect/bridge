@@ -58,6 +58,24 @@ var (
 	})
 )
 
+type connectClient struct {
+	clientId string
+	ip       string
+	referrer string // normalized origin
+	time     time.Time
+}
+
+type verifyRequest struct {
+	Type     string `json:"type"`
+	ClientID string `json:"client_id"`
+	URL      string `json:"url"`
+	Message  string `json:"message,omitempty"`
+}
+
+type verifyResponse struct {
+	Status string `json:"status"`
+}
+
 type stream struct {
 	Sessions []*Session
 	mux      sync.RWMutex
@@ -68,6 +86,7 @@ type handler struct {
 	storage           db
 	_eventIDs         int64
 	heartbeatInterval time.Duration
+	datamap           map[string][]connectClient // todo - use lru maps, add ttl 5 minutes
 }
 
 type db interface {
@@ -82,6 +101,7 @@ func newHandler(db db, heartbeatInterval time.Duration) *handler {
 		storage:           db,
 		_eventIDs:         time.Now().UnixMicro(),
 		heartbeatInterval: heartbeatInterval,
+		datamap:           make(map[string][]connectClient),
 	}
 	return &h
 }
@@ -148,6 +168,18 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	clientIds := strings.Split(clientId[0], ",")
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
 	session := h.CreateSession(clientIds, lastEventId)
+
+	ip := c.RealIP()
+	origin := ExtractOrigin(c.Request().Header.Get("Origin"))
+	connect_client := connectClient{
+		clientId: clientId[0],
+		ip:       ip,
+		referrer: origin,
+		time:     time.Now(),
+	}
+	h.Mux.Lock()
+	h.datamap[clientId[0]] = append(h.datamap[clientId[0]], connect_client)
+	h.Mux.Unlock()
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
@@ -304,10 +336,35 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}
 	}
 
+	origin := ExtractOrigin(c.Request().Header.Get("Origin"))
+	ip := c.RealIP()
+	userAgent := c.Request().Header.Get("User-Agent")
+
+	// Create request source metadata
+	requestSource := datatype.BridgeRequestSource{
+		Origin:    origin,
+		IP:        ip,
+		Time:      time.Now().UTC().Format(time.RFC3339),
+		ClientID:  clientId[0],
+		UserAgent: userAgent,
+	}
+
+	// Encrypt the request source metadata using the wallet's public key
+	encryptedRequestSource, err := encryptRequestSourceWithWalletID(
+		requestSource,
+		toId[0], // todo - check to id properly
+	)
+	if err != nil {
+		badRequestMetric.Inc()
+		log.Error(err)
+		return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
+	}
+
 	mes, err := json.Marshal(datatype.BridgeMessage{
-		From:    clientId[0],
-		Message: string(message),
-		TraceId: traceId,
+		From:                clientId[0],
+		Message:             string(message),
+		BridgeRequestSource: encryptedRequestSource,
+		TraceId:             traceId,
 	})
 	if err != nil {
 		badRequestMetric.Inc()
@@ -366,6 +423,72 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, HttpResOk())
 
+}
+
+func (h *handler) ConnectVerifyHandler(c echo.Context) error {
+	ip := c.RealIP() // Todo - move all ip extraction to single function
+
+	// Support new JSON POST format; fallback to legacy query params for backward compatibility
+	var req verifyRequest
+	if c.Request().Method == http.MethodPost {
+		decoder := json.NewDecoder(c.Request().Body)
+		if err := decoder.Decode(&req); err != nil {
+			badRequestMetric.Inc()
+			return c.JSON(HttpResError("invalid JSON body", http.StatusBadRequest))
+		}
+	} else {
+		params := c.QueryParams()
+		clientId, ok := params["client_id"]
+		if ok && len(clientId) > 0 {
+			req.ClientID = clientId[0]
+		}
+		urls, ok := params["url"]
+		if ok && len(urls) > 0 {
+			req.URL = urls[0]
+		}
+		types, ok := params["type"]
+		if ok && len(types) > 0 {
+			req.Type = types[0]
+		} else {
+			req.Type = "connect"
+		}
+	}
+
+	if req.ClientID == "" {
+		badRequestMetric.Inc()
+		return c.JSON(HttpResError("param \"client_id\" not present", http.StatusBadRequest))
+	}
+	if req.URL == "" {
+		badRequestMetric.Inc()
+		return c.JSON(HttpResError("param \"url\" not present", http.StatusBadRequest))
+	}
+	req.URL = ExtractOrigin(req.URL)
+	if req.Type == "" {
+		badRequestMetric.Inc()
+		return c.JSON(HttpResError("param \"type\" not present", http.StatusBadRequest))
+	}
+
+	// Default status
+	status := "unknown"
+	now := time.Now()
+
+	switch strings.ToLower(req.Type) {
+	case "connect":
+		h.Mux.RLock()
+		existingConnects := h.datamap[req.ClientID]
+		h.Mux.RUnlock()
+		for _, connect := range existingConnects {
+			if connect.ip == ip && connect.referrer == req.URL && now.Sub(connect.time) < 5*time.Minute {
+				status = "ok"
+				break
+			}
+		}
+	default:
+		badRequestMetric.Inc()
+		return c.JSON(HttpResError("param \"type\" must be one of: connect, message", http.StatusBadRequest))
+	}
+
+	return c.JSON(http.StatusOK, verifyResponse{Status: status})
 }
 
 func (h *handler) removeConnection(ses *Session) {
