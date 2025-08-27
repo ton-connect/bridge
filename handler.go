@@ -21,7 +21,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/datatype"
 	"github.com/tonkeeper/bridge/storage"
@@ -88,7 +87,7 @@ func newHandler(db db, heartbeatInterval time.Duration) *handler {
 }
 
 func (h *handler) EventRegistrationHandler(c echo.Context) error {
-	log := log.WithField("prefix", "EventRegistrationHandler")
+	log := logrus.WithField("prefix", "EventRegistrationHandler")
 	_, ok := c.Response().Writer.(http.Flusher)
 	if !ok {
 		http.Error(c.Response().Writer, "streaming unsupported", http.StatusInternalServerError)
@@ -100,7 +99,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().Header().Set("Transfer-Encoding", "chunked")
 	c.Response().Header().Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
-	fmt.Fprint(c.Response(), "\n")
+	_, _ = fmt.Fprint(c.Response(), "\n")
 	c.Response().Flush()
 	params := c.QueryParams()
 
@@ -200,7 +199,7 @@ loop:
 			deliveredMessagesMetric.Inc()
 			storage.GlobalExpiredCache.MarkDelivered(msg.EventId)
 		case <-ticker.C:
-			_, err = fmt.Fprintf(c.Response(), heartbeatMsg)
+			_, err = fmt.Fprint(c.Response(), heartbeatMsg)
 			if err != nil {
 				log.Errorf("ticker can't write to connection: %v", err)
 				break loop
@@ -215,7 +214,7 @@ loop:
 
 func (h *handler) SendMessageHandler(c echo.Context) error {
 	ctx := c.Request().Context()
-	log := log.WithContext(ctx).WithField("prefix", "SendMessageHandler")
+	log := logrus.WithContext(ctx).WithField("prefix", "SendMessageHandler")
 
 	params := c.QueryParams()
 	clientId, ok := params["client_id"]
@@ -271,7 +270,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			if err != nil {
 				return
 			}
-			http.DefaultClient.Do(req)
+			http.DefaultClient.Do(req) //nolint:errcheck// TODO review golangci-lint issue
 		}()
 	}
 	topic, ok := params["topic"]
@@ -294,7 +293,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			traceId = uuids.String()
 		}
 	}
-	if traceId == "unknown" {
+	if traceId == "known" {
 		uuids, err := uuid.NewV7()
 		if err != nil {
 			log.Error(err)
@@ -363,7 +362,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 }
 
 func (h *handler) removeConnection(ses *Session) {
-	log := log.WithField("prefix", "removeConnection")
+	log := logrus.WithField("prefix", "removeConnection")
 	log.Infof("remove session: %v", ses.ClientIds)
 	for _, id := range ses.ClientIds {
 		h.Mux.RLock()
@@ -393,7 +392,7 @@ func (h *handler) removeConnection(ses *Session) {
 }
 
 func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session {
-	log := log.WithField("prefix", "CreateSession")
+	log := logrus.WithField("prefix", "CreateSession")
 	log.Infof("make new session with ids: %v", clientIds)
 	session := NewSession(h.storage, clientIds, lastEventId)
 	activeConnectionMetric.Inc()

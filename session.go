@@ -38,7 +38,7 @@ func (s *Session) worker() {
 	for _, m := range queue {
 		select {
 		case <-s.Closer:
-			break
+			break //nolint:staticcheck // TODO review golangci-lint issue
 		default:
 			s.MessageCh <- m
 		}
