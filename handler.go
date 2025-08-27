@@ -61,7 +61,7 @@ var (
 type connectClient struct {
 	clientId string
 	ip       string
-	referrer string // normalized origin
+	origin string
 	time     time.Time
 }
 
@@ -174,7 +174,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	connect_client := connectClient{
 		clientId: clientId[0],
 		ip:       ip,
-		referrer: origin,
+		origin: origin,
 		time:     time.Now(),
 	}
 	h.Mux.Lock()
@@ -340,7 +340,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	ip := c.RealIP()
 	userAgent := c.Request().Header.Get("User-Agent")
 
-	// Create request source metadata
 	requestSource := datatype.BridgeRequestSource{
 		Origin:    origin,
 		IP:        ip,
@@ -349,7 +348,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		UserAgent: userAgent,
 	}
 
-	// Encrypt the request source metadata using the wallet's public key
 	encryptedRequestSource, err := encryptRequestSourceWithWalletID(
 		requestSource,
 		toId[0], // todo - check to id properly
@@ -478,7 +476,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		existingConnects := h.datamap[req.ClientID]
 		h.Mux.RUnlock()
 		for _, connect := range existingConnects {
-			if connect.ip == ip && connect.referrer == req.URL && now.Sub(connect.time) < 5*time.Minute {
+			if connect.ip == ip && connect.origin == req.URL && now.Sub(connect.time) < 5*time.Minute {
 				status = "ok"
 				break
 			}
