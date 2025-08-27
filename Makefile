@@ -15,7 +15,7 @@ endif
 all: imports fmt test
 
 build:
-	go build -o bridge ./cmd/bridge
+	go build -o bridge ./
 
 fmt:
 	gofmt -w $(GOFMT_FILES)
