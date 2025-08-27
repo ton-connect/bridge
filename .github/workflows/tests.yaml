@@ -1,0 +1,40 @@
+name: tests
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+    
+jobs:
+  unit:
+     name: unit
+     runs-on: ubuntu-latest
+     steps:
+
+     - name: Check out code
+       uses: actions/checkout@v5
+
+     - name: unit tests
+       run: make test
+
+  integration:
+    name: integration-${{ matrix.storage }}
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        storage: [memory, postgres]
+
+    steps:
+    - uses: actions/checkout@v5
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Run integration tests against ${{ matrix.storage }} storage
+      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up integration
+
+    - name: Clean up containers
+      if: always()
+      run: docker compose -f docker-compose.${{ matrix.storage }}.yml down -v
