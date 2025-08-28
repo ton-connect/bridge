@@ -1,4 +1,4 @@
-FROM golang:1.18 AS gobuild
+FROM golang:1.23 AS gobuild
 WORKDIR /build-dir
 COPY go.mod .
 COPY go.sum .
@@ -7,7 +7,7 @@ COPY . .
 RUN go build -o /tmp/bridge github.com/tonkeeper/bridge
 
 
-FROM golang:1.17 AS bridge
+FROM golang:1.23 AS bridge
 COPY --from=gobuild /tmp/bridge /app/bridge
 CMD ["/app/bridge"]
 
