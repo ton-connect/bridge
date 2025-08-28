@@ -95,27 +95,27 @@ func TestRealIPExtractor(t *testing.T) {
 			trustedRanges: []string{"192.168.1.0/24"},
 			want:          "192.168.1.2",
 		},
-		        {
-            name:          "Long proxy chain - 5 IPs",
-            headers:       map[string]string{"X-Forwarded-For": "203.0.113.1, 198.51.100.1, 192.168.1.5, 192.168.1.10, 10.0.0.5"},
-            remoteAddr:    "192.168.1.1:8080",
-            trustedRanges: []string{"192.168.1.0/24", "10.0.0.0/8"},
-            want:          "198.51.100.1",
-        },
-        {
-            name:          "Very long proxy chain - 10 IPs",
-            headers:       map[string]string{"X-Forwarded-For": "203.0.113.50, 198.51.100.25, 172.16.0.1, 10.1.1.1, 10.2.2.2, 192.168.10.1, 192.168.20.1, 172.17.0.1, 10.0.1.1, 192.168.1.100"},
-            remoteAddr:    "192.168.1.1:8080",
-            trustedRanges: []string{"192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"},
-            want:          "198.51.100.25",
-        },
-        {
-            name:          "Proxy chain with mixed trusted/untrusted - returns rightmost untrusted",
-            headers:       map[string]string{"X-Forwarded-For": "203.0.113.100, 8.8.8.8, 192.168.1.50, 10.0.0.25"},
-            remoteAddr:    "192.168.1.1:8080",
-            trustedRanges: []string{"192.168.1.0/24", "10.0.0.0/8"},
-            want:          "8.8.8.8",
-        },
+		{
+			name:          "Long proxy chain - 5 IPs",
+			headers:       map[string]string{"X-Forwarded-For": "203.0.113.1, 198.51.100.1, 192.168.1.5, 192.168.1.10, 10.0.0.5"},
+			remoteAddr:    "192.168.1.1:8080",
+			trustedRanges: []string{"192.168.1.0/24", "10.0.0.0/8"},
+			want:          "198.51.100.1",
+		},
+		{
+			name:          "Very long proxy chain - 10 IPs",
+			headers:       map[string]string{"X-Forwarded-For": "203.0.113.50, 198.51.100.25, 172.16.0.1, 10.1.1.1, 10.2.2.2, 192.168.10.1, 192.168.20.1, 172.17.0.1, 10.0.1.1, 192.168.1.100"},
+			remoteAddr:    "192.168.1.1:8080",
+			trustedRanges: []string{"192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"},
+			want:          "198.51.100.25",
+		},
+		{
+			name:          "Proxy chain with mixed trusted/untrusted - returns rightmost untrusted",
+			headers:       map[string]string{"X-Forwarded-For": "203.0.113.100, 8.8.8.8, 192.168.1.50, 10.0.0.25"},
+			remoteAddr:    "192.168.1.1:8080",
+			trustedRanges: []string{"192.168.1.0/24", "10.0.0.0/8"},
+			want:          "8.8.8.8",
+		},
 	}
 
 	for _, tt := range tests {
