@@ -20,6 +20,7 @@ var Config = struct {
 	RateLimitsByPassToken []string `env:"RATE_LIMITS_BY_PASS_TOKEN"`
 	ConnectionsLimit      int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`
 	SelfSignedTLS         bool     `env:"SELF_SIGNED_TLS" envDefault:"false"`
+	DisconnectEventsTTL   int64      `env:"DISCONNECT_EVENTS_TTL" envDefault:"3600"`
 }{}
 
 func LoadConfig() {
