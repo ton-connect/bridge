@@ -282,10 +282,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}(clientId[0], topic, string(message))
 	}
 
-	if topic == "disconnect" && len(message) < config.Config.DisconnectEventMaxSize {
-		ttl = config.Config.DisconnectEventsTTL
-	}
-
 	traceIdParam, ok := params["trace_id"]
 	traceId := "unknown"
 	if ok {
@@ -318,6 +314,11 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
+
+	if topic == "disconnect" && len(mes) < config.Config.DisconnectEventMaxSize {
+		ttl = config.Config.DisconnectEventsTTL
+	}
+
 	sseMessage := datatype.SseMessage{
 		EventId: h.nextID(),
 		Message: mes,

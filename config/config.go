@@ -21,7 +21,7 @@ var Config = struct {
 	ConnectionsLimit       int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`
 	SelfSignedTLS          bool     `env:"SELF_SIGNED_TLS" envDefault:"false"`
 	DisconnectEventsTTL    int64    `env:"DISCONNECT_EVENTS_TTL" envDefault:"3600"`
-	DisconnectEventMaxSize int      `env:"DISCONNECT_EVENT_MAX_SIZE" envDefault:"1024"`
+	DisconnectEventMaxSize int      `env:"DISCONNECT_EVENT_MAX_SIZE" envDefault:"512"`
 }{}
 
 func LoadConfig() {
