@@ -27,3 +27,4 @@
 - DISCONNECT_EVENTS_TTL (in seconds) ##example"3600"
 - DISCONNECT_EVENT_MAX_SIZE (in bytes) ##example"512"
 - SELF_SIGNED_TLS ##example"false"
+- TRUSTED_PROXY_RANGES ##example"10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" (comma-separated list of IP ranges to trust for X-Forwarded-For header)

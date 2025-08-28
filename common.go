@@ -3,6 +3,10 @@ package main
 import (
 	"net/http"
 	"net/url"
+	"strings"
+
+	"github.com/realclientip/realclientip-go"
+	"github.com/tonkeeper/bridge/config"
 )
 
 type HttpRes struct {
@@ -36,4 +40,26 @@ func ExtractOrigin(rawURL string) string {
 		return rawURL
 	}
 	return u.Scheme + "://" + u.Host
+}
+
+// realIP extracts the real client IP using RightmostTrustedRangeStrategy
+func realIP(request *http.Request) string {
+	ranges := config.Config.TrustedProxyRanges
+	if len(ranges) == 0 {
+		ranges = []string{"0.0.0.0/0"} // fallback to trust all if not configured
+	}
+
+	ipNets, err := realclientip.AddressesAndRangesToIPNets(ranges...)
+	if err != nil {
+		return strings.Split(request.RemoteAddr, ":")[0]
+	}
+
+	strategy, err := realclientip.NewRightmostTrustedRangeStrategy("X-Forwarded-For", ipNets)
+	if err == nil {
+		if ip := strategy.ClientIP(request.Header, request.RemoteAddr); ip != "" {
+			return ip
+		}
+	}
+
+	return strings.Split(request.RemoteAddr, ":")[0]
 }

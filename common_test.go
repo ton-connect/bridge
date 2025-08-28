@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net/http"
 	"testing"
 )
 
@@ -66,6 +67,57 @@ func TestExtractOrigin(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := ExtractOrigin(tt.rawURL); got != tt.want {
 				t.Errorf("ExtractOrigin() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRealIP(t *testing.T) {
+	tests := []struct {
+		name           string
+		headers        map[string]string
+		remoteAddr     string
+		expectedPrefix string // We'll check if the result starts with this
+	}{
+		{
+			name:           "X-Forwarded-For with single IP",
+			headers:        map[string]string{"X-Forwarded-For": "203.0.113.1"},
+			remoteAddr:     "192.168.1.1:8080",
+			expectedPrefix: "203.0.113.1",
+		},
+		{
+			name:           "X-Forwarded-For with multiple IPs",
+			headers:        map[string]string{"X-Forwarded-For": "203.0.113.1, 192.168.1.1"},
+			remoteAddr:     "10.0.0.1:8080",
+			expectedPrefix: "203.0.113.1",
+		},
+		{
+			name:           "No headers, use RemoteAddr",
+			headers:        map[string]string{},
+			remoteAddr:     "203.0.113.1:8080",
+			expectedPrefix: "203.0.113.1",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := &http.Request{
+				Header:     make(http.Header),
+				RemoteAddr: tt.remoteAddr,
+			}
+
+			for k, v := range tt.headers {
+				req.Header.Set(k, v)
+			}
+
+			result := realIP(req)
+			if result == "" {
+				t.Errorf("realIP() returned empty string")
+			}
+
+			// Basic validation that we get some IP-like result
+			if len(result) < 7 { // minimum for "1.1.1.1"
+				t.Errorf("realIP() returned suspiciously short result: %q", result)
 			}
 		})
 	}

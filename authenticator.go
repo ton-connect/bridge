@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -52,22 +51,6 @@ func (auth *ConnectionsLimiter) leaseConnection(request *http.Request) (release 
 			delete(auth.connections, key)
 		}
 	}, nil
-}
-
-func realIP(request *http.Request) string {
-	// Fall back to legacy behavior
-	if ip := request.Header.Get("X-Forwarded-For"); ip != "" {
-		i := strings.IndexAny(ip, ",")
-		if i > 0 {
-			return strings.Trim(ip[:i], "[] \t")
-		}
-		return ip
-	}
-	if ip := request.Header.Get("X-Real-Ip"); ip != "" {
-		return strings.Trim(ip, "[]")
-	}
-	ra, _, _ := net.SplitHostPort(request.RemoteAddr)
-	return ra
 }
 
 func skipRateLimitsByToken(request *http.Request) bool {
