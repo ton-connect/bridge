@@ -273,11 +273,13 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			http.DefaultClient.Do(req) //nolint:errcheck// TODO review golangci-lint issue
 		}()
 	}
-	topic, ok := params["topic"]
+	topicParam, ok := params["topic"]
+	topic := ""
 	if ok {
+		topic = topicParam[0]
 		go func(clientID, topic, message string) {
 			SendWebhook(clientID, WebhookData{Topic: topic, Hash: message})
-		}(clientId[0], topic[0], string(message))
+		}(clientId[0], topic, string(message))
 	}
 
 	traceIdParam, ok := params["trace_id"]
@@ -293,7 +295,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			traceId = uuids.String()
 		}
 	}
-	if traceId == "known" {
+	if traceId == "unknown" {
 		uuids, err := uuid.NewV7()
 		if err != nil {
 			log.Error(err)
@@ -312,6 +314,11 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
+
+	if topic == "disconnect" && len(mes) < config.Config.DisconnectEventMaxSize {
+		ttl = config.Config.DisconnectEventsTTL
+	}
+
 	sseMessage := datatype.SseMessage{
 		EventId: h.nextID(),
 		Message: mes,
