@@ -4,12 +4,14 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
+	"github.com/tonkeeper/bridge/config"
 )
 
 // initConnectCache initializes the connect client cache for the handler
 func (h *handler) initConnectCache() {
-	h.connectCache = expirable.NewLRU[string, []connectClient](1000, nil, 5*time.Minute) // 1000 entries, 5 min TTL
-	h.connectCacheTTL = 5 * time.Minute
+	ttl :=  time.Duration(config.Config.ConnectCacheTTL) * time.Second
+	h.connectCache = expirable.NewLRU[string, []connectClient](config.Config.ConnectCacheSize, nil, ttl)
+	h.connectCacheTTL = ttl
 }
 
 // addConnectClient adds a connect client to the cache, filtering out expired entries
