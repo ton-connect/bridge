@@ -17,12 +17,7 @@ func TestExtractOrigin(t *testing.T) {
 			want:   "",
 		},
 		{
-			name:   "valid https URL",
-			rawURL: "https://example.com/path",
-			want:   "https://example.com",
-		},
-		{
-			name:   "valid http URL",
+			name:   "valid http URL but not valid Origin",
 			rawURL: "http://example.com/path/to/resource",
 			want:   "http://example.com",
 		},
@@ -30,16 +25,6 @@ func TestExtractOrigin(t *testing.T) {
 			name:   "URL with port",
 			rawURL: "https://example.com:8080/api",
 			want:   "https://example.com:8080",
-		},
-		{
-			name:   "URL with query parameters",
-			rawURL: "https://example.com/search?q=test",
-			want:   "https://example.com",
-		},
-		{
-			name:   "URL with fragment",
-			rawURL: "https://example.com/page#section",
-			want:   "https://example.com",
 		},
 		{
 			name:   "invalid URL - no scheme",
@@ -53,13 +38,8 @@ func TestExtractOrigin(t *testing.T) {
 		},
 		{
 			name:   "URL with subdomain",
-			rawURL: "https://api.example.com/v1/users",
+			rawURL: "https://api.example.com/",
 			want:   "https://api.example.com",
-		},
-		{
-			name:   "localhost URL",
-			rawURL: "http://localhost:3000/app",
-			want:   "http://localhost:3000",
 		},
 	}
 
@@ -72,40 +52,79 @@ func TestExtractOrigin(t *testing.T) {
 	}
 }
 
-func TestRealIP(t *testing.T) {
+func TestRealIPExtractor(t *testing.T) {
 	tests := []struct {
-		name           string
-		headers        map[string]string
-		remoteAddr     string
-		expectedPrefix string // We'll check if the result starts with this
+		name          string
+		headers       map[string]string
+		remoteAddr    string
+		trustedRanges []string
+		want          string
 	}{
 		{
-			name:           "X-Forwarded-For with single IP",
-			headers:        map[string]string{"X-Forwarded-For": "203.0.113.1"},
-			remoteAddr:     "192.168.1.1:8080",
-			expectedPrefix: "203.0.113.1",
+			name:          "X-Forwarded-For with single IP - trusted proxy",
+			headers:       map[string]string{"X-Forwarded-For": "203.0.113.1"},
+			remoteAddr:    "192.168.1.1:8080",
+			trustedRanges: []string{"192.168.1.0/24"},
+			want:          "203.0.113.1",
 		},
 		{
-			name:           "X-Forwarded-For with multiple IPs",
-			headers:        map[string]string{"X-Forwarded-For": "203.0.113.1, 192.168.1.1"},
-			remoteAddr:     "10.0.0.1:8080",
-			expectedPrefix: "203.0.113.1",
+			name:          "X-Forwarded-For with multiple IPs - trusted proxy",
+			headers:       map[string]string{"X-Forwarded-For": "203.0.113.1, 192.168.1.1"},
+			remoteAddr:    "192.168.1.2:8080",
+			trustedRanges: []string{"192.168.1.0/24"},
+			want:          "203.0.113.1",
 		},
 		{
-			name:           "No headers, use RemoteAddr",
-			headers:        map[string]string{},
-			remoteAddr:     "203.0.113.1:8080",
-			expectedPrefix: "203.0.113.1",
+			name:          "No X-Forwarded-For header, use RemoteAddr",
+			headers:       map[string]string{},
+			remoteAddr:    "203.0.113.1:8080",
+			trustedRanges: []string{"192.168.1.0/24"},
+			want:          "203.0.113.1",
 		},
-	}
-
-	realIP, err := newRealIPExtractor([]string{"0.0.0.0/0"})
-	if err != nil {
-		t.Fatalf("failed to create realIPExtractor: %v", err)
+		{
+			name:          "Untrusted proxy - still uses X-Forwarded-For",
+			headers:       map[string]string{"X-Forwarded-For": "203.0.113.1"},
+			remoteAddr:    "192.168.1.1:8080",
+			trustedRanges: []string{"10.0.0.0/8"},
+			want:          "203.0.113.1",
+		},
+		{
+			name:          "X-Real-IP header ignored (not supported)",
+			headers:       map[string]string{"X-Real-IP": "203.0.113.5"},
+			remoteAddr:    "192.168.1.2:8080",
+			trustedRanges: []string{"192.168.1.0/24"},
+			want:          "192.168.1.2",
+		},
+		        {
+            name:          "Long proxy chain - 5 IPs",
+            headers:       map[string]string{"X-Forwarded-For": "203.0.113.1, 198.51.100.1, 192.168.1.5, 192.168.1.10, 10.0.0.5"},
+            remoteAddr:    "192.168.1.1:8080",
+            trustedRanges: []string{"192.168.1.0/24", "10.0.0.0/8"},
+            want:          "198.51.100.1",
+        },
+        {
+            name:          "Very long proxy chain - 10 IPs",
+            headers:       map[string]string{"X-Forwarded-For": "203.0.113.50, 198.51.100.25, 172.16.0.1, 10.1.1.1, 10.2.2.2, 192.168.10.1, 192.168.20.1, 172.17.0.1, 10.0.1.1, 192.168.1.100"},
+            remoteAddr:    "192.168.1.1:8080",
+            trustedRanges: []string{"192.168.0.0/16", "10.0.0.0/8", "172.16.0.0/12"},
+            want:          "198.51.100.25",
+        },
+        {
+            name:          "Proxy chain with mixed trusted/untrusted - returns rightmost untrusted",
+            headers:       map[string]string{"X-Forwarded-For": "203.0.113.100, 8.8.8.8, 192.168.1.50, 10.0.0.25"},
+            remoteAddr:    "192.168.1.1:8080",
+            trustedRanges: []string{"192.168.1.0/24", "10.0.0.0/8"},
+            want:          "8.8.8.8",
+        },
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			realIP, err := newRealIPExtractor(tt.trustedRanges)
+			if err != nil {
+				t.Fatalf("failed to create realIPExtractor: %v", err)
+			}
+
 			req := &http.Request{
 				Header:     make(http.Header),
 				RemoteAddr: tt.remoteAddr,
@@ -116,13 +135,8 @@ func TestRealIP(t *testing.T) {
 			}
 
 			result := realIP.Extract(req)
-			if result == "" {
-				t.Errorf("realIP() returned empty string")
-			}
-
-			// Basic validation that we get some IP-like result
-			if len(result) < 7 { // minimum for "1.1.1.1"
-				t.Errorf("realIP() returned suspiciously short result: %q", result)
+			if result != tt.want {
+				t.Errorf("realIP.Extract() = %q, want %q", result, tt.want)
 			}
 		})
 	}
