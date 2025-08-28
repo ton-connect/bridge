@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/realclientip/realclientip-go"
-	"github.com/tonkeeper/bridge/config"
 )
 
 type HttpRes struct {
@@ -42,24 +41,30 @@ func ExtractOrigin(rawURL string) string {
 	return u.Scheme + "://" + u.Host
 }
 
-// realIP extracts the real client IP using RightmostTrustedRangeStrategy
-func realIP(request *http.Request) string {
-	ranges := config.Config.TrustedProxyRanges
-	if len(ranges) == 0 {
-		ranges = []string{"0.0.0.0/0"} // fallback to trust all if not configured
-	}
+type realIPExtractor struct {
+	strategy realclientip.RightmostTrustedRangeStrategy
+}
 
-	ipNets, err := realclientip.AddressesAndRangesToIPNets(ranges...)
+// newRealIPExtractor creates a new realIPExtractor with the given trusted ranges.
+func newRealIPExtractor(trustedRanges []string) (*realIPExtractor, error) {
+	ipNets, err := realclientip.AddressesAndRangesToIPNets(trustedRanges...)
 	if err != nil {
-		return strings.Split(request.RemoteAddr, ":")[0]
+		return nil, err
 	}
 
 	strategy, err := realclientip.NewRightmostTrustedRangeStrategy("X-Forwarded-For", ipNets)
-	if err == nil {
-		if ip := strategy.ClientIP(request.Header, request.RemoteAddr); ip != "" {
-			return ip
-		}
+	if err != nil {
+		return nil, err
 	}
 
+	return &realIPExtractor{
+		strategy: strategy,
+	}, nil
+}
+
+func (e *realIPExtractor) Extract(request *http.Request) string {
+	if ip := e.strategy.ClientIP(request.Header, request.RemoteAddr); ip != "" {
+		return ip
+	}
 	return strings.Split(request.RemoteAddr, ":")[0]
 }

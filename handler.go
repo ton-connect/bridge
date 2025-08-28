@@ -87,6 +87,7 @@ type handler struct {
 	_eventIDs         int64
 	heartbeatInterval time.Duration
 	connectCache      *connectCache
+	realIP            *realIPExtractor
 }
 
 type db interface {
@@ -94,7 +95,7 @@ type db interface {
 	Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error
 }
 
-func newHandler(db db, heartbeatInterval time.Duration) *handler {
+func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
 	h := handler{
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
@@ -102,6 +103,7 @@ func newHandler(db db, heartbeatInterval time.Duration) *handler {
 		_eventIDs:         time.Now().UnixMicro(),
 		heartbeatInterval: heartbeatInterval,
 		connectCache:      newConnectCache(config.Config.ConnectCacheSize, config.Config.ConnectCacheTTL),
+		realIP:            extractor,
 	}
 	return &h
 }
@@ -169,7 +171,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
 	session := h.CreateSession(clientIds, lastEventId)
 
-	ip := realIP(c.Request())
+	ip := h.realIP.Extract(c.Request())
 	origin := ExtractOrigin(c.Request().Header.Get("Origin"))
 	connect_client := connectClient{
 		clientId: clientId[0],
@@ -335,7 +337,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}
 
 	origin := ExtractOrigin(c.Request().Header.Get("Origin"))
-	ip := realIP(c.Request())
+	ip := h.realIP.Extract(c.Request())
 	userAgent := c.Request().Header.Get("User-Agent")
 
 	requestSource := datatype.BridgeRequestSource{
@@ -422,7 +424,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 }
 
 func (h *handler) ConnectVerifyHandler(c echo.Context) error {
-	ip := realIP(c.Request())
+	ip := h.realIP.Extract(c.Request())
 
 	// Support new JSON POST format; fallback to legacy query params for backward compatibility
 	var req verifyRequest

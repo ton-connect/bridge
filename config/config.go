@@ -20,6 +20,8 @@ var Config = struct {
 	RateLimitsByPassToken  []string `env:"RATE_LIMITS_BY_PASS_TOKEN"`
 	ConnectionsLimit       int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`
 	SelfSignedTLS          bool     `env:"SELF_SIGNED_TLS" envDefault:"false"`
+	ConnectCacheSize       int      `env:"CONNECT_CACHE_SIZE" envDefault:"2000000"`
+	ConnectCacheTTL        int      `env:"CONNECT_CACHE_TTL" envDefault:"300"`
 	DisconnectEventsTTL    int64    `env:"DISCONNECT_EVENTS_TTL" envDefault:"3600"`
 	DisconnectEventMaxSize int      `env:"DISCONNECT_EVENT_MAX_SIZE" envDefault:"512"`
 	TrustedProxyRanges     []string `env:"TRUSTED_PROXY_RANGES" envDefault:"0.0.0.0/0"`

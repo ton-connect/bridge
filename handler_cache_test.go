@@ -14,7 +14,8 @@ func TestHandlerExpirableConnectCache(t *testing.T) {
 
 	// Create a handler with embedded cache
 	store := memory.NewStorage()
-	h := newHandler(store, time.Minute)
+	extractor, _ := newRealIPExtractor(config.Config.TrustedProxyRanges)
+	h := newHandler(store, time.Minute, extractor)
 
 	// Test adding clients
 	client1 := connectClient{
@@ -52,7 +53,8 @@ func TestHandlerConnectCacheFiltering(t *testing.T) {
 	config.LoadConfig()
 
 	store := memory.NewStorage()
-	h := newHandler(store, time.Minute)
+	extractor, _ := newRealIPExtractor(config.Config.TrustedProxyRanges)
+	h := newHandler(store, time.Minute, extractor)
 
 	// Add a client with current time
 	currentClient := connectClient{

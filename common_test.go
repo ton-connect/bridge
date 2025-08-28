@@ -99,6 +99,11 @@ func TestRealIP(t *testing.T) {
 		},
 	}
 
+	realIP, err := newRealIPExtractor([]string{"0.0.0.0/0"})
+	if err != nil {
+		t.Fatalf("failed to create realIPExtractor: %v", err)
+	}
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := &http.Request{
@@ -110,7 +115,7 @@ func TestRealIP(t *testing.T) {
 				req.Header.Set(k, v)
 			}
 
-			result := realIP(req)
+			result := realIP.Extract(req)
 			if result == "" {
 				t.Errorf("realIP() returned empty string")
 			}

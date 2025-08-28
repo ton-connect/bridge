@@ -21,12 +21,14 @@ type ConnectionsLimiter struct {
 	mu          sync.Mutex
 	connections map[string]int
 	max         int
+	realIP      *realIPExtractor
 }
 
-func newConnectionLimiter(i int) *ConnectionsLimiter {
+func newConnectionLimiter(i int, extractor *realIPExtractor) *ConnectionsLimiter {
 	return &ConnectionsLimiter{
 		connections: map[string]int{},
 		max:         i,
+		realIP:      extractor,
 	}
 }
 
@@ -34,7 +36,7 @@ func newConnectionLimiter(i int) *ConnectionsLimiter {
 // returns a release function to be called once a request is finished.
 // If the token reaches the limit of max simultaneous connections, leaseConnection returns an error.
 func (auth *ConnectionsLimiter) leaseConnection(request *http.Request) (release func(), err error) {
-	key := fmt.Sprintf("ip-%v", realIP(request))
+	key := fmt.Sprintf("ip-%v", auth.realIP.Extract(request))
 	auth.mu.Lock()
 	defer auth.mu.Unlock()
 
