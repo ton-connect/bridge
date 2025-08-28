@@ -25,5 +25,5 @@
 - RATE_LIMITS_BY_PASS_TOKEN ##example"token1,token2"
 - CONNECTIONS_LIMIT ##example"50"
 - DISCONNECT_EVENTS_TTL (in seconds) ##example"3600"
-- DISCONNECT_EVENT_MAX_SIZE (in bytes) ##example"1024"
+- DISCONNECT_EVENT_MAX_SIZE (in bytes) ##example"512"
 - SELF_SIGNED_TLS ##example"false"
