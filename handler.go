@@ -282,7 +282,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}(clientId[0], topic, string(message))
 	}
 
-	if topic == "disconnect" {
+	if topic == "disconnect" && len(message) < config.Config.DisconnectEventMaxSize {
 		ttl = config.Config.DisconnectEventsTTL
 	}
 
