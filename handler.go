@@ -17,7 +17,6 @@ import (
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/hashicorp/golang-lru/v2/expirable"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -87,8 +86,7 @@ type handler struct {
 	storage           db
 	_eventIDs         int64
 	heartbeatInterval time.Duration
-	connectCache      *expirable.LRU[string, []connectClient]
-	connectCacheTTL   time.Duration
+	connectCache      *connectCache
 }
 
 type db interface {
@@ -103,8 +101,8 @@ func newHandler(db db, heartbeatInterval time.Duration) *handler {
 		storage:           db,
 		_eventIDs:         time.Now().UnixMicro(),
 		heartbeatInterval: heartbeatInterval,
+		connectCache:      newConnectCache(config.Config.ConnectCacheSize, config.Config.ConnectCacheTTL),
 	}
-	h.initConnectCache()
 	return &h
 }
 
@@ -179,7 +177,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		origin:   origin,
 		time:     time.Now(),
 	}
-	h.addConnectClient(clientId[0], connect_client)
+	h.connectCache.add(clientId[0], connect_client)
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
@@ -472,7 +470,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 
 	switch strings.ToLower(req.Type) {
 	case "connect":
-		existingConnects := h.getConnectClients(req.ClientID)
+		existingConnects := h.connectCache.get(req.ClientID)
 		for _, connect := range existingConnects {
 			if connect.ip == ip && connect.origin == req.URL && now.Sub(connect.time) < 5*time.Minute {
 				status = "ok"

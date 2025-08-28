@@ -4,10 +4,14 @@ import (
 	"testing"
 	"time"
 
+	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/storage/memory"
 )
 
 func TestHandlerExpirableConnectCache(t *testing.T) {
+	// Initialize config for tests
+	config.LoadConfig()
+
 	// Create a handler with embedded cache
 	store := memory.NewStorage()
 	h := newHandler(store, time.Minute)
@@ -27,23 +31,26 @@ func TestHandlerExpirableConnectCache(t *testing.T) {
 		time:     time.Now(),
 	}
 
-	h.addConnectClient("test1", client1)
-	h.addConnectClient("test1", client2) // Add another client to same key
+	h.connectCache.add("test1", client1)
+	h.connectCache.add("test1", client2) // Add another client to same key
 
 	// Test retrieval
-	clients := h.getConnectClients("test1")
+	clients := h.connectCache.get("test1")
 	if len(clients) != 2 {
 		t.Errorf("Expected 2 clients, got %d", len(clients))
 	}
 
 	// Test non-existent key
-	clients = h.getConnectClients("nonexistent")
+	clients = h.connectCache.get("nonexistent")
 	if clients != nil {
 		t.Errorf("Expected nil for non-existent key, got %v", clients)
 	}
 }
 
 func TestHandlerConnectCacheFiltering(t *testing.T) {
+	// Initialize config for tests
+	config.LoadConfig()
+
 	store := memory.NewStorage()
 	h := newHandler(store, time.Minute)
 
@@ -63,11 +70,11 @@ func TestHandlerConnectCacheFiltering(t *testing.T) {
 		time:     time.Now().Add(-6 * time.Minute),
 	}
 
-	h.addConnectClient("test", currentClient)
-	h.addConnectClient("test", expiredClient)
+	h.connectCache.add("test", currentClient)
+	h.connectCache.add("test", expiredClient)
 
 	// When we get the clients, only the current one should be returned
-	clients := h.getConnectClients("test")
+	clients := h.connectCache.get("test")
 	if len(clients) != 1 {
 		t.Errorf("Expected 1 client (expired one filtered out), got %d", len(clients))
 	}

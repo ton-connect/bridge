@@ -4,19 +4,28 @@ import (
 	"time"
 
 	"github.com/hashicorp/golang-lru/v2/expirable"
-	"github.com/tonkeeper/bridge/config"
 )
 
-// initConnectCache initializes the connect client cache for the handler
-func (h *handler) initConnectCache() {
-	ttl :=  time.Duration(config.Config.ConnectCacheTTL) * time.Second
-	h.connectCache = expirable.NewLRU[string, []connectClient](config.Config.ConnectCacheSize, nil, ttl)
-	h.connectCacheTTL = ttl
+// connectCache manages the cache for connect clients with TTL-based expiration
+type connectCache struct {
+	cache *expirable.LRU[string, []connectClient]
+	ttl   time.Duration
 }
 
-// addConnectClient adds a connect client to the cache, filtering out expired entries
-func (h *handler) addConnectClient(clientID string, client connectClient) {
-	existingClients, found := h.connectCache.Get(clientID)
+// newConnectCache creates a new connect cache with the given configuration
+func newConnectCache(cacheSize int, cacheTTL int) *connectCache {
+	ttl := time.Duration(cacheTTL) * time.Second
+	cache := expirable.NewLRU[string, []connectClient](cacheSize, nil, ttl)
+
+	return &connectCache{
+		cache: cache,
+		ttl:   ttl,
+	}
+}
+
+// add adds a connect client to the cache, filtering out expired entries
+func (cc *connectCache) add(clientID string, client connectClient) {
+	existingClients, found := cc.cache.Get(clientID)
 	if !found {
 		existingClients = make([]connectClient, 0)
 	}
@@ -24,18 +33,18 @@ func (h *handler) addConnectClient(clientID string, client connectClient) {
 	now := time.Now()
 	validClients := make([]connectClient, 0, len(existingClients)+1)
 	for _, existing := range existingClients {
-		if now.Sub(existing.time) < h.connectCacheTTL {
+		if now.Sub(existing.time) < cc.ttl {
 			validClients = append(validClients, existing)
 		}
 	}
 
 	validClients = append(validClients, client)
-	h.connectCache.Add(clientID, validClients)
+	cc.cache.Add(clientID, validClients)
 }
 
-// getConnectClients retrieves connect clients from cache, filtering out expired entries
-func (h *handler) getConnectClients(clientID string) []connectClient {
-	clients, found := h.connectCache.Get(clientID)
+// get retrieves connect clients from cache, filtering out expired entries
+func (cc *connectCache) get(clientID string) []connectClient {
+	clients, found := cc.cache.Get(clientID)
 	if !found {
 		return nil
 	}
@@ -43,18 +52,18 @@ func (h *handler) getConnectClients(clientID string) []connectClient {
 	now := time.Now()
 	validClients := make([]connectClient, 0, len(clients))
 	for _, client := range clients {
-		if now.Sub(client.time) < h.connectCacheTTL {
+		if now.Sub(client.time) < cc.ttl {
 			validClients = append(validClients, client)
 		}
 	}
 
 	if len(validClients) == 0 {
-		h.connectCache.Remove(clientID)
+		cc.cache.Remove(clientID)
 		return nil
 	}
 
 	if len(validClients) != len(clients) {
-		h.connectCache.Add(clientID, validClients)
+		cc.cache.Add(clientID, validClients)
 	}
 
 	return validClients
