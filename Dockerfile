@@ -7,7 +7,7 @@ COPY . .
 RUN go build -o /tmp/bridge github.com/tonkeeper/bridge
 
 
-FROM alpine AS bridge
+FROM scratch AS bridge
 COPY --from=gobuild /tmp/bridge /app/bridge
 CMD ["/app/bridge"]
 
