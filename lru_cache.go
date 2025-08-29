@@ -30,7 +30,7 @@ func NewLRUCache(capacity int, ttl time.Duration) *LRUCache {
 		items:     make(map[string]*list.Element),
 		evictList: list.New(),
 	}
-	
+
 	// Start background cleanup goroutine
 	go func() {
 		ticker := time.NewTicker(time.Minute)
@@ -39,7 +39,7 @@ func NewLRUCache(capacity int, ttl time.Duration) *LRUCache {
 			cache.CleanExpired()
 		}
 	}()
-	
+
 	return cache
 }
 
