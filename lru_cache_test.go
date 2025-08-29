@@ -101,37 +101,6 @@ func TestLRUCache_LRUBehavior(t *testing.T) {
 	}
 }
 
-func TestLRUCache_Remove(t *testing.T) {
-	cache := NewLRUCache(10, time.Minute)
-
-	client := connectClient{clientId: "client1", ip: "127.0.0.1", origin: "test", time: time.Now()}
-	cache.Add("key1", client)
-
-	// Should be found
-	_, found := cache.Get("key1")
-	if !found {
-		t.Fatal("key1 should be found")
-	}
-
-	// Remove it
-	removed := cache.Remove("key1")
-	if !removed {
-		t.Fatal("Remove should return true")
-	}
-
-	// Should not be found anymore
-	_, found = cache.Get("key1")
-	if found {
-		t.Fatal("key1 should not be found after removal")
-	}
-
-	// Removing non-existent key should return false
-	removed = cache.Remove("nonexistent")
-	if removed {
-		t.Fatal("Remove should return false for non-existent key")
-	}
-}
-
 func TestLRUCache_CleanExpired(t *testing.T) {
 	cache := NewLRUCache(10, 50*time.Millisecond)
 

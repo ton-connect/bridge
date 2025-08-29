@@ -24,12 +24,23 @@ type LRUCache struct {
 
 // NewLRUCache creates a new LRU cache with the specified capacity and TTL
 func NewLRUCache(capacity int, ttl time.Duration) *LRUCache {
-	return &LRUCache{
+	cache := &LRUCache{
 		capacity:  capacity,
 		ttl:       ttl,
 		items:     make(map[string]*list.Element),
 		evictList: list.New(),
 	}
+	
+	// Start background cleanup goroutine
+	go func() {
+		ticker := time.NewTicker(time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			cache.CleanExpired()
+		}
+	}()
+	
+	return cache
 }
 
 // Add adds or updates an entry in the cache
@@ -87,18 +98,6 @@ func (c *LRUCache) Get(key string) (connectClient, bool) {
 	}
 
 	return connectClient{}, false
-}
-
-// Remove removes an entry from the cache
-func (c *LRUCache) Remove(key string) bool {
-	c.mutex.Lock()
-	defer c.mutex.Unlock()
-
-	if ent, ok := c.items[key]; ok {
-		c.removeElement(ent)
-		return true
-	}
-	return false
 }
 
 // Len returns the number of items in the cache
