@@ -366,17 +366,10 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
 	}
 
-	bridgeConnectSource := ""
-	if client, found := h.connectCache.Get(toId[0]); found {
-		// Use the IP from the most recent connection
-		bridgeConnectSource = client.ip
-	}
-
 	mes, err := json.Marshal(datatype.BridgeMessage{
 		From:                clientId[0],
 		Message:             string(message),
 		BridgeRequestSource: encryptedRequestSource,
-		BridgeConnectSource: bridgeConnectSource,
 		TraceId:             traceId,
 	})
 	if err != nil {
