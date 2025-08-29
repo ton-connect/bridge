@@ -24,23 +24,23 @@ type LRUCache struct {
 
 // NewLRUCache creates a new LRU cache with the specified capacity and TTL
 func NewLRUCache(capacity int, ttl time.Duration) *LRUCache {
-	cache := &LRUCache{
+	return &LRUCache{
 		capacity:  capacity,
 		ttl:       ttl,
 		items:     make(map[string]*list.Element),
 		evictList: list.New(),
 	}
+}
 
-	// Start background cleanup goroutine
+// StartBackgroundCleanup starts a background goroutine that periodically cleans expired entries
+func (c *LRUCache) StartBackgroundCleanup() {
 	go func() {
 		ticker := time.NewTicker(time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
-			cache.CleanExpired()
+			c.CleanExpired()
 		}
 	}()
-
-	return cache
 }
 
 // Add adds or updates an entry in the cache
