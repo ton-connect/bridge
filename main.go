@@ -36,6 +36,12 @@ func main() {
 		dbConn = memory.NewStorage()
 	}
 
+	extractor, err := newRealIPExtractor(config.Config.TrustedProxyRanges)
+	if err != nil {
+		log.Warnf("failed to create realIPExtractor: %v, using defaults", err)
+		extractor, _ = newRealIPExtractor([]string{})
+	}
+
 	http.Handle("/metrics", promhttp.Handler())
 	go func() {
 		log.Fatal(http.ListenAndServe(":9103", nil))
@@ -57,7 +63,7 @@ func main() {
 		},
 		Store: middleware.NewRateLimiterMemoryStore(rate.Limit(config.Config.RPSLimit)),
 	}))
-	e.Use(connectionsLimitMiddleware(newConnectionLimiter(config.Config.ConnectionsLimit), func(c echo.Context) bool {
+	e.Use(connectionsLimitMiddleware(newConnectionLimiter(config.Config.ConnectionsLimit, extractor), func(c echo.Context) bool {
 		if skipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/events" {
 			return true
 		}
@@ -75,7 +81,7 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := newHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second)
+	h := newHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor)
 
 	registerHandlers(e, h)
 	var existedPaths []string

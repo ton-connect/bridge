@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"net"
 	"net/http"
 	"strings"
 	"sync"
@@ -22,12 +21,14 @@ type ConnectionsLimiter struct {
 	mu          sync.Mutex
 	connections map[string]int
 	max         int
+	realIP      *realIPExtractor
 }
 
-func newConnectionLimiter(i int) *ConnectionsLimiter {
+func newConnectionLimiter(i int, extractor *realIPExtractor) *ConnectionsLimiter {
 	return &ConnectionsLimiter{
 		connections: map[string]int{},
 		max:         i,
+		realIP:      extractor,
 	}
 }
 
@@ -35,7 +36,7 @@ func newConnectionLimiter(i int) *ConnectionsLimiter {
 // returns a release function to be called once a request is finished.
 // If the token reaches the limit of max simultaneous connections, leaseConnection returns an error.
 func (auth *ConnectionsLimiter) leaseConnection(request *http.Request) (release func(), err error) {
-	key := fmt.Sprintf("ip-%v", realIP(request))
+	key := fmt.Sprintf("ip-%v", auth.realIP.Extract(request))
 	auth.mu.Lock()
 	defer auth.mu.Unlock()
 
@@ -52,22 +53,6 @@ func (auth *ConnectionsLimiter) leaseConnection(request *http.Request) (release 
 			delete(auth.connections, key)
 		}
 	}, nil
-}
-
-func realIP(request *http.Request) string {
-	// Fall back to legacy behavior
-	if ip := request.Header.Get("X-Forwarded-For"); ip != "" {
-		i := strings.IndexAny(ip, ",")
-		if i > 0 {
-			return strings.Trim(ip[:i], "[] \t")
-		}
-		return ip
-	}
-	if ip := request.Header.Get("X-Real-Ip"); ip != "" {
-		return strings.Trim(ip, "[]")
-	}
-	ra, _, _ := net.SplitHostPort(request.RemoteAddr)
-	return ra
 }
 
 func skipRateLimitsByToken(request *http.Request) bool {
