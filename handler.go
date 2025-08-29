@@ -86,7 +86,7 @@ type handler struct {
 	storage           db
 	_eventIDs         int64
 	heartbeatInterval time.Duration
-	connectCache      *connectCache
+	connectCache      *LRUCache
 	realIP            *realIPExtractor
 }
 
@@ -102,7 +102,7 @@ func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtract
 		storage:           db,
 		_eventIDs:         time.Now().UnixMicro(),
 		heartbeatInterval: heartbeatInterval,
-		connectCache:      newConnectCache(config.Config.ConnectCacheSize, config.Config.ConnectCacheTTL),
+		connectCache:      NewLRUCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second),
 		realIP:            extractor,
 	}
 	return &h
@@ -179,7 +179,12 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		origin:   origin,
 		time:     time.Now(),
 	}
-	h.connectCache.add(clientId[0], connect_client)
+	// Store with composite key for specific connection verification
+	key := fmt.Sprintf("%s:%s:%s", clientId[0], ip, origin)
+	h.connectCache.Add(key, connect_client)
+
+	// Store with simple key for bridge source IP lookup
+	h.connectCache.Add(clientId[0], connect_client)
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
@@ -359,16 +364,9 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}
 
 	bridgeConnectSource := ""
-	existingConnects := h.connectCache.get(toId[0])
-	if len(existingConnects) > 0 {
+	if client, found := h.connectCache.Get(toId[0]); found {
 		// Use the IP from the most recent connection
-		mostRecent := existingConnects[0]
-		for _, connect := range existingConnects {
-			if connect.time.After(mostRecent.time) {
-				mostRecent = connect
-			}
-		}
-		bridgeConnectSource = mostRecent.ip
+		bridgeConnectSource = client.ip
 	}
 
 	mes, err := json.Marshal(datatype.BridgeMessage{
@@ -486,12 +484,10 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 
 	switch strings.ToLower(req.Type) {
 	case "connect":
-		existingConnects := h.connectCache.get(req.ClientID)
-		for _, connect := range existingConnects {
-			if connect.ip == ip && connect.origin == req.URL && now.Sub(connect.time) < 5*time.Minute {
-				status = "ok"
-				break
-			}
+		key := fmt.Sprintf("%s:%s:%s", req.ClientID, ip, req.URL)
+		client, found := h.connectCache.Get(key)
+		if found && now.Sub(client.time) < 5*time.Minute {
+			status = "ok"
 		}
 	default:
 		badRequestMetric.Inc()
