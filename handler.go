@@ -98,7 +98,7 @@ type db interface {
 func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
 	connectCache := NewLRUCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
 	connectCache.StartBackgroundCleanup()
-	
+
 	h := handler{
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
