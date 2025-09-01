@@ -58,13 +58,6 @@ var (
 	})
 )
 
-type connectClient struct {
-	clientId string
-	ip       string
-	origin   string
-	time     time.Time
-}
-
 type verifyRequest struct {
 	Type     string `json:"type"`
 	ClientID string `json:"client_id"`
@@ -86,7 +79,7 @@ type handler struct {
 	storage           db
 	_eventIDs         int64
 	heartbeatInterval time.Duration
-	sessionCache      *LRUCache
+	connectionCache   *ConnectionCache
 	realIP            *realIPExtractor
 }
 
@@ -96,8 +89,8 @@ type db interface {
 }
 
 func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
-	sessionCache := NewLRUCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
-	sessionCache.StartBackgroundCleanup()
+	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
+	connectionCache.StartBackgroundCleanup()
 
 	h := handler{
 		Mux:               sync.RWMutex{},
@@ -105,7 +98,7 @@ func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtract
 		storage:           db,
 		_eventIDs:         time.Now().UnixMicro(),
 		heartbeatInterval: heartbeatInterval,
-		sessionCache:      sessionCache,
+		connectionCache:   connectionCache,
 		realIP:            extractor,
 	}
 	return &h
@@ -176,21 +169,10 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 
 	ip := h.realIP.Extract(c.Request())
 	origin := ExtractOrigin(c.Request().Header.Get("Origin"))
-	connect_client := connectClient{
-		clientId: clientId[0],
-		ip:       ip,
-		origin:   origin,
-		time:     time.Now(),
-	}
-	// Store session with composite key (no more duplicates)
-	sessionKey := fmt.Sprintf("%s:%s:%s", clientId[0], ip, origin)
-	h.sessionCache.Add(sessionKey, connect_client)
+	userAgent := c.Request().Header.Get("User-Agent")
 
-	// Example: Get all sessions for this client (new functionality)
-	// clients, found := h.sessionCache.GetAllSessions(clientId[0])
-	// if found {
-	//     log.Infof("Client %s has %d active sessions", clientId[0], len(clients))
-	// }
+	// Store connection in cache
+	h.connectionCache.Add(clientId[0], ip, origin, userAgent)
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
@@ -435,6 +417,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	ip := h.realIP.Extract(c.Request())
+	userAgent := c.Request().Header.Get("User-Agent")
 
 	// Support new JSON POST format; fallback to legacy query params for backward compatibility
 	var req verifyRequest
@@ -470,7 +453,6 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		return c.JSON(HttpResError("param \"url\" not present", http.StatusBadRequest))
 	}
-	req.URL = ExtractOrigin(req.URL)
 	if req.Type == "" {
 		badRequestMetric.Inc()
 		return c.JSON(HttpResError("param \"type\" not present", http.StatusBadRequest))
@@ -478,13 +460,10 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 
 	// Default status
 	status := "unknown"
-	now := time.Now()
 
 	switch strings.ToLower(req.Type) {
 	case "connect":
-		key := fmt.Sprintf("%s:%s:%s", req.ClientID, ip, req.URL)
-		client, found := h.sessionCache.Get(key)
-		if found && now.Sub(client.time) < 5*time.Minute {
+		if h.connectionCache.Verify(req.ClientID, ip, ExtractOrigin(req.URL), userAgent) {
 			status = "ok"
 		}
 	default:
