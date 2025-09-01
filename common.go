@@ -71,9 +71,7 @@ func (e *realIPExtractor) Extract(request *http.Request) string {
 	if oldXForwardedFor != "" {
 		newXForwardedFor = append(newXForwardedFor, oldXForwardedFor)
 	}
-	if request.RemoteAddr != "" {
-		newXForwardedFor = append(newXForwardedFor, request.RemoteAddr)
-	}
+	newXForwardedFor = append(newXForwardedFor, request.RemoteAddr)
 
 	headers.Set("X-Forwarded-For", strings.Join(newXForwardedFor, ", "))
 
@@ -81,5 +79,8 @@ func (e *realIPExtractor) Extract(request *http.Request) string {
 	if ip := e.strategy.ClientIP(headers, ""); ip != "" {
 		return ip
 	}
-	return request.RemoteAddr
+
+	// Fallback: use RemoteAddrStrategy to cleanly extract IP from RemoteAddr
+	fallbackStrategy := realclientip.RemoteAddrStrategy{}
+	return fallbackStrategy.ClientIP(nil, request.RemoteAddr)
 }

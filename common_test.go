@@ -135,7 +135,7 @@ func TestRealIPExtractor(t *testing.T) {
 			headers:       map[string]string{"X-Forwarded-For": "203.0.113.1"},
 			remoteAddr:    "",
 			trustedRanges: []string{"192.168.1.0/24"},
-			want:          "203.0.113.1",
+			want:          "",
 		},
 	}
 
