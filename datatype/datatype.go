@@ -7,7 +7,15 @@ type SseMessage struct {
 }
 
 type BridgeMessage struct {
-	From    string `json:"from"`
-	Message string `json:"message"`
-	TraceId string `json:"trace_id"`
+	From                string `json:"from"`
+	Message             string `json:"message"`
+	TraceId             string `json:"trace_id"`
+	BridgeRequestSource string `json:"request_source,omitempty"`
+}
+
+type BridgeRequestSource struct {
+	Origin    string `json:"origin"`
+	IP        string `json:"ip"`
+	Time      string `json:"time"`
+	UserAgent string `json:"user_agent"`
 }
