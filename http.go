@@ -7,5 +7,4 @@ import (
 func registerHandlers(e *echo.Echo, h *handler) {
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)
-	e.POST("/bridge/verify", h.ConnectVerifyHandler)
 }
