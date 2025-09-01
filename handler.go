@@ -68,7 +68,6 @@ type handler struct {
 	storage           db
 	_eventIDs         int64
 	heartbeatInterval time.Duration
-	connectionCache   *ConnectionCache
 	realIP            *realIPExtractor
 }
 
@@ -78,16 +77,12 @@ type db interface {
 }
 
 func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
-	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
-	connectionCache.StartBackgroundCleanup()
-
 	h := handler{
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
 		storage:           db,
 		_eventIDs:         time.Now().UnixMicro(),
 		heartbeatInterval: heartbeatInterval,
-		connectionCache:   connectionCache,
 		realIP:            extractor,
 	}
 	return &h
@@ -155,13 +150,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	clientIds := strings.Split(clientId[0], ",")
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
 	session := h.CreateSession(clientIds, lastEventId)
-
-	ip := h.realIP.Extract(c.Request())
-	origin := ExtractOrigin(c.Request().Header.Get("Origin"))
-	userAgent := c.Request().Header.Get("User-Agent")
-
-	// Store connection in cache
-	h.connectionCache.Add(clientId[0], ip, origin, userAgent)
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
