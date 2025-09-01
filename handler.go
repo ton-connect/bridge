@@ -354,8 +354,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	requestSource := datatype.BridgeRequestSource{
 		Origin:    origin,
 		IP:        ip,
-		Time:      time.Now().UTC().Format(time.RFC3339),
-		ClientID:  clientId[0],
+		Time:      strconv.FormatInt(time.Now().Unix(), 10),
 		UserAgent: userAgent,
 	}
 

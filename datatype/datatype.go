@@ -17,6 +17,5 @@ type BridgeRequestSource struct {
 	Origin    string `json:"origin"`
 	IP        string `json:"ip"`
 	Time      string `json:"time"`
-	ClientID  string `json:"client_id"`
 	UserAgent string `json:"user_agent"`
 }
