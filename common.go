@@ -1,6 +1,7 @@
 package main
 
 import (
+	"net"
 	"net/http"
 	"net/url"
 	"strings"
@@ -63,8 +64,27 @@ func newRealIPExtractor(trustedRanges []string) (*realIPExtractor, error) {
 }
 
 func (e *realIPExtractor) Extract(request *http.Request) string {
-	if ip := e.strategy.ClientIP(request.Header, request.RemoteAddr); ip != "" {
+	headers := request.Header.Clone()
+	remoteAddr, _, _ := net.SplitHostPort(request.RemoteAddr)
+	if remoteAddr == "" {
+		remoteAddr = request.RemoteAddr
+	}
+
+	newXForwardedFor := []string{}
+	oldXForwardedFor := headers.Get("X-Forwarded-For")
+
+	if oldXForwardedFor != "" {
+		newXForwardedFor = append(newXForwardedFor, oldXForwardedFor)
+	}
+	if remoteAddr != "" {
+		newXForwardedFor = append(newXForwardedFor, remoteAddr)
+	}
+
+	headers.Set("X-Forwarded-For", strings.Join(newXForwardedFor, ", "))
+
+	// RightmostTrustedRangeStrategy ignore the second parameter
+	if ip := e.strategy.ClientIP(headers, ""); ip != "" {
 		return ip
 	}
-	return strings.Split(request.RemoteAddr, ":")[0]
+	return remoteAddr
 }

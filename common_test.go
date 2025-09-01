@@ -82,9 +82,16 @@ func TestRealIPExtractor(t *testing.T) {
 			want:          "203.0.113.1",
 		},
 		{
-			name:          "Untrusted proxy - still uses X-Forwarded-For",
+			name:          "Untrusted X-Forwarded-For and RemoteAddr - uses RemoteAddr",
 			headers:       map[string]string{"X-Forwarded-For": "203.0.113.1"},
 			remoteAddr:    "192.168.1.1:8080",
+			trustedRanges: []string{"10.0.0.0/8"},
+			want:          "192.168.1.1",
+		},
+		{
+			name:          "Untrusted X-Forwarded-For and trusted RemoteAddr",
+			headers:       map[string]string{"X-Forwarded-For": "203.0.113.1"},
+			remoteAddr:    "10.0.0.1:8080",
 			trustedRanges: []string{"10.0.0.0/8"},
 			want:          "203.0.113.1",
 		},
@@ -115,6 +122,20 @@ func TestRealIPExtractor(t *testing.T) {
 			remoteAddr:    "192.168.1.1:8080",
 			trustedRanges: []string{"192.168.1.0/24", "10.0.0.0/8"},
 			want:          "8.8.8.8",
+		},
+		{
+			name:          "IPv6 RemoteAddr",
+			headers:       map[string]string{},
+			remoteAddr:    "[2001:db8::1]:8080",
+			trustedRanges: []string{"192.168.1.0/24"},
+			want:          "2001:db8::1",
+		},
+		{
+			name:          "Empty RemoteAddr with X-Forwarded-For",
+			headers:       map[string]string{"X-Forwarded-For": "203.0.113.1"},
+			remoteAddr:    "",
+			trustedRanges: []string{"192.168.1.0/24"},
+			want:          "203.0.113.1",
 		},
 	}
 
