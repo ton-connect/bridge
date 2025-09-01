@@ -10,7 +10,7 @@ type BridgeMessage struct {
 	From                string `json:"from"`
 	Message             string `json:"message"`
 	TraceId             string `json:"trace_id"`
-	BridgeRequestSource string `json:"request_source"`
+	BridgeRequestSource string `json:"request_source,omitempty"`
 }
 
 type BridgeRequestSource struct {
