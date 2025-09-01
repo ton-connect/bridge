@@ -68,6 +68,7 @@ type handler struct {
 	storage           db
 	_eventIDs         int64
 	heartbeatInterval time.Duration
+	realIP            *realIPExtractor
 }
 
 type db interface {
@@ -75,13 +76,14 @@ type db interface {
 	Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error
 }
 
-func newHandler(db db, heartbeatInterval time.Duration) *handler {
+func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
 	h := handler{
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
 		storage:           db,
 		_eventIDs:         time.Now().UnixMicro(),
 		heartbeatInterval: heartbeatInterval,
+		realIP:            extractor,
 	}
 	return &h
 }
@@ -304,10 +306,32 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}
 	}
 
+	origin := ExtractOrigin(c.Request().Header.Get("Origin"))
+	ip := h.realIP.Extract(c.Request())
+	userAgent := c.Request().Header.Get("User-Agent")
+
+	requestSource := datatype.BridgeRequestSource{
+		Origin:    origin,
+		IP:        ip,
+		Time:      strconv.FormatInt(time.Now().Unix(), 10),
+		UserAgent: userAgent,
+	}
+
+	encryptedRequestSource, err := encryptRequestSourceWithWalletID(
+		requestSource,
+		toId[0], // todo - check to id properly
+	)
+	if err != nil {
+		badRequestMetric.Inc()
+		log.Error(err)
+		return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
+	}
+
 	mes, err := json.Marshal(datatype.BridgeMessage{
-		From:    clientId[0],
-		Message: string(message),
-		TraceId: traceId,
+		From:                clientId[0],
+		Message:             string(message),
+		BridgeRequestSource: encryptedRequestSource,
+		TraceId:             traceId,
 	})
 	if err != nil {
 		badRequestMetric.Inc()

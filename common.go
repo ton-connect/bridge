@@ -1,6 +1,12 @@
 package main
 
-import "net/http"
+import (
+	"net/http"
+	"net/url"
+	"strings"
+
+	"github.com/realclientip/realclientip-go"
+)
 
 type HttpRes struct {
 	Message    string `json:"message,omitempty" example:"status ok"`
@@ -19,4 +25,62 @@ func HttpResError(errMsg string, statusCode int) (int, HttpRes) {
 		Message:    errMsg,
 		StatusCode: statusCode,
 	}
+}
+
+func ExtractOrigin(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return rawURL
+	}
+	if u.Scheme == "" || u.Host == "" {
+		return rawURL
+	}
+	return u.Scheme + "://" + u.Host
+}
+
+type realIPExtractor struct {
+	strategy realclientip.RightmostTrustedRangeStrategy
+}
+
+// newRealIPExtractor creates a new realIPExtractor with the given trusted ranges.
+func newRealIPExtractor(trustedRanges []string) (*realIPExtractor, error) {
+	ipNets, err := realclientip.AddressesAndRangesToIPNets(trustedRanges...)
+	if err != nil {
+		return nil, err
+	}
+
+	strategy, err := realclientip.NewRightmostTrustedRangeStrategy("X-Forwarded-For", ipNets)
+	if err != nil {
+		return nil, err
+	}
+
+	return &realIPExtractor{
+		strategy: strategy,
+	}, nil
+}
+
+func (e *realIPExtractor) Extract(request *http.Request) string {
+	headers := request.Header.Clone()
+
+	newXForwardedFor := []string{}
+	oldXForwardedFor := headers.Get("X-Forwarded-For")
+
+	if oldXForwardedFor != "" {
+		newXForwardedFor = append(newXForwardedFor, oldXForwardedFor)
+	}
+	newXForwardedFor = append(newXForwardedFor, request.RemoteAddr)
+
+	headers.Set("X-Forwarded-For", strings.Join(newXForwardedFor, ", "))
+
+	// RightmostTrustedRangeStrategy ignore the second parameter
+	if ip := e.strategy.ClientIP(headers, ""); ip != "" {
+		return ip
+	}
+
+	// Fallback: use RemoteAddrStrategy to cleanly extract IP from RemoteAddr
+	fallbackStrategy := realclientip.RemoteAddrStrategy{}
+	return fallbackStrategy.ClientIP(nil, request.RemoteAddr)
 }
