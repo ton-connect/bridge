@@ -6,27 +6,27 @@ import (
 	"time"
 )
 
-// ConnectionKey represents a unique connection identifier
-type ConnectionKey struct {
+// connectionKey represents a unique connection identifier
+type connectionKey struct {
 	ClientID  string
 	IP        string
 	Origin    string
 	UserAgent string
 }
 
+// connectionCacheEntry represents a single cache entry
+type connectionCacheEntry struct {
+	key        connectionKey
+	expiration time.Time
+}
+
 // ConnectionCache implements a simplified LRU cache for connection verification
 type ConnectionCache struct {
 	capacity  int
 	ttl       time.Duration
-	items     map[ConnectionKey]*list.Element // struct key -> element
+	items     map[connectionKey]*list.Element // struct key -> element
 	evictList *list.List                      // LRU order
 	mutex     sync.RWMutex
-}
-
-// connectionCacheEntry represents a single cache entry
-type connectionCacheEntry struct {
-	key        ConnectionKey
-	expiration time.Time
 }
 
 // NewConnectionCache creates a new connection cache with the specified capacity and TTL
@@ -34,7 +34,7 @@ func NewConnectionCache(capacity int, ttl time.Duration) *ConnectionCache {
 	return &ConnectionCache{
 		capacity:  capacity,
 		ttl:       ttl,
-		items:     make(map[ConnectionKey]*list.Element),
+		items:     make(map[connectionKey]*list.Element),
 		evictList: list.New(),
 	}
 }
@@ -55,7 +55,7 @@ func (c *ConnectionCache) Add(clientID, ip, origin, userAgent string) {
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
-	key := ConnectionKey{ClientID: clientID, IP: ip, Origin: origin, UserAgent: userAgent}
+	key := connectionKey{ClientID: clientID, IP: ip, Origin: origin, UserAgent: userAgent}
 	now := time.Now()
 	expiration := now.Add(c.ttl)
 
@@ -88,7 +88,7 @@ func (c *ConnectionCache) Verify(clientID, ip, origin, userAgent string) bool {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 
-	key := ConnectionKey{ClientID: clientID, IP: ip, Origin: origin, UserAgent: userAgent}
+	key := connectionKey{ClientID: clientID, IP: ip, Origin: origin, UserAgent: userAgent}
 	if ent, ok := c.items[key]; ok {
 		entry := ent.Value.(*connectionCacheEntry)
 
