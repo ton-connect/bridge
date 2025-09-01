@@ -86,7 +86,7 @@ type handler struct {
 	storage           db
 	_eventIDs         int64
 	heartbeatInterval time.Duration
-	connectCache      *LRUCache
+	sessionCache      *LRUCache
 	realIP            *realIPExtractor
 }
 
@@ -96,8 +96,8 @@ type db interface {
 }
 
 func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
-	connectCache := NewLRUCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
-	connectCache.StartBackgroundCleanup()
+	sessionCache := NewLRUCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
+	sessionCache.StartBackgroundCleanup()
 
 	h := handler{
 		Mux:               sync.RWMutex{},
@@ -105,7 +105,7 @@ func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtract
 		storage:           db,
 		_eventIDs:         time.Now().UnixMicro(),
 		heartbeatInterval: heartbeatInterval,
-		connectCache:      connectCache,
+		sessionCache:      sessionCache,
 		realIP:            extractor,
 	}
 	return &h
@@ -182,12 +182,15 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		origin:   origin,
 		time:     time.Now(),
 	}
-	// Store with composite key for specific connection verification
-	key := fmt.Sprintf("%s:%s:%s", clientId[0], ip, origin)
-	h.connectCache.Add(key, connect_client)
+	// Store session with composite key (no more duplicates)
+	sessionKey := fmt.Sprintf("%s:%s:%s", clientId[0], ip, origin)
+	h.sessionCache.Add(sessionKey, connect_client)
 
-	// Store with simple key for bridge source IP lookup
-	h.connectCache.Add(clientId[0], connect_client)
+	// Example: Get all sessions for this client (new functionality)
+	// clients, found := h.sessionCache.GetAllSessions(clientId[0])
+	// if found {
+	//     log.Infof("Client %s has %d active sessions", clientId[0], len(clients))
+	// }
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
@@ -481,7 +484,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	switch strings.ToLower(req.Type) {
 	case "connect":
 		key := fmt.Sprintf("%s:%s:%s", req.ClientID, ip, req.URL)
-		client, found := h.connectCache.Get(key)
+		client, found := h.sessionCache.Get(key)
 		if found && now.Sub(client.time) < 5*time.Minute {
 			status = "ok"
 		}
