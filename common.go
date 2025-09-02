@@ -62,6 +62,8 @@ func newRealIPExtractor(trustedRanges []string) (*realIPExtractor, error) {
 	}, nil
 }
 
+var remoteAddrStrategy = realclientip.RemoteAddrStrategy{}
+
 func (e *realIPExtractor) Extract(request *http.Request) string {
 	headers := request.Header.Clone()
 
@@ -71,16 +73,19 @@ func (e *realIPExtractor) Extract(request *http.Request) string {
 	if oldXForwardedFor != "" {
 		newXForwardedFor = append(newXForwardedFor, oldXForwardedFor)
 	}
-	newXForwardedFor = append(newXForwardedFor, request.RemoteAddr)
 
+	remoteAddr := remoteAddrStrategy.ClientIP(nil, request.RemoteAddr)
+	if remoteAddr == "" || len(newXForwardedFor) == 0 {
+		return remoteAddr
+	}
+
+	newXForwardedFor = append(newXForwardedFor, remoteAddr)
 	headers.Set("X-Forwarded-For", strings.Join(newXForwardedFor, ", "))
 
 	// RightmostTrustedRangeStrategy ignore the second parameter
-	if ip := e.strategy.ClientIP(headers, ""); ip != "" {
-		return ip
+	rightmostTrusted := e.strategy.ClientIP(headers, "")
+	if rightmostTrusted == "" {
+		return remoteAddr
 	}
-
-	// Fallback: use RemoteAddrStrategy to cleanly extract IP from RemoteAddr
-	fallbackStrategy := realclientip.RemoteAddrStrategy{}
-	return fallbackStrategy.ClientIP(nil, request.RemoteAddr)
+	return rightmostTrusted
 }
