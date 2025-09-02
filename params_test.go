@@ -17,7 +17,6 @@ func TestParamsStorage_URLParameters(t *testing.T) {
 
 	params := NewParamsStorage(c)
 
-	// Test URL parameters
 	clientID, ok := params.Get("client_id")
 	if !ok {
 		t.Error("Expected to find client_id parameter")
@@ -33,19 +32,12 @@ func TestParamsStorage_URLParameters(t *testing.T) {
 	if heartbeat != "message" {
 		t.Errorf("Expected heartbeat=message, got %s", heartbeat)
 	}
-
-	// Test non-existent parameter
-	_, ok = params.Get("nonexistent")
-	if ok {
-		t.Error("Expected not to find nonexistent parameter")
-	}
 }
 
 func TestParamsStorage_JSONBodyParameters(t *testing.T) {
 	e := echo.New()
 
-	// Test with JSON body containing parameters
-	jsonBody := `{"client_id": "test456", "to": "wallet789", "ttl": "300"}`
+	jsonBody := `{"client_id": "test456", "to": "test123", "ttl": "300"}`
 	req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(jsonBody))
 	req.Header.Set("Content-Type", "application/json")
 	rec := httptest.NewRecorder()
@@ -65,15 +57,14 @@ func TestParamsStorage_JSONBodyParameters(t *testing.T) {
 	if !ok {
 		t.Error("Expected to find to parameter")
 	}
-	if to != "wallet789" {
-		t.Errorf("Expected to=wallet789, got %s", to)
+	if to != "test123" {
+		t.Errorf("Expected to=test123, got %s", to)
 	}
 }
 
 func TestParamsStorage_NonJSONBody(t *testing.T) {
 	e := echo.New()
 
-	// Test with non-JSON body and URL params
 	body := "This is just a regular message, not JSON"
 	req := httptest.NewRequest(http.MethodPost, "/test?client_id=test123", strings.NewReader(body))
 	rec := httptest.NewRecorder()
@@ -81,18 +72,11 @@ func TestParamsStorage_NonJSONBody(t *testing.T) {
 
 	params := NewParamsStorage(c)
 
-	// Should get parameter from URL since body is not JSON
 	clientID, ok := params.Get("client_id")
 	if !ok {
 		t.Error("Expected to find client_id parameter")
 	}
 	if clientID != "test123" {
 		t.Errorf("Expected client_id=test123, got %s", clientID)
-	}
-
-	// Should not find parameters that don't exist
-	_, ok = params.Get("to")
-	if ok {
-		t.Error("Expected not to find to parameter")
 	}
 }

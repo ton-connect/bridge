@@ -67,9 +67,9 @@ func encryptRequestSourceWithWalletID(requestSource datatype.BridgeRequestSource
 	}
 
 	publicKeyBytes, err := hex.DecodeString(walletID)
-	// if err != nil {
-	// return "", fmt.Errorf("failed to decode wallet ID: %w", err)
-	// }
+	if err != nil {
+		return "", fmt.Errorf("failed to decode wallet ID: %w", err)
+	}
 
 	if len(publicKeyBytes) != 32 {
 		return "", fmt.Errorf("invalid public key length: expected 32 bytes, got %d", len(publicKeyBytes))

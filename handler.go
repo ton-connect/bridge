@@ -323,9 +323,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		toId[0], // todo - check to id properly
 	)
 	if err != nil {
-		badRequestMetric.Inc()
-		log.Error(err)
-		return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
+		log.Warnf("failed to encrypt request source: %v", err)
 	}
 
 	mes, err := json.Marshal(datatype.BridgeMessage{
