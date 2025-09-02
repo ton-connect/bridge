@@ -7,7 +7,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -103,11 +102,12 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprint(c.Response(), "\n")
 	c.Response().Flush()
-	params := c.QueryParams()
+
+	paramsStore := NewParamsStorage(c)
 
 	heartbeatType := "legacy"
-	if heartbeatParam, exists := params["heartbeat"]; exists && len(heartbeatParam) > 0 {
-		heartbeatType = heartbeatParam[0]
+	if heartbeatParam, exists := paramsStore.Get("heartbeat"); exists {
+		heartbeatType = heartbeatParam
 	}
 
 	heartbeatMsg, ok := validHeartbeatTypes[heartbeatType]
@@ -130,9 +130,9 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
-	lastEventIdQuery, ok := params["last_event_id"]
+	lastEventIdQuery, ok := paramsStore.Get("last_event_id")
 	if ok && lastEventId == 0 {
-		lastEventId, err = strconv.ParseInt(lastEventIdQuery[0], 10, 64)
+		lastEventId, err = strconv.ParseInt(lastEventIdQuery, 10, 64)
 		if err != nil {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
@@ -140,14 +140,14 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
-	clientId, ok := params["client_id"]
+	clientId, ok := paramsStore.Get("client_id")
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
-	clientIds := strings.Split(clientId[0], ",")
+	clientIds := strings.Split(clientId, ",")
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
 	session := h.CreateSession(clientIds, lastEventId)
 
@@ -218,8 +218,9 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 	log := logrus.WithContext(ctx).WithField("prefix", "SendMessageHandler")
 
-	params := c.QueryParams()
-	clientId, ok := params["client_id"]
+	paramsStore := NewParamsStorage(c)
+
+	clientId, ok := paramsStore.Get("client_id")
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
@@ -227,7 +228,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
-	toId, ok := params["to"]
+	toId, ok := paramsStore.Get("to")
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
@@ -235,14 +236,14 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
-	ttlParam, ok := params["ttl"]
+	ttlParam, ok := paramsStore.Get("ttl")
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
-	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
+	ttl, err := strconv.ParseInt(ttlParam, 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
@@ -254,11 +255,12 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
-	message, err := io.ReadAll(c.Request().Body)
-	if err != nil {
+	message := paramsStore.GetMessageContent()
+	if len(message) == 0 {
 		badRequestMetric.Inc()
-		log.Error(err)
-		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+		errorMsg := "message body is empty"
+		log.Error(errorMsg)
+		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
 	if config.Config.CopyToURL != "" {
@@ -267,7 +269,18 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			if err != nil {
 				return
 			}
-			u.RawQuery = params.Encode()
+			// Build query params for CopyToURL
+			urlParams := url.Values{}
+			urlParams.Set("client_id", clientId)
+			urlParams.Set("to", toId)
+			urlParams.Set("ttl", ttlParam)
+			if topic, ok := paramsStore.Get("topic"); ok {
+				urlParams.Set("topic", topic)
+			}
+			if traceId, ok := paramsStore.Get("trace_id"); ok {
+				urlParams.Set("trace_id", traceId)
+			}
+			u.RawQuery = urlParams.Encode()
 			req, err := http.NewRequest(http.MethodPost, u.String(), bytes.NewReader(message))
 			if err != nil {
 				return
@@ -275,23 +288,20 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			http.DefaultClient.Do(req) //nolint:errcheck// TODO review golangci-lint issue
 		}()
 	}
-	topicParam, ok := params["topic"]
-	topic := ""
-	if ok {
-		topic = topicParam[0]
+	topic, topicOk := paramsStore.Get("topic")
+	if topicOk {
 		go func(clientID, topic, message string) {
 			SendWebhook(clientID, WebhookData{Topic: topic, Hash: message})
-		}(clientId[0], topic, string(message))
+		}(clientId, topic, string(message))
 	}
 
-	traceIdParam, ok := params["trace_id"]
 	traceId := "unknown"
-	if ok {
-		uuids, err := uuid.Parse(traceIdParam[0])
+	if traceIdParam, ok := paramsStore.Get("trace_id"); ok {
+		uuids, err := uuid.Parse(traceIdParam)
 		if err != nil {
 			log.WithFields(logrus.Fields{
 				"error":            err,
-				"invalid_trace_id": traceIdParam[0],
+				"invalid_trace_id": traceIdParam,
 			}).Warn("generating a new trace_id")
 		} else {
 			traceId = uuids.String()
@@ -319,16 +329,16 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 	encryptedRequestSource, err := encryptRequestSourceWithWalletID(
 		requestSource,
-		toId[0], // todo - check to id properly
+		toId, // todo - check to id properly
 	)
-	if err != nil {
-		badRequestMetric.Inc()
-		log.Error(err)
-		return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
-	}
+	// if err != nil {
+	// 	badRequestMetric.Inc()
+	// 	log.Error(err)
+	// 	return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
+	// }
 
 	mes, err := json.Marshal(datatype.BridgeMessage{
-		From:                clientId[0],
+		From:                clientId,
 		Message:             string(message),
 		BridgeRequestSource: encryptedRequestSource,
 		TraceId:             traceId,
@@ -346,10 +356,10 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	sseMessage := datatype.SseMessage{
 		EventId: h.nextID(),
 		Message: mes,
-		To:      toId[0],
+		To:      toId,
 	}
 	h.Mux.RLock()
-	s, ok := h.Connections[toId[0]]
+	s, ok := h.Connections[toId]
 	h.Mux.RUnlock()
 	if ok {
 		s.mux.Lock()
@@ -382,7 +392,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	log.WithFields(logrus.Fields{
 		"hash":     messageHash,
 		"from":     fromId,
-		"to":       toId[0],
+		"to":       toId,
 		"event_id": sseMessage.EventId,
 		"trace_id": bridgeMsg.TraceId,
 	}).Debug("message received")
