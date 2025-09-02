@@ -9,7 +9,7 @@ import (
 )
 
 type ParamsStorage struct {
-	params map[string]string
+	params      map[string]string
 	bodyContent []byte // Store original body content
 }
 

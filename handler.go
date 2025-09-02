@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -218,9 +219,8 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 	log := logrus.WithContext(ctx).WithField("prefix", "SendMessageHandler")
 
-	paramsStore := NewParamsStorage(c)
-
-	clientId, ok := paramsStore.Get("client_id")
+	params := c.QueryParams()
+	clientId, ok := params["client_id"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
@@ -228,7 +228,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
-	toId, ok := paramsStore.Get("to")
+	toId, ok := params["to"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
@@ -236,14 +236,14 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
-	ttlParam, ok := paramsStore.Get("ttl")
+	ttlParam, ok := params["ttl"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
-	ttl, err := strconv.ParseInt(ttlParam, 10, 32)
+	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
@@ -255,12 +255,11 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
-	message := paramsStore.GetMessageContent()
-	if len(message) == 0 {
+	message, err := io.ReadAll(c.Request().Body)
+	if err != nil {
 		badRequestMetric.Inc()
-		errorMsg := "message body is empty"
-		log.Error(errorMsg)
-		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+		log.Error(err)
+		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
 	if config.Config.CopyToURL != "" {
@@ -269,18 +268,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			if err != nil {
 				return
 			}
-			// Build query params for CopyToURL
-			urlParams := url.Values{}
-			urlParams.Set("client_id", clientId)
-			urlParams.Set("to", toId)
-			urlParams.Set("ttl", ttlParam)
-			if topic, ok := paramsStore.Get("topic"); ok {
-				urlParams.Set("topic", topic)
-			}
-			if traceId, ok := paramsStore.Get("trace_id"); ok {
-				urlParams.Set("trace_id", traceId)
-			}
-			u.RawQuery = urlParams.Encode()
+			u.RawQuery = params.Encode()
 			req, err := http.NewRequest(http.MethodPost, u.String(), bytes.NewReader(message))
 			if err != nil {
 				return
@@ -288,20 +276,23 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			http.DefaultClient.Do(req) //nolint:errcheck// TODO review golangci-lint issue
 		}()
 	}
-	topic, topicOk := paramsStore.Get("topic")
-	if topicOk {
+	topicParam, ok := params["topic"]
+	topic := ""
+	if ok {
+		topic = topicParam[0]
 		go func(clientID, topic, message string) {
 			SendWebhook(clientID, WebhookData{Topic: topic, Hash: message})
-		}(clientId, topic, string(message))
+		}(clientId[0], topic, string(message))
 	}
 
+	traceIdParam, ok := params["trace_id"]
 	traceId := "unknown"
-	if traceIdParam, ok := paramsStore.Get("trace_id"); ok {
-		uuids, err := uuid.Parse(traceIdParam)
+	if ok {
+		uuids, err := uuid.Parse(traceIdParam[0])
 		if err != nil {
 			log.WithFields(logrus.Fields{
 				"error":            err,
-				"invalid_trace_id": traceIdParam,
+				"invalid_trace_id": traceIdParam[0],
 			}).Warn("generating a new trace_id")
 		} else {
 			traceId = uuids.String()
@@ -329,16 +320,16 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 	encryptedRequestSource, err := encryptRequestSourceWithWalletID(
 		requestSource,
-		toId, // todo - check to id properly
+		toId[0], // todo - check to id properly
 	)
-	// if err != nil {
-	// 	badRequestMetric.Inc()
-	// 	log.Error(err)
-	// 	return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
-	// }
+	if err != nil {
+		badRequestMetric.Inc()
+		log.Error(err)
+		return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
+	}
 
 	mes, err := json.Marshal(datatype.BridgeMessage{
-		From:                clientId,
+		From:                clientId[0],
 		Message:             string(message),
 		BridgeRequestSource: encryptedRequestSource,
 		TraceId:             traceId,
@@ -356,10 +347,10 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	sseMessage := datatype.SseMessage{
 		EventId: h.nextID(),
 		Message: mes,
-		To:      toId,
+		To:      toId[0],
 	}
 	h.Mux.RLock()
-	s, ok := h.Connections[toId]
+	s, ok := h.Connections[toId[0]]
 	h.Mux.RUnlock()
 	if ok {
 		s.mux.Lock()
@@ -392,7 +383,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	log.WithFields(logrus.Fields{
 		"hash":     messageHash,
 		"from":     fromId,
-		"to":       toId,
+		"to":       toId[0],
 		"event_id": sseMessage.EventId,
 		"trace_id": bridgeMsg.TraceId,
 	}).Debug("message received")
