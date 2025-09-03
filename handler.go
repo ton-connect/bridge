@@ -173,7 +173,7 @@ loop:
 				break loop
 			}
 
-			// Parse the message and add BridgeConnectSource
+			// Parse the message, add BridgeConnectSource, keep it for later logging
 			var bridgeMsg datatype.BridgeMessage
 			messageToSend := msg.Message
 			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
@@ -190,22 +190,13 @@ loop:
 			}
 			c.Response().Flush()
 
-			fromId := "unknown"
-			toId := msg.To
-
 			hash := sha256.Sum256(messageToSend)
 			messageHash := hex.EncodeToString(hash[:])
 
-			if err := json.Unmarshal(messageToSend, &bridgeMsg); err == nil {
-				fromId = bridgeMsg.From
-				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
-				messageHash = hex.EncodeToString(contentHash[:])
-			}
-
 			logrus.WithFields(logrus.Fields{
 				"hash":     messageHash,
-				"from":     fromId,
-				"to":       toId,
+				"from":     bridgeMsg.From,
+				"to":       msg.To,
 				"event_id": msg.EventId,
 				"trace_id": bridgeMsg.TraceId,
 			}).Debug("message sent")
