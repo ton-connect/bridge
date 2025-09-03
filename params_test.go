@@ -115,3 +115,20 @@ func TestParamsStorage_NonJSONBody(t *testing.T) {
 		t.Errorf("Expected client_id=test123, got %s", clientID)
 	}
 }
+
+func TestParamsStorage_JSONBodyIsTooLarge(t *testing.T) {
+	e := echo.New()
+
+	jsonBody := `{"client_id": "test456", "to": "test123", "ttl": "300"}`
+	req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	_, err := NewParamsStorage(c, 10)
+	if err == nil {
+		t.Error("Expected error when body is too large")
+	} else if !strings.Contains(err.Error(), "body too large") {
+		t.Errorf("Expected 'body too large' error, got: %s", err.Error())
+	}
+}
