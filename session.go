@@ -9,22 +9,22 @@ import (
 )
 
 type Session struct {
-	mux             sync.RWMutex
-	ClientIds       []string
-	MessageCh       chan datatype.SseMessage
-	storage         db
-	Closer          chan interface{}
-	lastEventId     int64
+	mux         sync.RWMutex
+	ClientIds   []string
+	MessageCh   chan datatype.SseMessage
+	storage     db
+	Closer      chan interface{}
+	lastEventId int64
 }
 
 func NewSession(s db, clientIds []string, lastEventId int64) *Session {
 	session := Session{
-		mux:             sync.RWMutex{},
-		ClientIds:       clientIds,
-		storage:         s,
-		MessageCh:       make(chan datatype.SseMessage, 10),
-		Closer:          make(chan interface{}),
-		lastEventId:     lastEventId,
+		mux:         sync.RWMutex{},
+		ClientIds:   clientIds,
+		storage:     s,
+		MessageCh:   make(chan datatype.SseMessage, 10),
+		Closer:      make(chan interface{}),
+		lastEventId: lastEventId,
 	}
 	return &session
 }
