@@ -154,6 +154,8 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}
 	clientIds := strings.Split(clientId, ",")
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
+
+	connectIP := h.realIP.Extract(c.Request())
 	session := h.CreateSession(clientIds, lastEventId)
 
 	ctx := c.Request().Context()
@@ -175,30 +177,31 @@ loop:
 				// can't read from channel, session is closed
 				break loop
 			}
-			_, err = fmt.Fprintf(c.Response(), "event: %v\nid: %v\ndata: %v\n\n", "message", msg.EventId, string(msg.Message))
+
+			// Parse the message, add BridgeConnectSource, keep it for later logging
+			var bridgeMsg datatype.BridgeMessage
+			messageToSend := msg.Message
+			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+				bridgeMsg.BridgeConnectSource = connectIP
+				if modifiedMessage, err := json.Marshal(bridgeMsg); err == nil {
+					messageToSend = modifiedMessage
+				}
+			}
+
+			_, err = fmt.Fprintf(c.Response(), "event: message\r\nid: %v\r\ndata: %v\r\n\r\n", msg.EventId, string(messageToSend))
 			if err != nil {
 				log.Errorf("msg can't write to connection: %v", err)
 				break loop
 			}
 			c.Response().Flush()
 
-			fromId := "unknown"
-			toId := msg.To
-
-			hash := sha256.Sum256(msg.Message)
+			hash := sha256.Sum256(messageToSend)
 			messageHash := hex.EncodeToString(hash[:])
-
-			var bridgeMsg datatype.BridgeMessage
-			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
-				fromId = bridgeMsg.From
-				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
-				messageHash = hex.EncodeToString(contentHash[:])
-			}
 
 			logrus.WithFields(logrus.Fields{
 				"hash":     messageHash,
-				"from":     fromId,
-				"to":       toId,
+				"from":     bridgeMsg.From,
+				"to":       msg.To,
 				"event_id": msg.EventId,
 				"trace_id": bridgeMsg.TraceId,
 			}).Debug("message sent")
