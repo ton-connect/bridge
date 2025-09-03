@@ -183,7 +183,7 @@ loop:
 				}
 			}
 
-			_, err = fmt.Fprintf(c.Response(), "event: %v\nid: %v\ndata: %v\n\n", "message", msg.EventId, string(messageToSend))
+			_, err = fmt.Fprintf(c.Response(), "event: message\r\nid: %v\r\ndata: %v\r\n\r\n", msg.EventId, string(messageToSend))
 			if err != nil {
 				log.Errorf("msg can't write to connection: %v", err)
 				break loop
