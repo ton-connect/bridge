@@ -168,7 +168,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}()
 	ticker := time.NewTicker(h.heartbeatInterval)
 	defer ticker.Stop()
-	session.Start()
+	histMsg := session.Start()
 loop:
 	for {
 		select {
@@ -208,6 +208,13 @@ loop:
 
 			deliveredMessagesMetric.Inc()
 			storage.GlobalExpiredCache.MarkDelivered(msg.EventId)
+		case <-histMsg:
+			_, err = fmt.Fprintf(c.Response(), "event: message\r\ndata: queue_done\r\n\r\n")
+			if err != nil {
+				log.Errorf("ticker can't write to connection: %v", err)
+				break loop
+			}
+			c.Response().Flush()
 		case <-ticker.C:
 			_, err = fmt.Fprint(c.Response(), heartbeatMsg)
 			if err != nil {
