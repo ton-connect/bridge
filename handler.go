@@ -151,7 +151,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
 
 	connectIP := h.realIP.Extract(c.Request())
-	session := h.CreateSession(clientIds, lastEventId, connectIP)
+	session := h.CreateSession(clientIds, lastEventId)
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
@@ -177,7 +177,7 @@ loop:
 			var bridgeMsg datatype.BridgeMessage
 			messageToSend := msg.Message
 			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
-				bridgeMsg.BridgeConnectSource = session.connectSourceIP
+				bridgeMsg.BridgeConnectSource = connectIP
 				if modifiedMessage, err := json.Marshal(bridgeMsg); err == nil {
 					messageToSend = modifiedMessage
 				}
@@ -434,10 +434,10 @@ func (h *handler) removeConnection(ses *Session) {
 	}
 }
 
-func (h *handler) CreateSession(clientIds []string, lastEventId int64, connectIP string) *Session {
+func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session {
 	log := logrus.WithField("prefix", "CreateSession")
 	log.Infof("make new session with ids: %v", clientIds)
-	session := NewSession(h.storage, clientIds, lastEventId, connectIP)
+	session := NewSession(h.storage, clientIds, lastEventId)
 	activeConnectionMetric.Inc()
 	for _, id := range clientIds {
 		h.Mux.RLock()
