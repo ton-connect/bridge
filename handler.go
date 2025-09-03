@@ -124,6 +124,11 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
+	enableQueueDoneEvent := false
+	if queueDoneParam, exists := paramsStore.Get("enable_queue_done_event"); exists && queueDoneParam == "true" {
+		enableQueueDoneEvent = true
+	}
+
 	var lastEventId int64
 	lastEventIDStr := c.Request().Header.Get("Last-Event-ID")
 	if lastEventIDStr != "" {
@@ -166,7 +171,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		h.removeConnection(session)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
 	}()
-	enableQueueDoneEvent := false // TODO make query/body parameter
+
 	session.Start(heartbeatMsg, enableQueueDoneEvent, h.heartbeatInterval)
 
 	for msg := range session.MessageCh {
