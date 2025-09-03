@@ -103,11 +103,17 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().WriteHeader(http.StatusOK)
 	_, _ = fmt.Fprint(c.Response(), "\n")
 	c.Response().Flush()
-	params := c.QueryParams()
+
+	paramsStore, err := NewParamsStorage(c, config.Config.MaxBodySize)
+	if err != nil {
+		badRequestMetric.Inc()
+		log.Error(err)
+		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+	}
 
 	heartbeatType := "legacy"
-	if heartbeatParam, exists := params["heartbeat"]; exists && len(heartbeatParam) > 0 {
-		heartbeatType = heartbeatParam[0]
+	if heartbeatParam, exists := paramsStore.Get("heartbeat"); exists {
+		heartbeatType = heartbeatParam
 	}
 
 	heartbeatMsg, ok := validHeartbeatTypes[heartbeatType]
@@ -119,7 +125,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}
 
 	var lastEventId int64
-	var err error
 	lastEventIDStr := c.Request().Header.Get("Last-Event-ID")
 	if lastEventIDStr != "" {
 		lastEventId, err = strconv.ParseInt(lastEventIDStr, 10, 64)
@@ -130,9 +135,9 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
-	lastEventIdQuery, ok := params["last_event_id"]
+	lastEventIdQuery, ok := paramsStore.Get("last_event_id")
 	if ok && lastEventId == 0 {
-		lastEventId, err = strconv.ParseInt(lastEventIdQuery[0], 10, 64)
+		lastEventId, err = strconv.ParseInt(lastEventIdQuery, 10, 64)
 		if err != nil {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
@@ -140,14 +145,14 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
-	clientId, ok := params["client_id"]
+	clientId, ok := paramsStore.Get("client_id")
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
-	clientIds := strings.Split(clientId[0], ",")
+	clientIds := strings.Split(clientId, ",")
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
 	session := h.CreateSession(clientIds, lastEventId)
 
