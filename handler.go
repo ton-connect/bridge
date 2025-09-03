@@ -166,7 +166,8 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		h.removeConnection(session)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
 	}()
-	session.Start(h.heartbeatInterval)
+	enableQueueDoneEvent := true
+	session.Start(hearbeatMessage, enableQueueDoneEvent, h.heartbeatInterval)
 loop:
 	for {
 		select {
@@ -186,11 +187,9 @@ loop:
 				}
 			}
 
-			sseMessage := ""
-			if msg.EventId == -1 && string(msg.Message) == "heartbeat" {
-				sseMessage = heartbeatMsg
-			} else if msg.EventId == -1 && config.Config.SendHistoricEventsDone && string(msg.Message) == "queue_done" {
-				sseMessage = "event: message\r\ndata: queue_done\r\n\r\n"
+			var sseMessage string
+			if msg.EventId == -1 {
+				sseMessage = string(messageToSend)
 			} else {
 				sseMessage = fmt.Sprintf("event: message\r\nid: %v\r\ndata: %v\r\n\r\n", msg.EventId, string(messageToSend))
 			}

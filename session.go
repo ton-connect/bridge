@@ -30,7 +30,7 @@ func NewSession(s db, clientIds []string, lastEventId int64) *Session {
 	return &session
 }
 
-func (s *Session) worker(heartbeatInterval time.Duration) {
+func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, heartbeatInterval time.Duration) {
 	log := logrus.WithField("prefix", "Session.worker")
 
 	ticker := time.NewTicker(heartbeatInterval)
@@ -42,7 +42,7 @@ func (s *Session) worker(heartbeatInterval time.Duration) {
 			case <-s.Closer:
 				return
 			default:
-				s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte("heartbeat")}
+				s.MessageCh <- datatype.SseMessage{EventId: -1, Message: heartbeatMessage}
 			}
 		}
 	}()
@@ -60,7 +60,9 @@ func (s *Session) worker(heartbeatInterval time.Duration) {
 		}
 	}
 
-	s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte("queue_done")}
+	if enableQueueDoneEvent {
+		s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte("event: message\r\ndata: queue_done\r\n\r\n")}
+	}
 	<-s.Closer
 	close(s.MessageCh)
 }
@@ -73,6 +75,6 @@ func (s *Session) AddMessageToQueue(ctx context.Context, mes datatype.SseMessage
 	}
 }
 
-func (s *Session) Start(heartbeatInterval time.Duration) {
-	go s.worker(heartbeatInterval)
+func (s *Session) Start(heartbeatMessage string, enableQueueDoneEvent bool, heartbeatInterval time.Duration) {
+	go s.worker(hearbeatMessage, enableQueueDoneEvent, heartbeatInterval)
 }
