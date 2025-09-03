@@ -149,7 +149,9 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}
 	clientIds := strings.Split(clientId[0], ",")
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
-	session := h.CreateSession(clientIds, lastEventId)
+
+	connectIP := h.realIP.Extract(c.Request())
+	session := h.CreateSession(clientIds, lastEventId, connectIP)
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
@@ -170,7 +172,18 @@ loop:
 				// can't read from channel, session is closed
 				break loop
 			}
-			_, err = fmt.Fprintf(c.Response(), "event: %v\nid: %v\ndata: %v\n\n", "message", msg.EventId, string(msg.Message))
+
+			// Parse the message and add BridgeConnectSource
+			var bridgeMsg datatype.BridgeMessage
+			messageToSend := msg.Message
+			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+				bridgeMsg.BridgeConnectSource = session.connectSourceIP
+				if modifiedMessage, err := json.Marshal(bridgeMsg); err == nil {
+					messageToSend = modifiedMessage
+				}
+			}
+
+			_, err = fmt.Fprintf(c.Response(), "event: %v\nid: %v\ndata: %v\n\n", "message", msg.EventId, string(messageToSend))
 			if err != nil {
 				log.Errorf("msg can't write to connection: %v", err)
 				break loop
@@ -180,11 +193,10 @@ loop:
 			fromId := "unknown"
 			toId := msg.To
 
-			hash := sha256.Sum256(msg.Message)
+			hash := sha256.Sum256(messageToSend)
 			messageHash := hex.EncodeToString(hash[:])
 
-			var bridgeMsg datatype.BridgeMessage
-			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+			if err := json.Unmarshal(messageToSend, &bridgeMsg); err == nil {
 				fromId = bridgeMsg.From
 				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
 				messageHash = hex.EncodeToString(contentHash[:])
@@ -422,10 +434,10 @@ func (h *handler) removeConnection(ses *Session) {
 	}
 }
 
-func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session {
+func (h *handler) CreateSession(clientIds []string, lastEventId int64, connectIP string) *Session {
 	log := logrus.WithField("prefix", "CreateSession")
 	log.Infof("make new session with ids: %v", clientIds)
-	session := NewSession(h.storage, clientIds, lastEventId)
+	session := NewSession(h.storage, clientIds, lastEventId, connectIP)
 	activeConnectionMetric.Inc()
 	for _, id := range clientIds {
 		h.Mux.RLock()

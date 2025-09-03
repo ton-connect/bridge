@@ -11,6 +11,7 @@ type BridgeMessage struct {
 	Message             string `json:"message"`
 	TraceId             string `json:"trace_id"`
 	BridgeRequestSource string `json:"request_source,omitempty"`
+	BridgeConnectSource string `json:"connect_source,omitempty"`
 }
 
 type BridgeRequestSource struct {
