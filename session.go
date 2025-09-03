@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"sync"
+	"time"
 
 	"github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/datatype"
@@ -29,8 +30,23 @@ func NewSession(s db, clientIds []string, lastEventId int64) *Session {
 	return &session
 }
 
-func (s *Session) worker() {
+func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, heartbeatInterval time.Duration) {
 	log := logrus.WithField("prefix", "Session.worker")
+
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	go func() {
+		for range ticker.C {
+			select {
+			case <-s.Closer:
+				return
+			default:
+				s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)}
+			}
+		}
+	}()
+
 	queue, err := s.storage.GetMessages(context.TODO(), s.ClientIds, s.lastEventId)
 	if err != nil {
 		log.Info("get queue error: ", err)
@@ -44,6 +60,9 @@ func (s *Session) worker() {
 		}
 	}
 
+	if enableQueueDoneEvent {
+		s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte("event: message\r\ndata: queue_done\r\n\r\n")}
+	}
 	<-s.Closer
 	close(s.MessageCh)
 }
@@ -56,6 +75,6 @@ func (s *Session) AddMessageToQueue(ctx context.Context, mes datatype.SseMessage
 	}
 }
 
-func (s *Session) Start() {
-	go s.worker()
+func (s *Session) Start(heartbeatMessage string, enableQueueDoneEvent bool, heartbeatInterval time.Duration) {
+	go s.worker(heartbeatMessage, enableQueueDoneEvent, heartbeatInterval)
 }
