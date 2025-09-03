@@ -166,9 +166,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		h.removeConnection(session)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
 	}()
-	ticker := time.NewTicker(h.heartbeatInterval)
-	defer ticker.Stop()
-	session.Start()
+	session.Start(h.heartbeatInterval)
 loop:
 	for {
 		select {
@@ -188,7 +186,16 @@ loop:
 				}
 			}
 
-			_, err = fmt.Fprintf(c.Response(), "event: message\r\nid: %v\r\ndata: %v\r\n\r\n", msg.EventId, string(messageToSend))
+			sseMessage := ""
+			if msg.EventId == -1 && string(msg.Message) == "heartbeat" {
+				sseMessage = heartbeatMsg
+			} else if msg.EventId == -1 && config.Config.SendHistoricEventsDone && string(msg.Message) == "queue_done" {
+				sseMessage = "event: message\r\ndata: queue_done\r\n\r\n"
+			} else {
+				sseMessage = fmt.Sprintf("event: message\r\nid: %v\r\ndata: %v\r\n\r\n", msg.EventId, string(messageToSend))
+			}
+
+			_, err = fmt.Fprintf(c.Response(), sseMessage)
 			if err != nil {
 				log.Errorf("msg can't write to connection: %v", err)
 				break loop
@@ -208,13 +215,6 @@ loop:
 
 			deliveredMessagesMetric.Inc()
 			storage.GlobalExpiredCache.MarkDelivered(msg.EventId)
-		case <-ticker.C:
-			_, err = fmt.Fprint(c.Response(), heartbeatMsg)
-			if err != nil {
-				log.Errorf("ticker can't write to connection: %v", err)
-				break loop
-			}
-			c.Response().Flush()
 		}
 	}
 	activeConnectionMetric.Dec()

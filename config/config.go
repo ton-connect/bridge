@@ -26,6 +26,7 @@ var Config = struct {
 	DisconnectEventMaxSize int      `env:"DISCONNECT_EVENT_MAX_SIZE" envDefault:"512"`
 	TrustedProxyRanges     []string `env:"TRUSTED_PROXY_RANGES" envDefault:"0.0.0.0/0"`
 	MaxBodySize            int64    `env:"MAX_BODY_SIZE" envDefault:"10485760"` // 10 MB
+	SendHistoricEventsDone bool     `env:"SEND_HISTORIC_EVENTS_DONE" envDefault:"false"`
 }{}
 
 func LoadConfig() {
