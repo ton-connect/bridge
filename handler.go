@@ -104,7 +104,12 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	_, _ = fmt.Fprint(c.Response(), "\n")
 	c.Response().Flush()
 
-	paramsStore := NewParamsStorage(c)
+	paramsStore, err := NewParamsStorage(c, config.Config.MaxBodySize)
+	if err != nil {
+		badRequestMetric.Inc()
+		log.Error(err)
+		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+	}
 
 	heartbeatType := "legacy"
 	if heartbeatParam, exists := paramsStore.Get("heartbeat"); exists {
@@ -120,7 +125,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}
 
 	var lastEventId int64
-	var err error
 	lastEventIDStr := c.Request().Header.Get("Last-Event-ID")
 	if lastEventIDStr != "" {
 		lastEventId, err = strconv.ParseInt(lastEventIDStr, 10, 64)

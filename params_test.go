@@ -9,13 +9,19 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+const maxBodySize = 1048576 // 1 MB
+
 func TestParamsStorage_URLParameters(t *testing.T) {
 	e := echo.New()
 	req := httptest.NewRequest(http.MethodGet, "/test?client_id=test123&heartbeat=message", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	params := NewParamsStorage(c)
+	params, err := NewParamsStorage(c, maxBodySize)
+	if err != nil {
+		t.Error(err)
+		return
+	}
 
 	clientID, ok := params.Get("client_id")
 	if !ok {
@@ -43,7 +49,11 @@ func TestParamsStorage_JSONBodyParameters(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	params := NewParamsStorage(c)
+	params, err := NewParamsStorage(c, maxBodySize)
+	if err != nil {
+		t.Error(err)
+		return
+	}
 
 	clientID, ok := params.Get("client_id")
 	if !ok {
@@ -62,6 +72,27 @@ func TestParamsStorage_JSONBodyParameters(t *testing.T) {
 	}
 }
 
+func TestParamsStorage_JSONBodyParametersWithWrongContentType(t *testing.T) {
+	e := echo.New()
+
+	jsonBody := `{"client_id": "test456", "to": "test123", "ttl": "300"}`
+	req := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(jsonBody))
+	req.Header.Set("Content-Type", "text/event-stream")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	params, err := NewParamsStorage(c, maxBodySize)
+	if err != nil {
+		t.Error(err)
+		return
+	}
+
+	_, ok := params.Get("client_id")
+	if ok {
+		t.Error("Expected not to find client_id parameter")
+	}
+}
+
 func TestParamsStorage_NonJSONBody(t *testing.T) {
 	e := echo.New()
 
@@ -70,7 +101,11 @@ func TestParamsStorage_NonJSONBody(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	params := NewParamsStorage(c)
+	params, err := NewParamsStorage(c, maxBodySize)
+	if err != nil {
+		t.Error(err)
+		return
+	}
 
 	clientID, ok := params.Get("client_id")
 	if !ok {
