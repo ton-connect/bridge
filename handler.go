@@ -124,6 +124,11 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
+	enableQueueDoneEvent := false
+	if queueDoneParam, exists := paramsStore.Get("enable_queue_done_event"); exists && queueDoneParam == "true" {
+		enableQueueDoneEvent = true
+	}
+
 	var lastEventId int64
 	lastEventIDStr := c.Request().Header.Get("Last-Event-ID")
 	if lastEventIDStr != "" {
@@ -166,58 +171,50 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		h.removeConnection(session)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
 	}()
-	ticker := time.NewTicker(h.heartbeatInterval)
-	defer ticker.Stop()
-	session.Start()
-loop:
-	for {
-		select {
-		case msg, ok := <-session.MessageCh:
-			if !ok {
-				// can't read from channel, session is closed
-				break loop
+
+	session.Start(heartbeatMsg, enableQueueDoneEvent, h.heartbeatInterval)
+
+	for msg := range session.MessageCh {
+
+		// Parse the message, add BridgeConnectSource, keep it for later logging
+		var bridgeMsg datatype.BridgeMessage
+		messageToSend := msg.Message
+		if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+			bridgeMsg.BridgeConnectSource = datatype.BridgeConnectSource{
+				IP: connectIP,
 			}
-
-			// Parse the message, add BridgeConnectSource, keep it for later logging
-			var bridgeMsg datatype.BridgeMessage
-			messageToSend := msg.Message
-			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
-				bridgeMsg.BridgeConnectSource = datatype.BridgeConnectSource{
-					IP: connectIP,
-				}
-				if modifiedMessage, err := json.Marshal(bridgeMsg); err == nil {
-					messageToSend = modifiedMessage
-				}
+			if modifiedMessage, err := json.Marshal(bridgeMsg); err == nil {
+				messageToSend = modifiedMessage
 			}
-
-			_, err = fmt.Fprintf(c.Response(), "event: message\r\nid: %v\r\ndata: %v\r\n\r\n", msg.EventId, string(messageToSend))
-			if err != nil {
-				log.Errorf("msg can't write to connection: %v", err)
-				break loop
-			}
-			c.Response().Flush()
-
-			hash := sha256.Sum256(messageToSend)
-			messageHash := hex.EncodeToString(hash[:])
-
-			logrus.WithFields(logrus.Fields{
-				"hash":     messageHash,
-				"from":     bridgeMsg.From,
-				"to":       msg.To,
-				"event_id": msg.EventId,
-				"trace_id": bridgeMsg.TraceId,
-			}).Debug("message sent")
-
-			deliveredMessagesMetric.Inc()
-			storage.GlobalExpiredCache.MarkDelivered(msg.EventId)
-		case <-ticker.C:
-			_, err = fmt.Fprint(c.Response(), heartbeatMsg)
-			if err != nil {
-				log.Errorf("ticker can't write to connection: %v", err)
-				break loop
-			}
-			c.Response().Flush()
 		}
+
+		var sseMessage string
+		if msg.EventId == -1 {
+			sseMessage = string(messageToSend)
+		} else {
+			sseMessage = fmt.Sprintf("event: message\r\nid: %v\r\ndata: %v\r\n\r\n", msg.EventId, string(messageToSend))
+		}
+
+		_, err = fmt.Fprint(c.Response(), sseMessage)
+		if err != nil {
+			log.Errorf("msg can't write to connection: %v", err)
+			break
+		}
+		c.Response().Flush()
+
+		hash := sha256.Sum256(messageToSend)
+		messageHash := hex.EncodeToString(hash[:])
+
+		logrus.WithFields(logrus.Fields{
+			"hash":     messageHash,
+			"from":     bridgeMsg.From,
+			"to":       msg.To,
+			"event_id": msg.EventId,
+			"trace_id": bridgeMsg.TraceId,
+		}).Debug("message sent")
+
+		deliveredMessagesMetric.Inc()
+		storage.GlobalExpiredCache.MarkDelivered(msg.EventId)
 	}
 	activeConnectionMetric.Dec()
 	log.Info("connection closed")
