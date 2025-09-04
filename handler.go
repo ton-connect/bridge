@@ -182,7 +182,9 @@ loop:
 			var bridgeMsg datatype.BridgeMessage
 			messageToSend := msg.Message
 			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
-				bridgeMsg.BridgeConnectSource = connectIP
+				bridgeMsg.BridgeConnectSource = datatype.BridgeConnectSource{
+					IP: connectIP,
+				}
 				if modifiedMessage, err := json.Marshal(bridgeMsg); err == nil {
 					messageToSend = modifiedMessage
 				}
