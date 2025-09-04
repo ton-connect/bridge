@@ -40,7 +40,7 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 	results := make([]message, 0)
 	for _, m := range ms {
 		if m.IsExpired(now) {
-			if !storage.GlobalExpiredCache.IsDelivered(m.EventId) {
+			if !storage.ExpiredCache.IsMarked(m.EventId) {
 				var bridgeMsg datatype.BridgeMessage
 				fromID := "unknown"
 				hash := sha256.Sum256(m.Message)
@@ -75,7 +75,7 @@ func (s *Storage) watcher() {
 		}
 		s.lock.Unlock()
 
-		storage.GlobalExpiredCache.Cleanup()
+		storage.ExpiredCache.Cleanup()
 
 		time.Sleep(time.Second)
 	}
