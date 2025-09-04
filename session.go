@@ -14,6 +14,7 @@ type Session struct {
 	MessageCh   chan datatype.SseMessage
 	storage     db
 	Closer      chan interface{}
+	histMsg     chan bool
 	lastEventId int64
 }
 
@@ -24,6 +25,7 @@ func NewSession(s db, clientIds []string, lastEventId int64) *Session {
 		storage:     s,
 		MessageCh:   make(chan datatype.SseMessage, 10),
 		Closer:      make(chan interface{}),
+		histMsg:     make(chan bool),
 		lastEventId: lastEventId,
 	}
 	return &session
@@ -31,11 +33,11 @@ func NewSession(s db, clientIds []string, lastEventId int64) *Session {
 
 func (s *Session) worker() {
 	log := logrus.WithField("prefix", "Session.worker")
-	queue, err := s.storage.GetMessages(context.TODO(), s.ClientIds, s.lastEventId)
+	messages, err := s.storage.GetMessages(context.TODO(), s.ClientIds, s.lastEventId)
 	if err != nil {
 		log.Info("get queue error: ", err)
 	}
-	for _, m := range queue {
+	for _, m := range messages {
 		select {
 		case <-s.Closer:
 			break //nolint:staticcheck // TODO review golangci-lint issue
@@ -43,7 +45,7 @@ func (s *Session) worker() {
 			s.MessageCh <- m
 		}
 	}
-
+	s.histMsg <- true
 	<-s.Closer
 	close(s.MessageCh)
 }
@@ -56,6 +58,7 @@ func (s *Session) AddMessageToQueue(ctx context.Context, mes datatype.SseMessage
 	}
 }
 
-func (s *Session) Start() {
+func (s *Session) Start() chan bool {
 	go s.worker()
+	return s.histMsg
 }
