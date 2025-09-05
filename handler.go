@@ -352,14 +352,12 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		requestSource = encryptedRequestSource
 	}
 
-	bridgeMessage := datatype.BridgeMessage{
+	mes, err := json.Marshal(datatype.BridgeMessage{
 		From:                clientId[0],
 		Message:             string(message),
-		TraceId:             traceId,
 		BridgeRequestSource: requestSource,
-	}
-
-	mes, err := json.Marshal(bridgeMessage)
+		TraceId:             traceId,
+	})
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
