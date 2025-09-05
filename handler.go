@@ -326,33 +326,40 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}
 	}
 
-	origin := ExtractOrigin(c.Request().Header.Get("Origin"))
-	ip := h.realIP.Extract(c.Request())
-	userAgent := c.Request().Header.Get("User-Agent")
+	var requestSource string
+	noRequestSourceParam, hasNoRequestSource := params["no_request_source"]
+	enableRequestSource := !hasNoRequestSource || len(noRequestSourceParam) == 0 || noRequestSourceParam[0] != "true"
 
-	requestSource := datatype.BridgeRequestSource{
-		Origin:    origin,
-		IP:        ip,
-		Time:      strconv.FormatInt(time.Now().Unix(), 10),
-		UserAgent: userAgent,
+	if enableRequestSource {
+		origin := ExtractOrigin(c.Request().Header.Get("Origin"))
+		ip := h.realIP.Extract(c.Request())
+		userAgent := c.Request().Header.Get("User-Agent")
+
+		encryptedRequestSource, err := encryptRequestSourceWithWalletID(
+			datatype.BridgeRequestSource{
+				Origin:    origin,
+				IP:        ip,
+				Time:      strconv.FormatInt(time.Now().Unix(), 10),
+				UserAgent: userAgent,
+			},
+			toId[0], // todo - check to id properly
+		)
+		if err != nil {
+			badRequestMetric.Inc()
+			log.Error(err)
+			return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
+		}
+		requestSource = encryptedRequestSource
 	}
 
-	encryptedRequestSource, err := encryptRequestSourceWithWalletID(
-		requestSource,
-		toId[0], // todo - check to id properly
-	)
-	if err != nil {
-		badRequestMetric.Inc()
-		log.Error(err)
-		return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
-	}
-
-	mes, err := json.Marshal(datatype.BridgeMessage{
+	bridgeMessage := datatype.BridgeMessage{
 		From:                clientId[0],
 		Message:             string(message),
-		BridgeRequestSource: encryptedRequestSource,
 		TraceId:             traceId,
-	})
+		BridgeRequestSource: requestSource,
+	}
+
+	mes, err := json.Marshal(bridgeMessage)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
