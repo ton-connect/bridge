@@ -83,24 +83,53 @@ func (c *ConnectionCache) Add(clientID, ip, origin, userAgent string) {
 	c.items[key] = element
 }
 
-// Verify checks if a connection exists and is valid (not expired)
-func (c *ConnectionCache) Verify(clientID, ip, origin, userAgent string) bool {
+// Verify checks transaction source and returns verification status
+// Returns: "ok" (verified match), "danger" (fraud indication), "warning" (suspicious), "unknown" (new/untracked)
+func (c *ConnectionCache) Verify(clientID, ip, origin, userAgent string) string {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 
 	key := ConnectionKey{ClientID: clientID, IP: ip, Origin: origin, UserAgent: userAgent}
+
+	// Check for exact match first
 	if ent, ok := c.items[key]; ok {
 		entry := ent.Value.(*connectionCacheEntry)
 
-		// Check if expired (TTL handles the timing)
+		// Check if expired
 		if time.Now().After(entry.expiration) {
-			return false
+			// Expired entry - treat as unknown
+			return "unknown"
 		}
 
-		return true
+		// Exact match found and valid
+		return "ok"
 	}
 
-	return false
+	// No exact match - check for partial matches to detect suspicious activity
+	for cachedKey, ent := range c.items {
+		entry := ent.Value.(*connectionCacheEntry)
+
+		// Skip expired entries
+		if time.Now().After(entry.expiration) {
+			continue
+		}
+
+		// Check if same client ID but different details
+		if cachedKey.ClientID == clientID {
+			// Same client but different origin - strong fraud indicator
+			if cachedKey.Origin != origin {
+				return "danger"
+			}
+
+			// Same client and origin but different IP or User-Agent - suspicious but could be legitimate
+			if cachedKey.IP != ip || cachedKey.UserAgent != userAgent {
+				return "warning"
+			}
+		}
+	}
+
+	// No matching client ID found - new or untracked origin
+	return "unknown"
 }
 
 // CleanExpired removes all expired entries from the cache

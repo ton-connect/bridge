@@ -482,14 +482,13 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 
 	switch strings.ToLower(req.Type) {
 	case "connect":
-		if h.connectionCache.Verify(req.ClientID, ip, ExtractOrigin(req.URL), userAgent) {
+		if res := h.connectionCache.Verify(req.ClientID, ip, ExtractOrigin(req.URL), userAgent); res == "ok" {
 			status = "ok"
 		}
 	default:
 		badRequestMetric.Inc()
 		return c.JSON(HttpResError("param \"type\" must be one of: connect, message", http.StatusBadRequest))
 	}
-
 	return c.JSON(http.StatusOK, verifyResponse{Status: status})
 }
 
