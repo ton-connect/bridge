@@ -218,7 +218,9 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			"trace_id": bridgeMsg.TraceId,
 		}).Debug("message sent")
 
-		deliveredMessagesMetric.Inc()
+		if msg.EventId != -1 {
+			deliveredMessagesMetric.Inc()
+		}
 		storage.ExpiredCache.Mark(msg.EventId)
 	}
 	activeConnectionMetric.Dec()
