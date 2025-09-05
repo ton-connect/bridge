@@ -16,11 +16,12 @@ type ConnectionKey struct {
 
 // ConnectionCache implements a simplified LRU cache for connection verification
 type ConnectionCache struct {
-	capacity  int
-	ttl       time.Duration
-	items     map[ConnectionKey]*list.Element // struct key -> element
-	evictList *list.List                      // LRU order
-	mutex     sync.RWMutex
+	capacity    int
+	ttl         time.Duration
+	items       map[ConnectionKey]*list.Element // struct key -> element
+	clientIndex map[string][]*list.Element      // clientID -> list of elements for efficient lookup
+	evictList   *list.List                      // LRU order
+	mutex       sync.RWMutex
 }
 
 // connectionCacheEntry represents a single cache entry
@@ -32,10 +33,11 @@ type connectionCacheEntry struct {
 // NewConnectionCache creates a new connection cache with the specified capacity and TTL
 func NewConnectionCache(capacity int, ttl time.Duration) *ConnectionCache {
 	return &ConnectionCache{
-		capacity:  capacity,
-		ttl:       ttl,
-		items:     make(map[ConnectionKey]*list.Element),
-		evictList: list.New(),
+		capacity:    capacity,
+		ttl:         ttl,
+		items:       make(map[ConnectionKey]*list.Element),
+		clientIndex: make(map[string][]*list.Element),
+		evictList:   list.New(),
 	}
 }
 
@@ -81,6 +83,9 @@ func (c *ConnectionCache) Add(clientID, ip, origin, userAgent string) {
 
 	element := c.evictList.PushFront(entry)
 	c.items[key] = element
+
+	// Add to clientID index
+	c.clientIndex[clientID] = append(c.clientIndex[clientID], element)
 }
 
 // Verify checks transaction source and returns verification status
@@ -104,20 +109,22 @@ func (c *ConnectionCache) Verify(clientID, ip, origin, userAgent string) string 
 		return "ok"
 	}
 
-	// No exact match - check for partial matches
-	for cachedKey, ent := range c.items {
-		entry := ent.Value.(*connectionCacheEntry)
+	// No exact match - check for partial matches using clientID index (O(1) lookup)
+	if elements, exists := c.clientIndex[clientID]; exists {
+		now := time.Now()
+		for _, ent := range elements {
+			entry := ent.Value.(*connectionCacheEntry)
 
-		if time.Now().After(entry.expiration) {
-			continue
-		}
+			if now.After(entry.expiration) {
+				continue
+			}
 
-		if cachedKey.ClientID == clientID {
-			if cachedKey.Origin != origin {
+			cachedKey := entry.key
+			if cachedKey.Origin != origin || cachedKey.UserAgent != userAgent {
 				return "danger"
 			}
 
-			if cachedKey.IP != ip || cachedKey.UserAgent != userAgent {
+			if cachedKey.IP != ip {
 				return "warning"
 			}
 		}
@@ -161,6 +168,22 @@ func (c *ConnectionCache) removeElement(e *list.Element) {
 	c.evictList.Remove(e)
 	entry := e.Value.(*connectionCacheEntry)
 	delete(c.items, entry.key)
+
+	// Remove from clientID index
+	clientID := entry.key.ClientID
+	elements := c.clientIndex[clientID]
+	for i, elem := range elements {
+		if elem == e {
+			// Remove this element from the slice
+			c.clientIndex[clientID] = append(elements[:i], elements[i+1:]...)
+			break
+		}
+	}
+
+	// Clean up empty slice
+	if len(c.clientIndex[clientID]) == 0 {
+		delete(c.clientIndex, clientID)
+	}
 }
 
 // Len returns the number of items in the cache
