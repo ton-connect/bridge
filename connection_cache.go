@@ -91,55 +91,49 @@ func (c *ConnectionCache) Verify(clientID, ip, origin, userAgent string) string 
 
 	key := ConnectionKey{ClientID: clientID, IP: ip, Origin: origin, UserAgent: userAgent}
 
+	// TODO exact match expired but maybe not exact match needed?
+
 	// Check for exact match first
 	if ent, ok := c.items[key]; ok {
 		entry := ent.Value.(*connectionCacheEntry)
 
-		// Check if expired
 		if time.Now().After(entry.expiration) {
-			// Expired entry - treat as unknown
 			return "unknown"
 		}
 
-		// Exact match found and valid
 		return "ok"
 	}
 
-	// No exact match - check for partial matches to detect suspicious activity
+	// No exact match - check for partial matches
 	for cachedKey, ent := range c.items {
 		entry := ent.Value.(*connectionCacheEntry)
 
-		// Skip expired entries
 		if time.Now().After(entry.expiration) {
 			continue
 		}
 
-		// Check if same client ID but different details
 		if cachedKey.ClientID == clientID {
-			// Same client but different origin - strong fraud indicator
 			if cachedKey.Origin != origin {
 				return "danger"
 			}
 
-			// Same client and origin but different IP or User-Agent - suspicious but could be legitimate
 			if cachedKey.IP != ip || cachedKey.UserAgent != userAgent {
 				return "warning"
 			}
 		}
 	}
 
-	// No matching client ID found - new or untracked origin
 	return "unknown"
 }
 
 // CleanExpired removes all expired entries from the cache
 func (c *ConnectionCache) CleanExpired() {
+	// TODO update the implementation
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 
 	now := time.Now()
 	for {
-		// Check from the back (oldest entries)
 		ent := c.evictList.Back()
 		if ent == nil {
 			break
@@ -149,8 +143,6 @@ func (c *ConnectionCache) CleanExpired() {
 		if now.After(entry.expiration) {
 			c.removeElement(ent)
 		} else {
-			// Since we process from oldest to newest, if this one isn't expired,
-			// none of the newer ones will be either
 			break
 		}
 	}
