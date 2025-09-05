@@ -130,7 +130,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}
 
 	enableQueueDoneEvent := false
-	if queueDoneParam, exists := paramsStore.Get("enable_queue_done_event"); exists && queueDoneParam == "true" {
+	if queueDoneParam, exists := paramsStore.Get("enable_queue_done_event"); exists && strings.ToLower(queueDoneParam) == "true" {
 		enableQueueDoneEvent = true
 	}
 
@@ -326,31 +326,36 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}
 	}
 
-	origin := ExtractOrigin(c.Request().Header.Get("Origin"))
-	ip := h.realIP.Extract(c.Request())
-	userAgent := c.Request().Header.Get("User-Agent")
+	var requestSource string
+	noRequestSourceParam, ok := params["no_request_source"]
+	enableRequestSource := !ok || len(noRequestSourceParam) == 0 || strings.ToLower(noRequestSourceParam[0]) != "true"
 
-	requestSource := datatype.BridgeRequestSource{
-		Origin:    origin,
-		IP:        ip,
-		Time:      strconv.FormatInt(time.Now().Unix(), 10),
-		UserAgent: userAgent,
-	}
+	if enableRequestSource {
+		origin := ExtractOrigin(c.Request().Header.Get("Origin"))
+		ip := h.realIP.Extract(c.Request())
+		userAgent := c.Request().Header.Get("User-Agent")
 
-	encryptedRequestSource, err := encryptRequestSourceWithWalletID(
-		requestSource,
-		toId[0], // todo - check to id properly
-	)
-	if err != nil {
-		badRequestMetric.Inc()
-		log.Error(err)
-		return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
+		encryptedRequestSource, err := encryptRequestSourceWithWalletID(
+			datatype.BridgeRequestSource{
+				Origin:    origin,
+				IP:        ip,
+				Time:      strconv.FormatInt(time.Now().Unix(), 10),
+				UserAgent: userAgent,
+			},
+			toId[0], // todo - check to id properly
+		)
+		if err != nil {
+			badRequestMetric.Inc()
+			log.Error(err)
+			return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
+		}
+		requestSource = encryptedRequestSource
 	}
 
 	mes, err := json.Marshal(datatype.BridgeMessage{
 		From:                clientId[0],
 		Message:             string(message),
-		BridgeRequestSource: encryptedRequestSource,
+		BridgeRequestSource: requestSource,
 		TraceId:             traceId,
 	})
 	if err != nil {
