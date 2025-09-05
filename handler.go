@@ -327,8 +327,8 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}
 
 	var requestSource string
-	noRequestSourceParam, hasNoRequestSource := params["no_request_source"]
-	enableRequestSource := !hasNoRequestSource || len(noRequestSourceParam) == 0 || noRequestSourceParam[0] != "true"
+	noRequestSourceParam, ok := params["no_request_source"]
+	enableRequestSource := !ok || len(noRequestSourceParam) == 0 || noRequestSourceParam[0] != "true"
 
 	if enableRequestSource {
 		origin := ExtractOrigin(c.Request().Header.Get("Origin"))
