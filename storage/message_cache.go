@@ -9,53 +9,55 @@ import (
 type MessageCache struct {
 	markedMessages map[int64]time.Time // event_id -> timestamp
 	mutex          sync.RWMutex
+	ttl            time.Duration
 }
 
 // NewMessageCache creates a new expired cache instance
-func NewMessageCache() *MessageCache {
+func NewMessageCache(ttl time.Duration) *MessageCache {
 	return &MessageCache{
 		markedMessages: make(map[int64]time.Time),
+		ttl:            ttl,
 	}
 }
 
 // Mark message
-func (ec *MessageCache) Mark(eventID int64) {
-	ec.mutex.Lock()
-	ec.markedMessages[eventID] = time.Now()
-	ec.mutex.Unlock()
+func (mc *MessageCache) Mark(eventID int64) {
+	mc.mutex.Lock()
+	mc.markedMessages[eventID] = time.Now()
+	mc.mutex.Unlock()
 }
 
 // Mark message
-func (ec *MessageCache) MarkIfNotExists(eventID int64) bool {
-	ec.mutex.Lock()
-	defer ec.mutex.Unlock()
-	if _, exists := ec.markedMessages[eventID]; !exists {
-		ec.markedMessages[eventID] = time.Now()
+func (mc *MessageCache) MarkIfNotExists(eventID int64) bool {
+	mc.mutex.Lock()
+	defer mc.mutex.Unlock()
+	if _, exists := mc.markedMessages[eventID]; !exists {
+		mc.markedMessages[eventID] = time.Now()
 		return true
 	}
 	return false
 }
 
 // IsMarked checks if a message was marked
-func (ec *MessageCache) IsMarked(eventID int64) bool {
-	ec.mutex.RLock()
-	_, marked := ec.markedMessages[eventID]
-	ec.mutex.RUnlock()
+func (mc *MessageCache) IsMarked(eventID int64) bool {
+	mc.mutex.RLock()
+	_, marked := mc.markedMessages[eventID]
+	mc.mutex.RUnlock()
 	return marked
 }
 
-// Cleanup removes old marked message entries (older than 1 hour)
-func (ec *MessageCache) Cleanup() {
-	cutoff := time.Now().Add(-time.Hour)
-	ec.mutex.Lock()
-	for eventID, deliveryTime := range ec.markedMessages {
+// Cleanup removes old marked message entries
+func (mc *MessageCache) Cleanup() {
+	cutoff := time.Now().Add(-mc.ttl)
+	mc.mutex.Lock()
+	for eventID, deliveryTime := range mc.markedMessages {
 		if deliveryTime.Before(cutoff) {
-			delete(ec.markedMessages, eventID)
+			delete(mc.markedMessages, eventID)
 		}
 	}
-	ec.mutex.Unlock()
+	mc.mutex.Unlock()
 }
 
 // Global instance
-var ExpiredCache = NewMessageCache()
-var TransferedCache = NewMessageCache()
+var ExpiredCache = NewMessageCache(time.Hour)
+var TransferedCache = NewMessageCache(time.Minute)
