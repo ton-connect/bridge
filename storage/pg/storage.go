@@ -82,7 +82,7 @@ func (s *Storage) worker() {
 		<-time.NewTimer(time.Minute).C
 		log.Info("time to db check")
 
-		storage.GlobalExpiredCache.Cleanup()
+		storage.ExpiredCache.Cleanup()
 
 		var lastProcessedEndTime *time.Time
 
@@ -111,7 +111,7 @@ func (s *Storage) worker() {
 					lastProcessedEndTime = &endTime
 				}
 
-				delivered := storage.GlobalExpiredCache.IsDelivered(eventID)
+				delivered := storage.ExpiredCache.IsMarked(eventID)
 
 				if !delivered {
 					fromID := "unknown"
