@@ -25,6 +25,7 @@ import (
 	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/datatype"
 	"github.com/tonkeeper/bridge/storage"
+	"github.com/tonkeeper/bridge/tonmetrics"
 )
 
 var validHeartbeatTypes = map[string]string{
@@ -217,6 +218,47 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 				"event_id": msg.EventId,
 				"trace_id": bridgeMsg.TraceId,
 			}).Debug("message sent")
+
+			go func() {
+				if !config.Config.TFAnalyticsEnabled {
+					return
+				}
+				analyticsLog := log.WithField("prefix", "SendMessageHandler.analytics")
+				analyticsReq := tonmetrics.BridgeRequestReceivedEvent{
+					BridgeUrl:         c.Request().Host,
+					ClientEnvironment: "bridge", // TODO ???
+					ClientId:          msg.To,
+					ClientTimestamp:   int32(time.Now().Unix()), // TODO ????
+					EventId:           fmt.Sprintf("%d", msg.EventId),
+					EventName:         "bridge-request-received",
+					MessageId:         "",       // TODO ???
+					NetworkId:         "-3",     // TODO ???
+					RequestType:       "",       // TODO ???
+					Subsystem:         "bridge", // TODO ???
+					TraceId:           bridgeMsg.TraceId,
+					UserId:            msg.To,
+					Version:           "1.0", // TODO show bridge version?
+				}
+
+				analyticsData, err := json.Marshal(analyticsReq)
+				if err != nil {
+					analyticsLog.Errorf("failed to marshal analytics data: %v", err)
+					return
+				}
+
+				req, err := http.NewRequest(http.MethodPost, "https://analytics.ton.org/events/bridge-request-received", bytes.NewReader(analyticsData))
+				if err != nil {
+					analyticsLog.Errorf("failed to create analytics request: %v", err)
+					return
+				}
+
+				req.Header.Set("Content-Type", "application/json")
+
+				_, err = http.DefaultClient.Do(req)
+				if err != nil {
+					analyticsLog.Errorf("failed to send analytics request: %v", err)
+				}
+			}()
 
 			deliveredMessagesMetric.Inc()
 			storage.ExpiredCache.Mark(msg.EventId)
@@ -411,6 +453,48 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"event_id": sseMessage.EventId,
 		"trace_id": bridgeMsg.TraceId,
 	}).Debug("message received")
+
+	go func() {
+		if !config.Config.TFAnalyticsEnabled {
+			return
+		}
+		analyticsLog := log.WithField("prefix", "SendMessageHandler.analytics")
+		analyticsReq := tonmetrics.BridgeRequestSentEvent{
+			BridgeUrl:         c.Request().Host,
+			ClientEnvironment: "bridge", // TODO ???
+			ClientId:          clientId[0],
+			ClientTimestamp:   int32(time.Now().Unix()),
+			EventId:           fmt.Sprintf("%d", sseMessage.EventId),
+			EventName:         "bridge-request-sent",
+			MessageId:         "",   // TODO ???
+			NetworkId:         "-3", // TODO ???
+			RequestType:       topic,
+			Subsystem:         "bridge", // TODO ???
+			TraceId:           traceId,
+			UserId:            toId[0],
+			Version:           "1.0", // TODO show bridge version?
+		}
+
+		analyticsData, err := json.Marshal(analyticsReq)
+		if err != nil {
+			analyticsLog.Errorf("failed to marshal analytics data: %v", err)
+			return
+		}
+
+		req, err := http.NewRequest(http.MethodPost, "https://analytics.ton.org/events/bridge-request-received", bytes.NewReader(analyticsData))
+		if err != nil {
+			analyticsLog.Errorf("failed to create analytics request: %v", err)
+			return
+		}
+
+		req.Header.Set("Content-Type", "application/json")
+
+		_, err = http.DefaultClient.Do(req)
+		if err != nil {
+			analyticsLog.Errorf("failed to send analytics request: %v", err)
+		}
+		analyticsLog.Debug("analytics request done")
+	}()
 
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, HttpResOk())
