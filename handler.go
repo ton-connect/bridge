@@ -206,20 +206,21 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			break
 		}
 		c.Response().Flush()
+		if msg.EventId != -1 {
+			hash := sha256.Sum256(messageToSend)
+			messageHash := hex.EncodeToString(hash[:])
 
-		hash := sha256.Sum256(messageToSend)
-		messageHash := hex.EncodeToString(hash[:])
+			logrus.WithFields(logrus.Fields{
+				"hash":     messageHash,
+				"from":     bridgeMsg.From,
+				"to":       msg.To,
+				"event_id": msg.EventId,
+				"trace_id": bridgeMsg.TraceId,
+			}).Debug("message sent")
 
-		logrus.WithFields(logrus.Fields{
-			"hash":     messageHash,
-			"from":     bridgeMsg.From,
-			"to":       msg.To,
-			"event_id": msg.EventId,
-			"trace_id": bridgeMsg.TraceId,
-		}).Debug("message sent")
-
-		deliveredMessagesMetric.Inc()
-		storage.ExpiredCache.Mark(msg.EventId)
+			deliveredMessagesMetric.Inc()
+			storage.ExpiredCache.Mark(msg.EventId)
+		}
 	}
 	activeConnectionMetric.Dec()
 	log.Info("connection closed")
