@@ -130,7 +130,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	}
 
 	enableQueueDoneEvent := false
-	if queueDoneParam, exists := paramsStore.Get("enable_queue_done_event"); exists && queueDoneParam == "true" {
+	if queueDoneParam, exists := paramsStore.Get("enable_queue_done_event"); exists && strings.ToLower(queueDoneParam) == "true" {
 		enableQueueDoneEvent = true
 	}
 
@@ -328,7 +328,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 	var requestSource string
 	noRequestSourceParam, ok := params["no_request_source"]
-	enableRequestSource := !ok || len(noRequestSourceParam) == 0 || noRequestSourceParam[0] != "true"
+	enableRequestSource := !ok || len(noRequestSourceParam) == 0 || strings.ToLower(noRequestSourceParam[0]) != "true"
 
 	if enableRequestSource {
 		origin := ExtractOrigin(c.Request().Header.Get("Origin"))
