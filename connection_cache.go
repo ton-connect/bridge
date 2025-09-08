@@ -96,8 +96,6 @@ func (c *ConnectionCache) Verify(clientID, ip, origin, userAgent string) string 
 
 	key := ConnectionKey{ClientID: clientID, IP: ip, Origin: origin, UserAgent: userAgent}
 
-	// TODO exact match expired but maybe not exact match needed?
-
 	// Check for exact match first
 	if ent, ok := c.items[key]; ok {
 		entry := ent.Value.(*connectionCacheEntry)
@@ -135,7 +133,6 @@ func (c *ConnectionCache) Verify(clientID, ip, origin, userAgent string) string 
 
 // CleanExpired removes all expired entries from the cache
 func (c *ConnectionCache) CleanExpired() {
-	// TODO update the implementation
 	c.mutex.Lock()
 	defer c.mutex.Unlock()
 

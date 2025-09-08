@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"testing"
 	"time"
 )
@@ -111,4 +112,120 @@ func TestConnectionCache_CleanExpired(t *testing.T) {
 	if cache.Len() != 0 {
 		t.Errorf("Expected cache length to be 0 after cleanup, got %d", cache.Len())
 	}
+}
+
+// Essential benchmark tests for ConnectionCache
+
+// Realistic test data for benchmarks
+var (
+	// Common legitimate origins
+	origins = []string{
+		"https://app.tonkeeper.com",
+		"https://wallet.tonkeeper.com",
+		"https://tonhub.com",
+		"https://app.tonhub.com",
+		"https://openmask.app",
+		"https://chrome-extension://nphplpgoakhhjchkkhmiggakijnkhfnd",
+		"https://moz-extension://12345678-1234-1234-1234-123456789012",
+		"https://getgems.io",
+		"https://fragment.com",
+		"https://ton.org",
+		"https://mytonwallet.org",
+		"https://tonapi.io",
+		"https://dton.io",
+		"https://dedust.io",
+		"https://ston.fi",
+	}
+
+	// Suspicious/malicious origins for testing
+	suspiciousOrigins = []string{
+		"https://fake-tonkeeper.com",
+		"https://phishing-wallet.net",
+		"https://malicious-site.org",
+		"https://scam-ton.io",
+		"https://evil-extension.com",
+	}
+
+	// Common user agents
+	userAgents = []string{
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		"Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+		"Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:121.0) Gecko/20100101 Firefox/121.0",
+		"Mozilla/5.0 (X11; Linux x86_64; rv:121.0) Gecko/20100101 Firefox/121.0",
+		"Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Safari/605.1.15",
+		"Mozilla/5.0 (iPhone; CPU iPhone OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
+		"Mozilla/5.0 (iPad; CPU OS 17_1 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.1 Mobile/15E148 Safari/604.1",
+		"Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.6099.43 Mobile Safari/537.36",
+		"Tonkeeper/3.8.0 (iOS 17.1; iPhone15,2)",
+		"Tonkeeper/3.8.0 (Android 14; SM-G998B)",
+		"TonHub/4.2.1 (iOS 17.1; iPhone14,3)",
+		"MyTonWallet/2.1.0 WebApp",
+		"OpenMask/1.5.0 Extension",
+	}
+
+	// Suspicious user agents
+	suspiciousUserAgents = []string{
+		"PhishingBot/1.0",
+		"ScamWallet/0.1",
+		"curl/7.68.0",
+		"python-requests/2.25.1",
+		"FakeApp/1.0.0",
+	}
+)
+
+func BenchmarkConnectionCache(b *testing.B) {
+	cache := NewConnectionCache(500000, 10*time.Second)
+
+	// Pre-populate with realistic diverse data
+	for i := 0; i < 1000; i++ {
+		clientID := fmt.Sprintf("prod_client_%d", i)
+		ip := fmt.Sprintf("192.168.%d.%d", (i/256)%256, i%256)
+		origin := origins[i%len(origins)]
+		userAgent := userAgents[i%len(userAgents)]
+		cache.Add(clientID, ip, origin, userAgent)
+	}
+
+	b.ResetTimer()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			clientID := fmt.Sprintf("prod_client_%d", i%1000)
+			baseOrigin := origins[i%len(origins)]
+			baseUserAgent := userAgents[i%len(userAgents)]
+
+			switch i % 20 {
+			case 0, 1, 2, 3: // 20% new connections with legitimate data
+				ip := fmt.Sprintf("192.168.%d.%d", (i/256)%256, i%256)
+				cache.Add(clientID, ip, baseOrigin, baseUserAgent)
+
+			case 4, 5, 6, 7, 8, 9, 10, 11: // 40% normal verification (exact match)
+				ip := fmt.Sprintf("192.168.%d.%d", (i/256)%256, i%256)
+				cache.Verify(clientID, ip, baseOrigin, baseUserAgent)
+
+			case 12, 13, 14: // 15% suspicious IP changes (warning)
+				suspiciousIP := fmt.Sprintf("203.0.113.%d", i%255)
+				cache.Verify(clientID, suspiciousIP, baseOrigin, baseUserAgent)
+
+			case 15, 16: // 10% different user agent (danger)
+				ip := fmt.Sprintf("192.168.%d.%d", (i/256)%256, i%256)
+				maliciousUA := suspiciousUserAgents[i%len(suspiciousUserAgents)]
+				cache.Verify(clientID, ip, baseOrigin, maliciousUA)
+
+			case 17, 18: // 10% different origin (danger)
+				ip := fmt.Sprintf("192.168.%d.%d", (i/256)%256, i%256)
+				maliciousOrigin := suspiciousOrigins[i%len(suspiciousOrigins)]
+				cache.Verify(clientID, ip, maliciousOrigin, baseUserAgent)
+
+			case 19: // 5% completely unknown clients (unknown)
+				unknownClient := fmt.Sprintf("attacker_%d", i)
+				unknownIP := fmt.Sprintf("1.2.3.%d", i%255)
+				maliciousOrigin := suspiciousOrigins[i%len(suspiciousOrigins)]
+				maliciousUA := suspiciousUserAgents[i%len(suspiciousUserAgents)]
+				cache.Verify(unknownClient, unknownIP, maliciousOrigin, maliciousUA)
+			}
+			i++
+		}
+	})
 }
