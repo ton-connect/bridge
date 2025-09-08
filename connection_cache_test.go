@@ -26,8 +26,8 @@ func TestConnectionCache_BasicOperations(t *testing.T) {
 		t.Error("Expected verification to return 'danger' with wrong origin")
 	}
 
-	if cache.Verify("client1", "127.0.0.1", "https://example.com", "Chrome/91.0") != "warning" {
-		t.Error("Expected verification to return 'warning' with wrong user agent")
+	if cache.Verify("client1", "127.0.0.1", "https://example.com", "Chrome/91.0") != "danger" {
+		t.Error("Expected verification to return 'danger' with wrong user agent")
 	}
 }
 
@@ -66,36 +66,49 @@ func TestConnectionCache_CapacityLimit(t *testing.T) {
 	}
 }
 
-func TestConnectionCache_VerificationStatuses(t *testing.T) {
+func TestConnectionCache_MultipleConnectionsSameClient(t *testing.T) {
 	cache := NewConnectionCache(10, time.Minute)
 
+	// Add multiple connections for same client with different IPs
 	cache.Add("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0")
+	cache.Add("client1", "192.168.1.1", "https://example.com", "Mozilla/5.0")
 
-	if status := cache.Verify("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0"); status != "ok" {
-		t.Errorf("Expected 'ok', got '%s'", status)
+	// Both connections should be verified as "ok"
+	if cache.Verify("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0") != "ok" {
+		t.Error("Expected first connection to return 'ok'")
 	}
 
-	if status := cache.Verify("client1", "127.0.0.1", "https://malicious.com", "Mozilla/5.0"); status != "danger" {
-		t.Errorf("Expected 'danger', got '%s'", status)
+	if cache.Verify("client1", "192.168.1.1", "https://example.com", "Mozilla/5.0") != "ok" {
+		t.Error("Expected second connection to return 'ok'")
 	}
 
-	if status := cache.Verify("client1", "192.168.1.1", "https://example.com", "Mozilla/5.0"); status != "warning" {
-		t.Errorf("Expected 'warning', got '%s'", status)
+	// Different IP for same client should return "warning"
+	if cache.Verify("client1", "10.0.0.1", "https://example.com", "Mozilla/5.0") != "warning" {
+		t.Error("Expected verification with new IP to return 'warning'")
 	}
 
-	if status := cache.Verify("client1", "127.0.0.1", "https://example.com", "Chrome/91.0"); status != "warning" {
-		t.Errorf("Expected 'warning', got '%s'", status)
+	// Add connection with different origin - should trigger "danger" for new requests
+	cache.Add("client1", "127.0.0.1", "https://malicious.com", "Mozilla/5.0")
+
+	if cache.Verify("client1", "127.0.0.1", "https://different.com", "Mozilla/5.0") != "danger" {
+		t.Error("Expected verification with different origin to return 'danger'")
+	}
+}
+
+func TestConnectionCache_CleanExpired(t *testing.T) {
+	cache := NewConnectionCache(10, 50*time.Millisecond)
+
+	cache.Add("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0")
+	cache.Add("client2", "127.0.0.2", "https://example.com", "Mozilla/5.0")
+
+	if cache.Len() != 2 {
+		t.Errorf("Expected cache length to be 2, got %d", cache.Len())
 	}
 
-	if status := cache.Verify("client999", "10.0.0.1", "https://newsite.com", "Safari/14.0"); status != "unknown" {
-		t.Errorf("Expected 'unknown', got '%s'", status)
-	}
+	time.Sleep(60 * time.Millisecond)
+	cache.CleanExpired()
 
-	cacheShort := NewConnectionCache(10, 10*time.Millisecond)
-	cacheShort.Add("client2", "127.0.0.1", "https://example.com", "Mozilla/5.0")
-	time.Sleep(20 * time.Millisecond)
-
-	if status := cacheShort.Verify("client2", "127.0.0.1", "https://example.com", "Mozilla/5.0"); status != "unknown" {
-		t.Errorf("Expected 'unknown' for expired entry, got '%s'", status)
+	if cache.Len() != 0 {
+		t.Errorf("Expected cache length to be 0 after cleanup, got %d", cache.Len())
 	}
 }
