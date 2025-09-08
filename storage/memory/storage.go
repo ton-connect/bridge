@@ -76,6 +76,7 @@ func (s *Storage) watcher() {
 		s.lock.Unlock()
 
 		storage.ExpiredCache.Cleanup()
+		storage.TransferedCache.Cleanup()
 
 		time.Sleep(time.Second)
 	}
