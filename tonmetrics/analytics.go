@@ -12,7 +12,7 @@ import (
 )
 
 const (
-	analyticsURL = "https://analytics.ton.org/events/bridge-request-received"
+	analyticsBaseURL = "https://analytics.ton.org/events/"
 )
 
 // AnalyticsClientInterface defines the interface for analytics clients
@@ -56,13 +56,14 @@ func (a *TonMetricsClient) SendBridgeRequestSentEvent(event BridgeRequestSentEve
 
 // sendEvent sends an event to the analytics endpoint
 func (a *TonMetricsClient) sendEvent(event interface{}, eventType string) error {
-	log := logrus.WithField("prefix", "analytics")
+	// log := logrus.WithField("prefix", "analytics")
 	analyticsData, err := json.Marshal(event)
 	if err != nil {
 		return fmt.Errorf("failed to marshal analytics data: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, analyticsURL, bytes.NewReader(analyticsData))
+	url := analyticsBaseURL + eventType
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(analyticsData))
 	if err != nil {
 		return fmt.Errorf("failed to create analytics request: %w", err)
 	}
@@ -74,7 +75,7 @@ func (a *TonMetricsClient) sendEvent(event interface{}, eventType string) error 
 		return fmt.Errorf("failed to send analytics request: %w", err)
 	}
 
-	log.WithField("event_type", eventType).Debug("analytics request sent successfully")
+	// log.WithField("event_type", eventType).WithField("url", url).Debug("analytics request sent successfully")
 	return nil
 }
 
