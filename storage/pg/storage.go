@@ -83,6 +83,7 @@ func (s *Storage) worker() {
 		log.Info("time to db check")
 
 		storage.ExpiredCache.Cleanup()
+		storage.TransferedCache.Cleanup()
 
 		var lastProcessedEndTime *time.Time
 
