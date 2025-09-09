@@ -47,15 +47,25 @@ func (mc *MessageCache) IsMarked(eventID int64) bool {
 }
 
 // Cleanup removes old marked message entries
-func (mc *MessageCache) Cleanup() {
+func (mc *MessageCache) Cleanup() int {
+	counter := 0
 	cutoff := time.Now().Add(-mc.ttl)
 	mc.mutex.Lock()
 	for eventID, deliveryTime := range mc.markedMessages {
 		if deliveryTime.Before(cutoff) {
 			delete(mc.markedMessages, eventID)
+			counter++
 		}
 	}
 	mc.mutex.Unlock()
+	return counter
+}
+
+func (mc *MessageCache) Len() int {
+	mc.mutex.RLock()
+	size := len(mc.markedMessages)
+	mc.mutex.RUnlock()
+	return size
 }
 
 // Global instance

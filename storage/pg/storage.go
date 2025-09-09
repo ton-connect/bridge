@@ -20,10 +20,20 @@ import (
 	"github.com/tonkeeper/bridge/storage"
 )
 
-var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
-	Name: "number_of_expired_messages",
-	Help: "The total number of expired messages",
-})
+var (
+	expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "number_of_expired_messages",
+		Help: "The total number of expired messages",
+	})
+	expiredMessagesCacheSizeMetric = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "expired_messages_cache_size",
+		Help: "The current size of the expired messages cache",
+	})
+	transferedMessagesCacheSizeMetric = promauto.NewGauge(prometheus.GaugeOpts{
+		Name: "transfered_messages_cache_size",
+		Help: "The current size of the transfered messages cache",
+	})
+)
 
 type Message []byte
 type Storage struct {
@@ -82,8 +92,11 @@ func (s *Storage) worker() {
 		<-time.NewTimer(time.Minute).C
 		log.Info("time to db check")
 
-		storage.ExpiredCache.Cleanup()
-		storage.TransferedCache.Cleanup()
+		expiredCleaned := storage.ExpiredCache.Cleanup()
+		transferedCleaned := storage.TransferedCache.Cleanup()
+		log.Infof("cleaned %d expired and %d transfered cache entries", expiredCleaned, transferedCleaned)
+		expiredMessagesCacheSizeMetric.Set(float64(storage.ExpiredCache.Len()))
+		transferedMessagesCacheSizeMetric.Set(float64(storage.TransferedCache.Len()))
 
 		var lastProcessedEndTime *time.Time
 
