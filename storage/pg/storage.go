@@ -82,8 +82,9 @@ func (s *Storage) worker() {
 		<-time.NewTimer(time.Minute).C
 		log.Info("time to db check")
 
-		storage.ExpiredCache.Cleanup()
-		storage.TransferedCache.Cleanup()
+		expiredCleaned := storage.ExpiredCache.Cleanup()
+		transferedCleaned := storage.TransferedCache.Cleanup()
+		log.Infof("cleaned %d expired and %d transfered cache entries", expiredCleaned, transferedCleaned)
 
 		var lastProcessedEndTime *time.Time
 
