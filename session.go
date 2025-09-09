@@ -37,11 +37,11 @@ func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, hea
 	defer ticker.Stop()
 
 	go func() {
-		for range ticker.C {
+		for {
 			select {
 			case <-s.Closer:
 				return
-			default:
+			case <-ticker.C:
 				s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)}
 			}
 		}
@@ -54,7 +54,7 @@ func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, hea
 	for _, m := range queue {
 		select {
 		case <-s.Closer:
-			break //nolint:staticcheck // TODO review golangci-lint issue
+			return
 		default:
 			s.MessageCh <- m
 		}
