@@ -75,7 +75,7 @@ type handler struct {
 	_eventIDs         int64
 	heartbeatInterval time.Duration
 	realIP            *realIPExtractor
-	analytics         tonmetrics.AnalyticsClientInterface
+	analytics         tonmetrics.AnalyticsClient
 }
 
 type db interface {

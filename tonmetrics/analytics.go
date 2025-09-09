@@ -15,8 +15,8 @@ const (
 	analyticsBaseURL = "https://analytics.ton.org/events/"
 )
 
-// AnalyticsClientInterface defines the interface for analytics clients
-type AnalyticsClientInterface interface {
+// AnalyticsClient defines the interface for analytics clients
+type AnalyticsClient interface {
 	SendBridgeRequestReceivedEvent(event BridgeRequestReceivedEvent)
 	SendBridgeRequestSentEvent(event BridgeRequestSentEvent)
 }
@@ -27,7 +27,7 @@ type TonMetricsClient struct {
 }
 
 // NewAnalyticsClient creates a new analytics client
-func NewAnalyticsClient() AnalyticsClientInterface {
+func NewAnalyticsClient() AnalyticsClient {
 	if !config.Config.TFAnalyticsEnabled {
 		return &NoopMetricsClient{}
 	}
