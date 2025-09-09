@@ -61,6 +61,13 @@ func (mc *MessageCache) Cleanup() int {
 	return counter
 }
 
+func (mc *MessageCache) Len() int {
+	mc.mutex.RLock()
+	size := len(mc.markedMessages)
+	mc.mutex.RUnlock()
+	return size
+}
+
 // Global instance
 var ExpiredCache = NewMessageCache(time.Hour)
 var TransferedCache = NewMessageCache(time.Minute)
