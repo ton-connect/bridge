@@ -64,13 +64,6 @@ var (
 	})
 )
 
-type verifyRequest struct {
-	Type     string `json:"type"`
-	ClientID string `json:"client_id"`
-	URL      string `json:"url"`
-	Message  string `json:"message,omitempty"`
-}
-
 type verifyResponse struct {
 	Status string `json:"status"`
 }
@@ -468,51 +461,33 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	ip := h.realIP.Extract(c.Request())
 	userAgent := c.Request().Header.Get("User-Agent")
 
-	// Support new JSON POST format; fallback to legacy query params for backward compatibility
-	var req verifyRequest
-	if c.Request().Method == http.MethodPost {
-		decoder := json.NewDecoder(c.Request().Body)
-		if err := decoder.Decode(&req); err != nil {
-			badRequestMetric.Inc()
-			return c.JSON(HttpResError("invalid JSON body", http.StatusBadRequest))
-		}
-	} else {
-		params := c.QueryParams()
-		clientId, ok := params["client_id"]
-		if ok && len(clientId) > 0 {
-			req.ClientID = clientId[0]
-		}
-		urls, ok := params["url"]
-		if ok && len(urls) > 0 {
-			req.URL = urls[0]
-		}
-		types, ok := params["type"]
-		if ok && len(types) > 0 {
-			req.Type = types[0]
-		} else {
-			req.Type = "connect"
-		}
+	paramsStore, err := NewParamsStorage(c, config.Config.MaxBodySize)
+	if err != nil {
+		badRequestMetric.Inc()
+		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
-	if req.ClientID == "" {
+	clientId, ok := paramsStore.Get("client_id")
+	if !ok {
 		badRequestMetric.Inc()
 		return c.JSON(HttpResError("param \"client_id\" not present", http.StatusBadRequest))
 	}
-	if req.URL == "" {
+	url, ok := paramsStore.Get("url")
+	if !ok {
 		badRequestMetric.Inc()
 		return c.JSON(HttpResError("param \"url\" not present", http.StatusBadRequest))
 	}
-	if req.Type == "" {
-		badRequestMetric.Inc()
-		return c.JSON(HttpResError("param \"type\" not present", http.StatusBadRequest))
+	qtype, ok := paramsStore.Get("type")
+	if !ok {
+		qtype = "connect"
 	}
 
 	// Default status
 	status := "unknown"
 
-	switch strings.ToLower(req.Type) {
+	switch strings.ToLower(qtype) {
 	case "connect":
-		if res := h.connectionCache.Verify(req.ClientID, ip, ExtractOrigin(req.URL), userAgent); res == "ok" {
+		if res := h.connectionCache.Verify(clientId, ip, ExtractOrigin(url), userAgent); res == "ok" {
 			status = "ok"
 		}
 	default:

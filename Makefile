@@ -26,15 +26,12 @@ fmtcheck:
 lint:
 	golangci-lint run --timeout=10m --color=always
 
-# Regular unit tests (excluding benchmarks)
 test: test-unit test-bench
 
 test-unit:
 	go test $$(go list ./... | grep -v /vendor/) -race -coverprofile cover.out
 
-# Benchmark tests for ConnectionCache
 test-bench:
-	@echo "Running ConnectionCache benchmark tests..."
 	go test -race -count 10 -timeout 15s -bench=BenchmarkConnectionCache -benchmem .
 
 test-bridge-sdk:

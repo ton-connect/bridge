@@ -47,7 +47,7 @@ func NewParamsStorage(c echo.Context, maxBodySize int64) (*ParamsStorage, error)
 
 func (p *ParamsStorage) Get(key string) (string, bool) {
 	val, ok := p.params[key]
-	return val, ok
+	return val, ok && len(val) > 0
 }
 
 func (p *ParamsStorage) parseBodyParams(bodyContent []byte, contentType string) map[string]string {
