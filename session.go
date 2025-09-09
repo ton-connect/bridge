@@ -37,34 +37,40 @@ func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, hea
 	defer ticker.Stop()
 
 	go func() {
-		for range ticker.C {
+		for {
 			select {
 			case <-s.Closer:
 				return
-			default:
+			case <-ticker.C:
 				s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)}
 			}
 		}
 	}()
 
-	queue, err := s.storage.GetMessages(context.TODO(), s.ClientIds, s.lastEventId)
+	s.retrieveHistoricMessages(log, enableQueueDoneEvent)
+
+	<-s.Closer
+	close(s.MessageCh)
+}
+
+func (s *Session) retrieveHistoricMessages(log *logrus.Entry, doneEvent bool) {
+	messages, err := s.storage.GetMessages(context.TODO(), s.ClientIds, s.lastEventId)
 	if err != nil {
 		log.Info("get queue error: ", err)
 	}
-	for _, m := range queue {
+
+	for _, m := range messages {
 		select {
 		case <-s.Closer:
-			break //nolint:staticcheck // TODO review golangci-lint issue
+			return
 		default:
 			s.MessageCh <- m
 		}
 	}
 
-	if enableQueueDoneEvent {
+	if doneEvent {
 		s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte("event: message\r\ndata: queue_done\r\n\r\n")}
 	}
-	<-s.Closer
-	close(s.MessageCh)
 }
 
 func (s *Session) AddMessageToQueue(ctx context.Context, mes datatype.SseMessage) {
