@@ -225,6 +225,9 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 				c.Request().Host,
 				msg.To,
 				bridgeMsg.TraceId,
+				config.Config.Environment,
+				config.Config.BridgeVersion,
+				config.Config.NetworkId,
 				msg.EventId,
 			)
 			go h.analytics.SendBridgeRequestReceivedEvent(event)
@@ -429,6 +432,9 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		traceId,
 		topic,
 		toId[0],
+		config.Config.Environment,
+		config.Config.BridgeVersion,
+		config.Config.NetworkId,
 		sseMessage.EventId,
 	)
 	go h.analytics.SendBridgeRequestSentEvent(event)

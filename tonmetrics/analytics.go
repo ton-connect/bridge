@@ -80,40 +80,40 @@ func (a *TonMetricsClient) sendEvent(event interface{}, eventType string) error 
 }
 
 // CreateBridgeRequestReceivedEvent creates a BridgeRequestReceivedEvent with common fields populated
-func CreateBridgeRequestReceivedEvent(bridgeURL, clientID, traceID string, eventID int64) BridgeRequestReceivedEvent {
+func CreateBridgeRequestReceivedEvent(bridgeURL, clientID, traceID, environment, version, networkId string, eventID int64) BridgeRequestReceivedEvent {
 	return BridgeRequestReceivedEvent{
 		BridgeUrl:         bridgeURL,
-		ClientEnvironment: "production",
+		ClientEnvironment: environment,
 		ClientId:          clientID,
 		ClientTimestamp:   int32(time.Now().Unix()),
 		EventId:           fmt.Sprintf("%d", eventID),
 		EventName:         "bridge-request-received",
 		MessageId:         "",
-		NetworkId:         "-3",
+		NetworkId:         networkId,
 		RequestType:       "",
 		Subsystem:         "bridge",
 		TraceId:           traceID,
 		UserId:            clientID,
-		Version:           "1.0",
+		Version:           version,
 	}
 }
 
 // CreateBridgeRequestSentEvent creates a BridgeRequestSentEvent with common fields populated
-func CreateBridgeRequestSentEvent(bridgeURL, clientID, traceID, requestType, userID string, eventID int64) BridgeRequestSentEvent {
+func CreateBridgeRequestSentEvent(bridgeURL, clientID, traceID, requestType, userID, environment, version, networkId string, eventID int64) BridgeRequestSentEvent {
 	return BridgeRequestSentEvent{
 		BridgeUrl:         bridgeURL,
-		ClientEnvironment: "production",
+		ClientEnvironment: environment,
 		ClientId:          clientID,
 		ClientTimestamp:   int32(time.Now().Unix()),
 		EventId:           fmt.Sprintf("%d", eventID),
 		EventName:         "bridge-request-sent",
 		MessageId:         "",
-		NetworkId:         "-3",
+		NetworkId:         networkId,
 		RequestType:       requestType,
 		Subsystem:         "bridge",
 		TraceId:           traceID,
 		UserId:            userID,
-		Version:           "1.0",
+		Version:           version,
 	}
 }
 
