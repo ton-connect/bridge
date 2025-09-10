@@ -4,6 +4,8 @@ import (
 	"container/list"
 	"sync"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 // ConnectionKey represents a unique connection identifier
@@ -154,7 +156,13 @@ func (c *ConnectionCache) CleanExpired() {
 }
 
 // removeOldest removes the oldest entry from the cache
+// Should be called with mutex locked
 func (c *ConnectionCache) removeOldest() {
+	if c.mutex.TryLock() {
+		log.Error("removeOldest called without mutex locked!!!")
+		defer c.mutex.Unlock()
+	}
+
 	ent := c.evictList.Back()
 	if ent != nil {
 		c.removeElement(ent)
@@ -162,7 +170,13 @@ func (c *ConnectionCache) removeOldest() {
 }
 
 // removeElement removes a specific element from the cache
+// Should be called with mutex locked
 func (c *ConnectionCache) removeElement(e *list.Element) {
+	if c.mutex.TryLock() {
+		log.Error("removeElement called without mutex locked!!!")
+		defer c.mutex.Unlock()
+	}
+
 	c.evictList.Remove(e)
 	entry := e.Value.(*connectionCacheEntry)
 	delete(c.items, entry.key)
