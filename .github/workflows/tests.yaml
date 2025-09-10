@@ -38,16 +38,7 @@ jobs:
     - name: Get performance metrics
       if: github.event_name == 'pull_request'
       run: |
-        echo "## � Performance Metrics (${{ matrix.storage }} storage)" > metrics.md
-        echo "" >> metrics.md
-        
-        # Simple curl to get goroutine count
-        GOROUTINES=$(curl -s http://localhost:9103/debug/pprof/goroutine | head -1 | grep -o '[0-9]\+' || echo "unknown")
-        echo "**Goroutines:** $GOROUTINES" >> metrics.md
-        
-        # Get heap size from metrics endpoint  
-        HEAP_MB=$(curl -s http://localhost:9103/metrics | grep "go_memstats_heap_inuse_bytes" | grep -o '[0-9]\+' | head -1 | awk '{printf "%.1f", $1/1024/1024}' || echo "unknown")
-        echo "**Heap Size:** ${HEAP_MB}MB" >> metrics.md
+        ./scripts/get-performance-metrics.sh "${{ matrix.storage }}" > metrics.md
 
     - name: Comment PR
       if: github.event_name == 'pull_request'  
