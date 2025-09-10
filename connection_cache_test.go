@@ -138,6 +138,25 @@ func TestConnectionCache_CleanExpired(t *testing.T) {
 	}
 }
 
+func TestConnectionCache_CleanExpiredWorker(t *testing.T) {
+	cache := NewConnectionCache(10, 50*time.Millisecond)
+	customCleanupInterval := time.Millisecond * 10
+	cache.StartBackgroundCleanup(&customCleanupInterval)
+
+	cache.Add("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0")
+	cache.Add("client2", "127.0.0.2", "https://example.com", "Mozilla/5.0")
+
+	if cache.Len() != 2 {
+		t.Errorf("Expected cache length to be 2, got %d", cache.Len())
+	}
+
+	time.Sleep(60 * time.Millisecond)
+
+	if cache.Len() != 0 {
+		t.Errorf("Expected cache length to be 0 after cleanup, got %d", cache.Len())
+	}
+}
+
 // Essential benchmark tests for ConnectionCache
 
 // Realistic test data for benchmarks
