@@ -42,9 +42,13 @@ func NewConnectionCache(capacity int, ttl time.Duration) *ConnectionCache {
 }
 
 // StartBackgroundCleanup starts a background goroutine that periodically cleans expired entries
-func (c *ConnectionCache) StartBackgroundCleanup() {
+func (c *ConnectionCache) StartBackgroundCleanup(customCleanupInterval *time.Duration) {
+	tickerDuration := time.Minute
+	if customCleanupInterval != nil {
+		tickerDuration = *customCleanupInterval
+	}
 	go func() {
-		ticker := time.NewTicker(time.Minute)
+		ticker := time.NewTicker(tickerDuration)
 		defer ticker.Stop()
 		for range ticker.C {
 			c.CleanExpired()
@@ -94,10 +98,7 @@ func (c *ConnectionCache) Verify(clientID, ip, origin string) string {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 
-	if len(c.clientIndex[clientID]) == 0 {
-		return "unknown"
-	}
-
+	foundCount := 0
 	leastSuspicious := "danger"
 	now := time.Now()
 	// No exact match - check for partial matches using clientID index (O(1) lookup)
@@ -108,6 +109,8 @@ func (c *ConnectionCache) Verify(clientID, ip, origin string) string {
 			if now.After(entry.expiration) {
 				continue
 			}
+
+			foundCount++
 
 			cachedKey := entry.key
 			// If we have an exact match, return ok
@@ -120,6 +123,10 @@ func (c *ConnectionCache) Verify(clientID, ip, origin string) string {
 				leastSuspicious = "warning"
 			}
 		}
+	}
+
+	if foundCount == 0 {
+		return "unknown"
 	}
 
 	return leastSuspicious

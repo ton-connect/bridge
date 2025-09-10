@@ -39,8 +39,8 @@ func TestConnectionCache_Expiration(t *testing.T) {
 
 	time.Sleep(60 * time.Millisecond)
 
-	if cache.Verify("client1", "127.0.0.1", "https://example.com") != "unknown" {
-		t.Error("Expected verification to return 'unknown' after expiration")
+	if v := cache.Verify("client1", "127.0.0.1", "https://example.com"); v != "unknown" {
+		t.Errorf("Expected verification to return 'unknown' after expiration, got %s", v)
 	}
 }
 
@@ -107,6 +107,34 @@ func TestConnectionCache_CleanExpired(t *testing.T) {
 
 	if cache.Len() != 0 {
 		t.Errorf("Expected cache length to be 0 after cleanup, got %d", cache.Len())
+	}
+
+	cache.Add("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0")
+	if cache.Len() != 1 {
+		t.Errorf("Expected cache length to be 1 after cleanup, got %d", cache.Len())
+	}
+
+	time.Sleep(20 * time.Millisecond)
+	cache.Add("client2", "127.0.0.1", "https://example.com", "Mozilla/5.0")
+	cache.Add("client3", "127.0.0.1", "https://example.com", "Mozilla/5.0")
+	if cache.Len() != 3 {
+		t.Errorf("Expected cache length to be 3 after cleanup, got %d", cache.Len())
+	}
+
+	time.Sleep(40 * time.Millisecond)
+	cache.CleanExpired()
+
+	if cache.Len() != 2 {
+		t.Errorf("Expected cache length to be 2, got %d", cache.Len())
+	}
+
+	// check that add moves expire to front
+	cache.Add("client2", "127.0.0.1", "https://example.com", "Mozilla/5.0")
+	cache.Add("client3", "127.0.0.1", "https://example.com", "Mozilla/5.0")
+	time.Sleep(40 * time.Millisecond)
+	cache.CleanExpired()
+	if cache.Len() != 2 {
+		t.Errorf("Expected cache length to be 2, got %d", cache.Len())
 	}
 }
 

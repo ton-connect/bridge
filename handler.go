@@ -90,7 +90,7 @@ type db interface {
 
 func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
 	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
-	connectionCache.StartBackgroundCleanup()
+	connectionCache.StartBackgroundCleanup(nil)
 
 	h := handler{
 		Mux:               sync.RWMutex{},
