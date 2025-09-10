@@ -222,7 +222,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			}).Debug("message sent")
 
 			go h.analytics.SendEvent(tonmetrics.CreateBridgeRequestReceivedEvent(
-				c.Request().Host,
+				config.Config.BridgeURL,
 				msg.To,
 				bridgeMsg.TraceId,
 				config.Config.Environment,
@@ -426,7 +426,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}).Debug("message received")
 
 	go h.analytics.SendEvent(tonmetrics.CreateBridgeRequestSentEvent(
-		c.Request().Host,
+		config.Config.BridgeURL,
 		clientId[0],
 		traceId,
 		topic,
