@@ -45,7 +45,8 @@ jobs:
       uses: mshick/add-pr-comment@v2
       with:
         message-path: metrics.md
-        message-id: performance-metrics-${{ matrix.storage }}
+        message-id: performance-metrics-${{ matrix.storage }}-${{ github.run_number }}
+        refresh-message-position: true
 
     - name: Clean up containers
       if: always()
