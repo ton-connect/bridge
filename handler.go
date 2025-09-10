@@ -459,7 +459,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	ip := h.realIP.Extract(c.Request())
-	userAgent := c.Request().Header.Get("User-Agent")
 
 	paramsStore, err := NewParamsStorage(c, config.Config.MaxBodySize)
 	if err != nil {
@@ -487,9 +486,8 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 
 	switch strings.ToLower(qtype) {
 	case "connect":
-		if res := h.connectionCache.Verify(clientId, ip, ExtractOrigin(url), userAgent); res == "ok" {
-			status = "ok"
-		}
+		res := h.connectionCache.Verify(clientId, ip, ExtractOrigin(url))
+		status = res
 	default:
 		badRequestMetric.Inc()
 		return c.JSON(HttpResError("param \"type\" must be one of: connect, message", http.StatusBadRequest))

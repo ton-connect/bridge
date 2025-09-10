@@ -90,11 +90,11 @@ func (c *ConnectionCache) Add(clientID, ip, origin, userAgent string) {
 
 // Verify checks transaction source and returns verification status
 // Returns: "ok" (verified match), "danger" (fraud indication), "warning" (suspicious), "unknown" (new/untracked)
-func (c *ConnectionCache) Verify(clientID, ip, origin, userAgent string) string {
+func (c *ConnectionCache) Verify(clientID, ip, origin string) string {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 
-	key := ConnectionKey{ClientID: clientID, IP: ip, Origin: origin, UserAgent: userAgent}
+	key := ConnectionKey{ClientID: clientID, IP: ip, Origin: origin, UserAgent: ""}
 
 	// Check for exact match first
 	if ent, ok := c.items[key]; ok {
@@ -118,7 +118,7 @@ func (c *ConnectionCache) Verify(clientID, ip, origin, userAgent string) string 
 			}
 
 			cachedKey := entry.key
-			if cachedKey.Origin != origin || cachedKey.UserAgent != userAgent {
+			if cachedKey.Origin != origin {
 				return "danger"
 			}
 
