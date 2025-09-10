@@ -25,6 +25,7 @@ import (
 	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/datatype"
 	"github.com/tonkeeper/bridge/storage"
+	"github.com/tonkeeper/bridge/tonmetrics"
 )
 
 var validHeartbeatTypes = map[string]string{
@@ -74,6 +75,7 @@ type handler struct {
 	_eventIDs         int64
 	heartbeatInterval time.Duration
 	realIP            *realIPExtractor
+	analytics         tonmetrics.AnalyticsClient
 }
 
 type db interface {
@@ -89,6 +91,7 @@ func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtract
 		_eventIDs:         time.Now().UnixMicro(),
 		heartbeatInterval: heartbeatInterval,
 		realIP:            extractor,
+		analytics:         tonmetrics.NewAnalyticsClient(),
 	}
 	return &h
 }
@@ -217,6 +220,16 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 				"event_id": msg.EventId,
 				"trace_id": bridgeMsg.TraceId,
 			}).Debug("message sent")
+
+			go h.analytics.SendEvent(tonmetrics.CreateBridgeRequestReceivedEvent(
+				config.Config.BridgeURL,
+				msg.To,
+				bridgeMsg.TraceId,
+				config.Config.Environment,
+				config.Config.BridgeVersion,
+				config.Config.NetworkId,
+				msg.EventId,
+			))
 
 			deliveredMessagesMetric.Inc()
 			storage.ExpiredCache.Mark(msg.EventId)
@@ -411,6 +424,17 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"event_id": sseMessage.EventId,
 		"trace_id": bridgeMsg.TraceId,
 	}).Debug("message received")
+
+	go h.analytics.SendEvent(tonmetrics.CreateBridgeRequestSentEvent(
+		config.Config.BridgeURL,
+		clientId[0],
+		traceId,
+		topic,
+		config.Config.Environment,
+		config.Config.BridgeVersion,
+		config.Config.NetworkId,
+		sseMessage.EventId,
+	))
 
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, HttpResOk())
