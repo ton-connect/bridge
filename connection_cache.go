@@ -177,6 +177,11 @@ func (c *ConnectionCache) removeElement(e *list.Element) {
 		defer c.mutex.Unlock()
 	}
 
+	if e == nil {
+		log.Error("removeElement called with nil element!!!")
+		return
+	}
+
 	c.evictList.Remove(e)
 	entry := e.Value.(*connectionCacheEntry)
 	delete(c.items, entry.key)

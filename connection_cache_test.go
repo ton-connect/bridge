@@ -1,9 +1,14 @@
 package main
 
 import (
+	"bytes"
 	"fmt"
+	"os"
+	"strings"
 	"testing"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 )
 
 func TestConnectionCache_BasicOperations(t *testing.T) {
@@ -154,6 +159,39 @@ func TestConnectionCache_CleanExpiredWorker(t *testing.T) {
 
 	if cache.Len() != 0 {
 		t.Errorf("Expected cache length to be 0 after cleanup, got %d", cache.Len())
+	}
+}
+
+func TestConnectionCache_WrongRemoveOlders(t *testing.T) {
+	cache := NewConnectionCache(10, 50*time.Millisecond)
+
+	// Create a custom logger to capture log messages
+	var logOutput bytes.Buffer
+	log.SetOutput(&logOutput)
+	log.SetLevel(log.ErrorLevel)
+	defer func() {
+		log.SetOutput(os.Stderr) // Reset to default
+	}()
+
+	cache.removeOldest()
+
+	// Check that error was logged for removeOldest
+	if !strings.Contains(logOutput.String(), "removeOldest called without mutex locked!!!") {
+		t.Error("Expected removeOldest error to be logged")
+	}
+
+	// Reset log output for next test
+	logOutput.Reset()
+
+	cache.removeElement(nil)
+
+	// Check that error was logged for removeElement
+	if !strings.Contains(logOutput.String(), "removeElement called without mutex locked!!!") {
+		t.Error("Expected removeElement error to be logged")
+	}
+
+	if !strings.Contains(logOutput.String(), "removeElement called with nil element!!!") {
+		t.Error("Expected removeElement error to be logged")
 	}
 }
 
