@@ -12,13 +12,12 @@ import (
 )
 
 const (
-	analyticsBaseURL = "https://analytics.ton.org/events/"
+	analyticsURL = "https://analytics.ton.org/events/"
 )
 
 // AnalyticsClient defines the interface for analytics clients
 type AnalyticsClient interface {
-	SendBridgeRequestReceivedEvent(event BridgeRequestReceivedEvent)
-	SendBridgeRequestSentEvent(event BridgeRequestSentEvent)
+	SendEvent(event interface{})
 }
 
 // TonMetricsClient handles sending analytics events
@@ -36,47 +35,27 @@ func NewAnalyticsClient() AnalyticsClient {
 	}
 }
 
-// SendBridgeRequestReceivedEvent sends a bridge request received event to analytics
-func (a *TonMetricsClient) SendBridgeRequestReceivedEvent(event BridgeRequestReceivedEvent) {
-	log := logrus.WithField("prefix", "analytics")
-
-	if err := a.sendEvent(event, "bridge-request-received"); err != nil {
-		log.Errorf("failed to send bridge request received event: %v", err)
-	}
-}
-
-// SendBridgeRequestSentEvent sends a bridge request sent event to analytics
-func (a *TonMetricsClient) SendBridgeRequestSentEvent(event BridgeRequestSentEvent) {
-	log := logrus.WithField("prefix", "analytics")
-
-	if err := a.sendEvent(event, "bridge-request-sent"); err != nil {
-		log.Errorf("failed to send bridge request sent event: %v", err)
-	}
-}
-
 // sendEvent sends an event to the analytics endpoint
-func (a *TonMetricsClient) sendEvent(event interface{}, eventType string) error {
-	// log := logrus.WithField("prefix", "analytics")
+func (a *TonMetricsClient) SendEvent(event interface{}) {
+	log := logrus.WithField("prefix", "analytics")
 	analyticsData, err := json.Marshal(event)
 	if err != nil {
-		return fmt.Errorf("failed to marshal analytics data: %w", err)
+		log.Errorf("failed to marshal analytics data: %v", err)
 	}
 
-	url := analyticsBaseURL + eventType
-	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(analyticsData))
+	req, err := http.NewRequest(http.MethodPost, analyticsURL, bytes.NewReader(analyticsData))
 	if err != nil {
-		return fmt.Errorf("failed to create analytics request: %w", err)
+		log.Errorf("failed to create analytics request: %v", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 
 	_, err = a.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to send analytics request: %w", err)
+		log.Errorf("failed to send analytics request: %v", err)
 	}
 
-	// log.WithField("event_type", eventType).WithField("url", url).Debug("analytics request sent successfully")
-	return nil
+	log.Debugf("analytics request sent successfully: %s", string(analyticsData))
 }
 
 // CreateBridgeRequestReceivedEvent creates a BridgeRequestReceivedEvent with common fields populated
@@ -120,12 +99,7 @@ func CreateBridgeRequestSentEvent(bridgeURL, clientID, traceID, requestType, use
 // NoopMetricsClient does nothing when analytics are disabled
 type NoopMetricsClient struct{}
 
-// SendBridgeRequestReceivedEvent does nothing for NoopAnalyticsClient
-func (n *NoopMetricsClient) SendBridgeRequestReceivedEvent(event BridgeRequestReceivedEvent) {
-	// No-op
-}
-
-// SendBridgeRequestSentEvent does nothing for NoopAnalyticsClient
-func (n *NoopMetricsClient) SendBridgeRequestSentEvent(event BridgeRequestSentEvent) {
+// SendEvent does nothing for NoopMetricsClient
+func (n *NoopMetricsClient) SendEvent(event interface{}) {
 	// No-op
 }

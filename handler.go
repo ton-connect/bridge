@@ -221,7 +221,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 				"trace_id": bridgeMsg.TraceId,
 			}).Debug("message sent")
 
-			event := tonmetrics.CreateBridgeRequestReceivedEvent(
+			go h.analytics.SendEvent(tonmetrics.CreateBridgeRequestReceivedEvent(
 				c.Request().Host,
 				msg.To,
 				bridgeMsg.TraceId,
@@ -229,8 +229,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 				config.Config.BridgeVersion,
 				config.Config.NetworkId,
 				msg.EventId,
-			)
-			go h.analytics.SendBridgeRequestReceivedEvent(event)
+			))
 
 			deliveredMessagesMetric.Inc()
 			storage.ExpiredCache.Mark(msg.EventId)
@@ -426,7 +425,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"trace_id": bridgeMsg.TraceId,
 	}).Debug("message received")
 
-	event := tonmetrics.CreateBridgeRequestSentEvent(
+	go h.analytics.SendEvent(tonmetrics.CreateBridgeRequestSentEvent(
 		c.Request().Host,
 		clientId[0],
 		traceId,
@@ -436,8 +435,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		config.Config.BridgeVersion,
 		config.Config.NetworkId,
 		sseMessage.EventId,
-	)
-	go h.analytics.SendBridgeRequestSentEvent(event)
+	))
 
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, HttpResOk())
