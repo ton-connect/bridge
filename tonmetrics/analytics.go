@@ -72,13 +72,12 @@ func CreateBridgeRequestReceivedEvent(bridgeURL, clientID, traceID, environment,
 		RequestType:       "",
 		Subsystem:         "bridge",
 		TraceId:           traceID,
-		UserId:            clientID,
 		Version:           version,
 	}
 }
 
 // CreateBridgeRequestSentEvent creates a BridgeRequestSentEvent with common fields populated
-func CreateBridgeRequestSentEvent(bridgeURL, clientID, traceID, requestType, userID, environment, version, networkId string, eventID int64) BridgeRequestSentEvent {
+func CreateBridgeRequestSentEvent(bridgeURL, clientID, traceID, requestType, environment, version, networkId string, eventID int64) BridgeRequestSentEvent {
 	return BridgeRequestSentEvent{
 		BridgeUrl:         bridgeURL,
 		ClientEnvironment: environment,
@@ -91,7 +90,6 @@ func CreateBridgeRequestSentEvent(bridgeURL, clientID, traceID, requestType, use
 		RequestType:       requestType,
 		Subsystem:         "bridge",
 		TraceId:           traceID,
-		UserId:            userID,
 		Version:           version,
 	}
 }

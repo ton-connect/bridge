@@ -430,7 +430,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		clientId[0],
 		traceId,
 		topic,
-		toId[0],
 		config.Config.Environment,
 		config.Config.BridgeVersion,
 		config.Config.NetworkId,
