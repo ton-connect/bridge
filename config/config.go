@@ -30,7 +30,7 @@ var Config = struct {
 	BridgeName             string   `env:"BRIDGE_NAME" envDefault:"ton-connect-bridge"`
 	BridgeVersion          string   `env:"BRIDGE_VERSION" envDefault:"1.0.0"` // TODO start using build version
 	Environment            string   `env:"ENVIRONMENT" envDefault:"production"`
-	NetworkId              string   `env:"NETWORK_ID" envDefault:"-1"`
+	NetworkId              string   `env:"NETWORK_ID" envDefault:"-239"`
 }{}
 
 func LoadConfig() {
