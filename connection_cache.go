@@ -94,22 +94,14 @@ func (c *ConnectionCache) Verify(clientID, ip, origin string) string {
 	c.mutex.RLock()
 	defer c.mutex.RUnlock()
 
-	key := ConnectionKey{ClientID: clientID, IP: ip, Origin: origin, UserAgent: ""}
-
-	// Check for exact match first
-	if ent, ok := c.items[key]; ok {
-		entry := ent.Value.(*connectionCacheEntry)
-
-		if time.Now().After(entry.expiration) {
-			return "unknown"
-		}
-
-		return "ok"
+	if len(c.clientIndex[clientID]) == 0 {
+		return "unknown"
 	}
 
+	leastSuspicious := "danger"
+	now := time.Now()
 	// No exact match - check for partial matches using clientID index (O(1) lookup)
 	if elements, exists := c.clientIndex[clientID]; exists {
-		now := time.Now()
 		for _, ent := range elements {
 			entry := ent.Value.(*connectionCacheEntry)
 
@@ -118,17 +110,19 @@ func (c *ConnectionCache) Verify(clientID, ip, origin string) string {
 			}
 
 			cachedKey := entry.key
-			if cachedKey.Origin != origin {
-				return "danger"
+			// If we have an exact match, return ok
+			if cachedKey.Origin == origin && cachedKey.IP == ip {
+				return "ok"
 			}
 
-			if cachedKey.IP != ip {
-				return "warning"
+			// If we have at least Origin match, return warning
+			if cachedKey.Origin == origin {
+				leastSuspicious = "warning"
 			}
 		}
 	}
 
-	return "unknown"
+	return leastSuspicious
 }
 
 // CleanExpired removes all expired entries from the cache

@@ -11,24 +11,20 @@ func TestConnectionCache_BasicOperations(t *testing.T) {
 
 	cache.Add("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0")
 
-	if cache.Verify("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0") != "ok" {
+	if v := cache.Verify("client1", "127.0.0.1", "https://example.com"); v != "ok" {
 		t.Error("Expected verification to return 'ok'")
 	}
 
-	if cache.Verify("client2", "127.0.0.1", "https://example.com", "Mozilla/5.0") != "unknown" {
+	if cache.Verify("client2", "127.0.0.1", "https://example.com") != "unknown" {
 		t.Error("Expected verification to return 'unknown' with wrong client ID")
 	}
 
-	if cache.Verify("client1", "192.168.1.1", "https://example.com", "Mozilla/5.0") != "warning" {
+	if cache.Verify("client1", "192.168.1.1", "https://example.com") != "warning" {
 		t.Error("Expected verification to return 'warning' with wrong IP")
 	}
 
-	if cache.Verify("client1", "127.0.0.1", "https://other.com", "Mozilla/5.0") != "danger" {
+	if cache.Verify("client1", "127.0.0.1", "https://other.com") != "danger" {
 		t.Error("Expected verification to return 'danger' with wrong origin")
-	}
-
-	if cache.Verify("client1", "127.0.0.1", "https://example.com", "Chrome/91.0") != "danger" {
-		t.Error("Expected verification to return 'danger' with wrong user agent")
 	}
 }
 
@@ -37,13 +33,13 @@ func TestConnectionCache_Expiration(t *testing.T) {
 
 	cache.Add("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0")
 
-	if cache.Verify("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0") != "ok" {
+	if cache.Verify("client1", "127.0.0.1", "https://example.com") != "ok" {
 		t.Error("Expected verification to return 'ok' immediately")
 	}
 
 	time.Sleep(60 * time.Millisecond)
 
-	if cache.Verify("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0") != "unknown" {
+	if cache.Verify("client1", "127.0.0.1", "https://example.com") != "unknown" {
 		t.Error("Expected verification to return 'unknown' after expiration")
 	}
 }
@@ -55,14 +51,14 @@ func TestConnectionCache_CapacityLimit(t *testing.T) {
 	cache.Add("client2", "127.0.0.2", "https://example.com", "Mozilla/5.0")
 	cache.Add("client3", "127.0.0.3", "https://example.com", "Mozilla/5.0") // Should evict client1
 
-	if cache.Verify("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0") != "unknown" {
+	if cache.Verify("client1", "127.0.0.1", "https://example.com") != "unknown" {
 		t.Error("Expected client1 to be evicted and return 'unknown'")
 	}
 
-	if cache.Verify("client2", "127.0.0.2", "https://example.com", "Mozilla/5.0") != "ok" {
+	if cache.Verify("client2", "127.0.0.2", "https://example.com") != "ok" {
 		t.Error("Expected client2 to still be in cache and return 'ok'")
 	}
-	if cache.Verify("client3", "127.0.0.3", "https://example.com", "Mozilla/5.0") != "ok" {
+	if cache.Verify("client3", "127.0.0.3", "https://example.com") != "ok" {
 		t.Error("Expected client3 to still be in cache and return 'ok'")
 	}
 }
@@ -75,23 +71,23 @@ func TestConnectionCache_MultipleConnectionsSameClient(t *testing.T) {
 	cache.Add("client1", "192.168.1.1", "https://example.com", "Mozilla/5.0")
 
 	// Both connections should be verified as "ok"
-	if cache.Verify("client1", "127.0.0.1", "https://example.com", "Mozilla/5.0") != "ok" {
+	if cache.Verify("client1", "127.0.0.1", "https://example.com") != "ok" {
 		t.Error("Expected first connection to return 'ok'")
 	}
 
-	if cache.Verify("client1", "192.168.1.1", "https://example.com", "Mozilla/5.0") != "ok" {
+	if cache.Verify("client1", "192.168.1.1", "https://example.com") != "ok" {
 		t.Error("Expected second connection to return 'ok'")
 	}
 
 	// Different IP for same client should return "warning"
-	if cache.Verify("client1", "10.0.0.1", "https://example.com", "Mozilla/5.0") != "warning" {
+	if cache.Verify("client1", "10.0.0.1", "https://example.com") != "warning" {
 		t.Error("Expected verification with new IP to return 'warning'")
 	}
 
 	// Add connection with different origin - should trigger "danger" for new requests
 	cache.Add("client1", "127.0.0.1", "https://malicious.com", "Mozilla/5.0")
 
-	if cache.Verify("client1", "127.0.0.1", "https://different.com", "Mozilla/5.0") != "danger" {
+	if cache.Verify("client1", "127.0.0.1", "https://different.com") != "danger" {
 		t.Error("Expected verification with different origin to return 'danger'")
 	}
 }
@@ -166,13 +162,13 @@ var (
 	}
 
 	// Suspicious user agents
-	suspiciousUserAgents = []string{
-		"PhishingBot/1.0",
-		"ScamWallet/0.1",
-		"curl/7.68.0",
-		"python-requests/2.25.1",
-		"FakeApp/1.0.0",
-	}
+	// suspiciousUserAgents = []string{
+	// 	"PhishingBot/1.0",
+	// 	"ScamWallet/0.1",
+	// 	"curl/7.68.0",
+	// 	"python-requests/2.25.1",
+	// 	"FakeApp/1.0.0",
+	// }
 )
 
 func BenchmarkConnectionCache(b *testing.B) {
@@ -202,28 +198,26 @@ func BenchmarkConnectionCache(b *testing.B) {
 
 			case 4, 5, 6, 7, 8, 9, 10, 11: // 40% normal verification (exact match)
 				ip := fmt.Sprintf("192.168.%d.%d", (i/256)%256, i%256)
-				cache.Verify(clientID, ip, baseOrigin, baseUserAgent)
+				cache.Verify(clientID, ip, baseOrigin)
 
 			case 12, 13, 14: // 15% suspicious IP changes (warning)
 				suspiciousIP := fmt.Sprintf("203.0.113.%d", i%255)
-				cache.Verify(clientID, suspiciousIP, baseOrigin, baseUserAgent)
+				cache.Verify(clientID, suspiciousIP, baseOrigin)
 
 			case 15, 16: // 10% different user agent (danger)
 				ip := fmt.Sprintf("192.168.%d.%d", (i/256)%256, i%256)
-				maliciousUA := suspiciousUserAgents[i%len(suspiciousUserAgents)]
-				cache.Verify(clientID, ip, baseOrigin, maliciousUA)
+				cache.Verify(clientID, ip, baseOrigin)
 
 			case 17, 18: // 10% different origin (danger)
 				ip := fmt.Sprintf("192.168.%d.%d", (i/256)%256, i%256)
 				maliciousOrigin := suspiciousOrigins[i%len(suspiciousOrigins)]
-				cache.Verify(clientID, ip, maliciousOrigin, baseUserAgent)
+				cache.Verify(clientID, ip, maliciousOrigin)
 
 			case 19: // 5% completely unknown clients (unknown)
 				unknownClient := fmt.Sprintf("attacker_%d", i)
 				unknownIP := fmt.Sprintf("1.2.3.%d", i%255)
 				maliciousOrigin := suspiciousOrigins[i%len(suspiciousOrigins)]
-				maliciousUA := suspiciousUserAgents[i%len(suspiciousUserAgents)]
-				cache.Verify(unknownClient, unknownIP, maliciousOrigin, maliciousUA)
+				cache.Verify(unknownClient, unknownIP, maliciousOrigin)
 			}
 			i++
 		}
