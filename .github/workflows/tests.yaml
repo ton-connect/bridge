@@ -35,6 +35,19 @@ jobs:
     - name: Run integration tests against ${{ matrix.storage }} storage
       run: docker compose -f docker-compose.${{ matrix.storage }}.yml up integration
 
+    - name: Get performance metrics
+      if: github.event_name == 'pull_request'
+      run: |
+        ./scripts/pr-metrics.sh "${{ matrix.storage }}" > metrics.md
+
+    - name: Comment PR
+      if: github.event_name == 'pull_request'  
+      uses: mshick/add-pr-comment@v2
+      with:
+        message-path: metrics.md
+        message-id: performance-metrics-${{ matrix.storage }}-${{ github.run_number }}
+        refresh-message-position: true
+
     - name: Clean up containers
       if: always()
       run: docker compose -f docker-compose.${{ matrix.storage }}.yml down -v
