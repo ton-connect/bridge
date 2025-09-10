@@ -34,9 +34,8 @@ HEAP_BYTES=$(echo "$METRICS_DATA" | grep "go_memstats_heap_inuse_bytes" | grep -
 HEAP_MB=$(echo "$HEAP_BYTES" | awk '{printf "%.1f", $1/1024/1024}' 2>/dev/null || echo "0.0")
 
 # Output markdown to stdout
-echo "## 📊 Performance Metrics ($STORAGE_TYPE storage)"
+echo "📊 Performance Metrics ($STORAGE_TYPE storage)"
 echo ""
-echo "**Goroutines:** $GOROUTINES"
-echo "**Heap Size:** ${HEAP_MB}MB"
+echo "- **Goroutines:** $GOROUTINES"
+echo "- **Heap Size:** ${HEAP_MB}MB"
 echo ""
-echo "_Collected at $(date -u '+%Y-%m-%d %H:%M:%S UTC')_"

@@ -38,13 +38,14 @@ jobs:
     - name: Get performance metrics
       if: github.event_name == 'pull_request'
       run: |
-        ./scripts/pr-metrics.sh "${{ matrix.storage }}" > metrics.md
+        ./scripts/pr-metrics.sh "${{ matrix.storage }}" >> metrics.md
 
     - name: Comment PR
       if: github.event_name == 'pull_request'  
       uses: mshick/add-pr-comment@v2
       with:
         message-path: metrics.md
+        message-id: performance-metrics-${{ matrix.storage }}
 
     - name: Clean up containers
       if: always()
