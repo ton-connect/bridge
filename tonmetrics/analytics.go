@@ -55,7 +55,7 @@ func (a *TonMetricsClient) SendEvent(event interface{}) {
 		log.Errorf("failed to send analytics request: %v", err)
 	}
 
-	log.Debugf("analytics request sent successfully: %s", string(analyticsData))
+	// log.Debugf("analytics request sent successfully: %s", string(analyticsData))
 }
 
 // CreateBridgeRequestReceivedEvent creates a BridgeRequestReceivedEvent with common fields populated
