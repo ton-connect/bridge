@@ -481,18 +481,14 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		qtype = "connect"
 	}
 
-	// Default status
-	status := "unknown"
-
 	switch strings.ToLower(qtype) {
 	case "connect":
-		res := h.connectionCache.Verify(clientId, ip, ExtractOrigin(url))
-		status = res
+		status := h.connectionCache.Verify(clientId, ip, ExtractOrigin(url))
+		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
 		badRequestMetric.Inc()
 		return c.JSON(HttpResError("param \"type\" must be one of: connect, message", http.StatusBadRequest))
 	}
-	return c.JSON(http.StatusOK, verifyResponse{Status: status})
 }
 
 func (h *handler) removeConnection(ses *Session) {
