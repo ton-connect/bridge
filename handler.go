@@ -64,6 +64,10 @@ var (
 	})
 )
 
+type verifyResponse struct {
+	Status string `json:"status"`
+}
+
 type stream struct {
 	Sessions []*Session
 	mux      sync.RWMutex
@@ -74,6 +78,7 @@ type handler struct {
 	storage           db
 	_eventIDs         int64
 	heartbeatInterval time.Duration
+	connectionCache   *ConnectionCache
 	realIP            *realIPExtractor
 	analytics         tonmetrics.AnalyticsClient
 }
@@ -84,12 +89,16 @@ type db interface {
 }
 
 func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
+	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
+	connectionCache.StartBackgroundCleanup(nil)
+
 	h := handler{
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
 		storage:           db,
 		_eventIDs:         time.Now().UnixMicro(),
 		heartbeatInterval: heartbeatInterval,
+		connectionCache:   connectionCache,
 		realIP:            extractor,
 		analytics:         tonmetrics.NewAnalyticsClient(),
 	}
@@ -170,6 +179,13 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 
 	connectIP := h.realIP.Extract(c.Request())
 	session := h.CreateSession(clientIds, lastEventId)
+
+	ip := h.realIP.Extract(c.Request())
+	origin := ExtractOrigin(c.Request().Header.Get("Origin"))
+	userAgent := c.Request().Header.Get("User-Agent")
+
+	// Store connection in cache
+	h.connectionCache.Add(clientId, ip, origin, userAgent)
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
@@ -439,6 +455,40 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, HttpResOk())
 
+}
+
+func (h *handler) ConnectVerifyHandler(c echo.Context) error {
+	ip := h.realIP.Extract(c.Request())
+
+	paramsStore, err := NewParamsStorage(c, config.Config.MaxBodySize)
+	if err != nil {
+		badRequestMetric.Inc()
+		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+	}
+
+	clientId, ok := paramsStore.Get("client_id")
+	if !ok {
+		badRequestMetric.Inc()
+		return c.JSON(HttpResError("param \"client_id\" not present", http.StatusBadRequest))
+	}
+	url, ok := paramsStore.Get("url")
+	if !ok {
+		badRequestMetric.Inc()
+		return c.JSON(HttpResError("param \"url\" not present", http.StatusBadRequest))
+	}
+	qtype, ok := paramsStore.Get("type")
+	if !ok {
+		qtype = "connect"
+	}
+
+	switch strings.ToLower(qtype) {
+	case "connect":
+		status := h.connectionCache.Verify(clientId, ip, ExtractOrigin(url))
+		return c.JSON(http.StatusOK, verifyResponse{Status: status})
+	default:
+		badRequestMetric.Inc()
+		return c.JSON(HttpResError("param \"type\" must be one of: connect, message", http.StatusBadRequest))
+	}
 }
 
 func (h *handler) removeConnection(ses *Session) {
