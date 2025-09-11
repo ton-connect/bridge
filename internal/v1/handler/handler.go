@@ -188,6 +188,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	notify := ctx.Done()
 	go func() {
 		<-notify
+		session.Closer <- struct{}{}
 		close(session.Closer)
 		h.removeConnection(session)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
