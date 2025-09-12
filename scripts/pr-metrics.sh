@@ -50,12 +50,6 @@ GC_COUNT=$(echo "$METRICS_DATA" | grep "go_gc_duration_seconds_count" | grep -o 
 GC_TOTAL_TIME=$(echo "$METRICS_DATA" | grep "go_gc_duration_seconds_sum" | grep -o '[0-9.]\+' || echo "0")
 GC_AVG_MS=$(echo "$GC_TOTAL_TIME $GC_COUNT" | awk '{if($2>0) printf "%.2f", ($1/$2)*1000; else print "0"}' 2>/dev/null || echo "0")
 
-# Application Metrics
-ACTIVE_CONNECTIONS=$(echo "$METRICS_DATA" | grep "number_of_acitve_connections " | grep -o '[0-9]\+' || echo "0")
-ACTIVE_SUBSCRIPTIONS=$(echo "$METRICS_DATA" | grep "number_of_active_subscriptions " | grep -o '[0-9]\+' || echo "0")
-BAD_REQUESTS=$(echo "$METRICS_DATA" | grep "number_of_bad_requests " | grep -o '[0-9]\+' || echo "0")
-DELIVERED_MESSAGES=$(echo "$METRICS_DATA" | grep "number_of_delivered_messages " | grep -o '[0-9]\+' || echo "0")
-
 # Resource Metrics - robust cross-platform parsing
 OPEN_FDS=$(echo "$METRICS_DATA" | awk '/^process_open_fds / {print int($2); exit}' || echo "0")
 MAX_FDS=$(echo "$METRICS_DATA" | awk '/^process_max_fds / {print int($2); exit}' || echo "0")
