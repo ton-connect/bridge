@@ -36,7 +36,11 @@ func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, hea
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
+	// Channel to signal heartbeat goroutine to stop
+	heartbeatDone := make(chan struct{})
+
 	go func() {
+		defer close(heartbeatDone)
 		for {
 			select {
 			case <-s.Closer:
@@ -50,6 +54,9 @@ func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, hea
 	s.retrieveHistoricMessages(log, enableQueueDoneEvent)
 
 	<-s.Closer
+
+	// Wait for heartbeat goroutine to finish before closing the channel
+	<-heartbeatDone
 	close(s.MessageCh)
 }
 
