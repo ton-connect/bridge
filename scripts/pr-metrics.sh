@@ -24,10 +24,41 @@ done
 GOROUTINE_DATA=$(curl -s "http://$BRIDGE_HOST:$BRIDGE_PORT/debug/pprof/goroutine?debug=1" 2>/dev/null || echo "")
 GOROUTINES=$(echo "$GOROUTINE_DATA" | head -1 | grep -o '[0-9]\+' | head -1 || echo "0")
 
-# Get heap size from metrics endpoint (handle scientific notation)
+# Get metrics data once and reuse
 METRICS_DATA=$(curl -s "http://$BRIDGE_HOST:$BRIDGE_PORT/metrics" 2>/dev/null || echo "")
+
+# CPU Metrics
+PROCESS_CPU_TOTAL=$(echo "$METRICS_DATA" | grep "process_cpu_seconds_total" | grep -o '[0-9.]\+' | tail -1 || echo "0")
+GOMAXPROCS=$(echo "$METRICS_DATA" | grep "go_sched_gomaxprocs_threads" | grep -o '[0-9]\+' || echo "0")
+
+# Memory Metrics
 HEAP_BYTES=$(echo "$METRICS_DATA" | grep "go_memstats_heap_inuse_bytes" | grep -o '[0-9.e+-]\+' | tail -1 || echo "0")
 HEAP_MB=$(echo "$HEAP_BYTES" | awk '{printf "%.1f", $1/1024/1024}' 2>/dev/null || echo "0.0")
+
+HEAP_ALLOC_BYTES=$(echo "$METRICS_DATA" | grep "go_memstats_heap_alloc_bytes " | grep -o '[0-9.e+-]\+' | tail -1 || echo "0")
+HEAP_ALLOC_MB=$(echo "$HEAP_ALLOC_BYTES" | awk '{printf "%.1f", $1/1024/1024}' 2>/dev/null || echo "0.0")
+
+RSS_BYTES=$(echo "$METRICS_DATA" | grep "process_resident_memory_bytes" | grep -o '[0-9.e+-]\+' | tail -1 || echo "0")
+RSS_MB=$(echo "$RSS_BYTES" | awk '{printf "%.1f", $1/1024/1024}' 2>/dev/null || echo "0.0")
+
+TOTAL_ALLOCS=$(echo "$METRICS_DATA" | grep "go_memstats_alloc_bytes_total" | grep -o '[0-9.e+-]\+' | tail -1 || echo "0")
+TOTAL_ALLOCS_MB=$(echo "$TOTAL_ALLOCS" | awk '{printf "%.1f", $1/1024/1024}' 2>/dev/null || echo "0.0")
+
+# Garbage Collection Metrics
+GC_COUNT=$(echo "$METRICS_DATA" | grep "go_gc_duration_seconds_count" | grep -o '[0-9]\+' || echo "0")
+GC_TOTAL_TIME=$(echo "$METRICS_DATA" | grep "go_gc_duration_seconds_sum" | grep -o '[0-9.]\+' || echo "0")
+GC_AVG_MS=$(echo "$GC_TOTAL_TIME $GC_COUNT" | awk '{if($2>0) printf "%.2f", ($1/$2)*1000; else print "0"}' 2>/dev/null || echo "0")
+
+# Application Metrics
+ACTIVE_CONNECTIONS=$(echo "$METRICS_DATA" | grep "number_of_acitve_connections " | grep -o '[0-9]\+' || echo "0")
+ACTIVE_SUBSCRIPTIONS=$(echo "$METRICS_DATA" | grep "number_of_active_subscriptions " | grep -o '[0-9]\+' || echo "0")
+BAD_REQUESTS=$(echo "$METRICS_DATA" | grep "number_of_bad_requests " | grep -o '[0-9]\+' || echo "0")
+DELIVERED_MESSAGES=$(echo "$METRICS_DATA" | grep "number_of_delivered_messages " | grep -o '[0-9]\+' || echo "0")
+
+# Resource Metrics
+OPEN_FDS=$(echo "$METRICS_DATA" | grep "process_open_fds " | grep -o '[0-9]\+' || echo "0")
+MAX_FDS=$(echo "$METRICS_DATA" | grep "process_max_fds " | grep -o '[0-9]\+' || echo "0")
+FD_USAGE_PERCENT=$(echo "$OPEN_FDS $MAX_FDS" | awk '{if($2>0) printf "%.1f", ($1/$2)*100; else print "0"}' 2>/dev/null || echo "0")
 
 # Get allocation rate from allocs endpoint
 ALLOCS_DATA=$(curl -s "http://$BRIDGE_HOST:$BRIDGE_PORT/debug/pprof/allocs?debug=1" 2>/dev/null || echo "")
@@ -40,8 +71,27 @@ THREADS=$(echo "$THREADS_DATA" | head -1 | grep -o 'total [0-9]\+' | grep -o '[0
 # Output markdown to stdout
 echo "📊 Performance Metrics ($STORAGE_TYPE storage)"
 echo ""
+echo "## 🖥️ CPU & Runtime"
+echo "- **CPU Time:** ${PROCESS_CPU_TOTAL}s (${GOMAXPROCS} cores available)"
 echo "- **Goroutines:** $GOROUTINES"
 echo "- **OS Threads:** $THREADS"
-echo "- **Heap Size:** ${HEAP_MB}MB"
+echo ""
+echo "## 💾 Memory Usage"
+echo "- **Heap Size:** ${HEAP_ALLOC_MB}MB (live objects)"
+echo "- **Heap Inuse:** ${HEAP_MB}MB (reserved)"
+echo "- **Resident Memory:** ${RSS_MB}MB (actual RAM)"
+echo "- **Total Allocated:** ${TOTAL_ALLOCS_MB}MB (lifetime)"
 echo "- **Allocations:** $ALLOCS_COUNT"
+echo ""
+echo "## 🗑️ Garbage Collection"
+echo "- **GC Cycles:** $GC_COUNT (avg: ${GC_AVG_MS}ms)"
+echo ""
+echo "## 🌐 Application Metrics"
+echo "- **Active Connections:** $ACTIVE_CONNECTIONS"
+echo "- **Active Subscriptions:** $ACTIVE_SUBSCRIPTIONS"
+echo "- **Delivered Messages:** $DELIVERED_MESSAGES"
+echo "- **Bad Requests:** $BAD_REQUESTS"
+echo ""
+echo "## 📁 Resources"
+echo "- **File Descriptors:** $OPEN_FDS/$MAX_FDS (${FD_USAGE_PERCENT}%)"
 echo ""
