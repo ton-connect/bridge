@@ -56,10 +56,10 @@ ACTIVE_SUBSCRIPTIONS=$(echo "$METRICS_DATA" | grep "number_of_active_subscriptio
 BAD_REQUESTS=$(echo "$METRICS_DATA" | grep "number_of_bad_requests " | grep -o '[0-9]\+' || echo "0")
 DELIVERED_MESSAGES=$(echo "$METRICS_DATA" | grep "number_of_delivered_messages " | grep -o '[0-9]\+' || echo "0")
 
-# Resource Metrics
-OPEN_FDS=$(echo "$METRICS_DATA" | grep "process_open_fds " | grep -o '[0-9]\+' || echo "0")
-MAX_FDS=$(echo "$METRICS_DATA" | grep "process_max_fds " | grep -o '[0-9]\+' || echo "0")
-FD_USAGE_PERCENT=$(echo "$OPEN_FDS $MAX_FDS" | awk '{if($2>0) printf "%.1f", ($1/$2)*100; else print "0"}' 2>/dev/null || echo "0")
+# Resource Metrics - robust cross-platform parsing
+OPEN_FDS=$(echo "$METRICS_DATA" | awk '/^process_open_fds / {print int($2); exit}' || echo "0")
+MAX_FDS=$(echo "$METRICS_DATA" | awk '/^process_max_fds / {print int($2); exit}' || echo "0")
+FD_USAGE_PERCENT=$(echo "$OPEN_FDS $MAX_FDS" | awk '{if($2>0) printf "%.1f", ($1/$2)*100; else print "0.0"}' || echo "0.0")
 
 # Get allocation rate from allocs endpoint
 ALLOCS_DATA=$(curl -s "http://$BRIDGE_HOST:$BRIDGE_PORT/debug/pprof/allocs?debug=1" 2>/dev/null || echo "")
