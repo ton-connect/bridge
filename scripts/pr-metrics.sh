@@ -70,10 +70,10 @@ THREADS_DATA=$(curl -s "http://$BRIDGE_HOST:$BRIDGE_PORT/debug/pprof/threadcreat
 THREADS=$(echo "$THREADS_DATA" | head -1 | grep -o 'total [0-9]\+' | grep -o '[0-9]\+' || echo "0")
 
 # Output compact markdown to stdout
-echo "📊 **Performance Metrics** ($STORAGE_TYPE storage)"
+echo "**Performance Metrics** ($STORAGE_TYPE storage)"
 echo ""
-echo "🖥️ **CPU:** ${PROCESS_CPU_FORMATTED}s (${GOMAXPROCS} cores) • **Goroutines:** $GOROUTINES • **Threads:** $THREADS"
-echo "💾 **Memory:** ${HEAP_ALLOC_MB}MB heap • ${RSS_MB}MB RAM • ${TOTAL_ALLOCS_MB}MB total • $ALLOCS_COUNT allocs"
-echo "🗑️ **GC:** $GC_COUNT cycles (${GC_AVG_MS}ms avg) • 🌐 **App:** $ACTIVE_CONNECTIONS conn • $DELIVERED_MESSAGES msgs • $BAD_REQUESTS errors"
-echo "📁 **FDs:** $OPEN_FDS/$MAX_FDS (${FD_USAGE_PERCENT}%)"
+echo "- **CPU:** ${PROCESS_CPU_FORMATTED}s (${GOMAXPROCS} cores) • **Goroutines:** $GOROUTINES • **Threads:** $THREADS"
+echo "- **Memory:** ${HEAP_ALLOC_MB}MB heap • ${RSS_MB}MB RAM • ${TOTAL_ALLOCS_MB}MB total • $ALLOCS_COUNT allocs"
+echo "- **GC:** $GC_COUNT cycles (${GC_AVG_MS}ms avg)"
+echo "- **FDs:** $OPEN_FDS/$MAX_FDS (${FD_USAGE_PERCENT}%)"
 echo ""
