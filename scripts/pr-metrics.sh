@@ -61,9 +61,8 @@ OPEN_FDS=$(echo "$METRICS_DATA" | awk '/^process_open_fds / {print int($2); exit
 MAX_FDS=$(echo "$METRICS_DATA" | awk '/^process_max_fds / {print int($2); exit}' || echo "0")
 FD_USAGE_PERCENT=$(echo "$OPEN_FDS $MAX_FDS" | awk '{if($2>0) printf "%.1f", ($1/$2)*100; else print "0.0"}' || echo "0.0")
 
-# Get allocation rate from allocs endpoint
-ALLOCS_DATA=$(curl -s "http://$BRIDGE_HOST:$BRIDGE_PORT/debug/pprof/allocs?debug=1" 2>/dev/null || echo "")
-ALLOCS_COUNT=$(echo "$ALLOCS_DATA" | head -1 | grep -o '\[[0-9]\+:' | grep -o '[0-9]\+' | head -1 || echo "0")
+# Get total allocation count from metrics (not pprof sampling)
+ALLOCS_COUNT=$(echo "$METRICS_DATA" | awk '/^go_memstats_mallocs_total / {print int($2); exit}' || echo "0")
 
 # Get thread count
 THREADS_DATA=$(curl -s "http://$BRIDGE_HOST:$BRIDGE_PORT/debug/pprof/threadcreate?debug=1" 2>/dev/null || echo "")
