@@ -29,6 +29,7 @@ METRICS_DATA=$(curl -s "http://$BRIDGE_HOST:$BRIDGE_PORT/metrics" 2>/dev/null ||
 
 # CPU Metrics
 PROCESS_CPU_TOTAL=$(echo "$METRICS_DATA" | grep "process_cpu_seconds_total" | grep -o '[0-9.]\+' | tail -1 || echo "0")
+PROCESS_CPU_FORMATTED=$(echo "$PROCESS_CPU_TOTAL" | awk '{printf "%.2f", $1}' 2>/dev/null || echo "0.00")
 GOMAXPROCS=$(echo "$METRICS_DATA" | grep "go_sched_gomaxprocs_threads" | grep -o '[0-9]\+' || echo "0")
 
 # Memory Metrics
@@ -68,30 +69,11 @@ ALLOCS_COUNT=$(echo "$ALLOCS_DATA" | head -1 | grep -o '\[[0-9]\+:' | grep -o '[
 THREADS_DATA=$(curl -s "http://$BRIDGE_HOST:$BRIDGE_PORT/debug/pprof/threadcreate?debug=1" 2>/dev/null || echo "")
 THREADS=$(echo "$THREADS_DATA" | head -1 | grep -o 'total [0-9]\+' | grep -o '[0-9]\+' || echo "0")
 
-# Output markdown to stdout
-echo "📊 Performance Metrics ($STORAGE_TYPE storage)"
+# Output compact markdown to stdout
+echo "📊 **Performance Metrics** ($STORAGE_TYPE storage)"
 echo ""
-echo "## 🖥️ CPU & Runtime"
-echo "- **CPU Time:** ${PROCESS_CPU_TOTAL}s (${GOMAXPROCS} cores available)"
-echo "- **Goroutines:** $GOROUTINES"
-echo "- **OS Threads:** $THREADS"
-echo ""
-echo "## 💾 Memory Usage"
-echo "- **Heap Size:** ${HEAP_ALLOC_MB}MB (live objects)"
-echo "- **Heap Inuse:** ${HEAP_MB}MB (reserved)"
-echo "- **Resident Memory:** ${RSS_MB}MB (actual RAM)"
-echo "- **Total Allocated:** ${TOTAL_ALLOCS_MB}MB (lifetime)"
-echo "- **Allocations:** $ALLOCS_COUNT"
-echo ""
-echo "## 🗑️ Garbage Collection"
-echo "- **GC Cycles:** $GC_COUNT (avg: ${GC_AVG_MS}ms)"
-echo ""
-echo "## 🌐 Application Metrics"
-echo "- **Active Connections:** $ACTIVE_CONNECTIONS"
-echo "- **Active Subscriptions:** $ACTIVE_SUBSCRIPTIONS"
-echo "- **Delivered Messages:** $DELIVERED_MESSAGES"
-echo "- **Bad Requests:** $BAD_REQUESTS"
-echo ""
-echo "## 📁 Resources"
-echo "- **File Descriptors:** $OPEN_FDS/$MAX_FDS (${FD_USAGE_PERCENT}%)"
+echo "🖥️ **CPU:** ${PROCESS_CPU_FORMATTED}s (${GOMAXPROCS} cores) • **Goroutines:** $GOROUTINES • **Threads:** $THREADS"
+echo "💾 **Memory:** ${HEAP_ALLOC_MB}MB heap • ${RSS_MB}MB RAM • ${TOTAL_ALLOCS_MB}MB total • $ALLOCS_COUNT allocs"
+echo "🗑️ **GC:** $GC_COUNT cycles (${GC_AVG_MS}ms avg) • 🌐 **App:** $ACTIVE_CONNECTIONS conn • $DELIVERED_MESSAGES msgs • $BAD_REQUESTS errors"
+echo "📁 **FDs:** $OPEN_FDS/$MAX_FDS (${FD_USAGE_PERCENT}%)"
 echo ""
