@@ -33,7 +33,7 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Run integration tests against ${{ matrix.storage }} storage
-      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up integration
+      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up --exit-code-from integration
 
     - name: Clean up containers
       if: always()
