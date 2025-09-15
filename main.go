@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"net/http"
-	_ "net/http/pprof"
+	"net/http/pprof"
 	"time"
 
 	"github.com/labstack/echo-contrib/prometheus"
@@ -42,9 +42,16 @@ func main() {
 		extractor, _ = newRealIPExtractor([]string{})
 	}
 
-	http.Handle("/metrics", promhttp.Handler())
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+
 	go func() {
-		log.Fatal(http.ListenAndServe(":9103", nil))
+		log.Fatal(http.ListenAndServe(":9103", mux))
 	}()
 
 	e := echo.New()
