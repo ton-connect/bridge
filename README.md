@@ -32,9 +32,12 @@ make build
 - CONNECT_CACHE_TTL ##example"300" (time-to-live for connect client cache entries in seconds)
 - SELF_SIGNED_TLS ##example"false"
 - TRUSTED_PROXY_RANGES ##example"10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" (comma-separated list of IP ranges to trust for X-Forwarded-For header)
+- PPROF_ENABLED ##examle"true"
 
 ## how to profile
 
 Bridge exposes Prometheus metrics at http://localhost:9103/metrics.
 
 Profiling will not affect performance unless you start exploring it. To view all available profiles, open http://localhost:9103/debug/pprof in your browser. For more information, see the [usage examples](https://pkg.go.dev/net/http/pprof/#hdr-Usage_examples).
+
+To enable profiling feature, use `PPROF_ENABLED=true` flag.
