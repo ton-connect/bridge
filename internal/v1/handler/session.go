@@ -34,34 +34,41 @@ func NewSession(s storage.Storage, clientIds []string, lastEventId int64) *Sessi
 func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, heartbeatInterval time.Duration) {
 	log := logrus.WithField("prefix", "Session.worker")
 
-	ticker := time.NewTicker(heartbeatInterval)
-	defer ticker.Stop()
+	wg := sync.WaitGroup{}
+	go s.runHeartbeat(&wg, log, heartbeatMessage, heartbeatInterval)
 
-	// Channel to signal heartbeat goroutine to stop
-	heartbeatDone := make(chan struct{})
+	s.retrieveHistoricMessages(&wg, log, enableQueueDoneEvent)
 
-	go func() {
-		defer close(heartbeatDone)
-		for {
-			select {
-			case <-s.Closer:
-				return
-			case <-ticker.C:
-				s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)}
-			}
-		}
-	}()
-
-	s.retrieveHistoricMessages(log, enableQueueDoneEvent)
-
+	// Wait for closer to be closed from the outside
+	// Happens when connection is closed
 	<-s.Closer
 
-	// Wait for heartbeat goroutine to finish before closing the channel
-	<-heartbeatDone
+	// Wait for channel producers to finish before closing the channel
+	wg.Wait()
 	close(s.MessageCh)
 }
 
-func (s *Session) retrieveHistoricMessages(log *logrus.Entry, doneEvent bool) {
+func (s *Session) runHeartbeat(wg *sync.WaitGroup, log *logrus.Entry, heartbeatMessage string, heartbeatInterval time.Duration) {
+	wg.Add(1)
+	defer wg.Done()
+
+	ticker := time.NewTicker(heartbeatInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-s.Closer:
+			return
+		case <-ticker.C:
+			s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)}
+		}
+	}
+}
+
+func (s *Session) retrieveHistoricMessages(wg *sync.WaitGroup, log *logrus.Entry, doneEvent bool) {
+	wg.Add(1)
+	defer wg.Done()
+
 	messages, err := s.storage.GetMessages(context.TODO(), s.ClientIds, s.lastEventId)
 	if err != nil {
 		log.Info("get queue error: ", err)
