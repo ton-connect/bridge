@@ -1,9 +1,15 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"net/http"
-	"net/http/pprof"
+	httpprof "net/http/pprof"
+	"os"
+	"os/signal"
+	"runtime"
+	runtimeprof "runtime/pprof"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo-contrib/prometheus"
@@ -20,9 +26,59 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+var (
+	cpuprofile = flag.String("cpuprofile", "", "write cpu profile to `file`")
+	memprofile = flag.String("memprofile", "", "write memory profile to `file`")
+)
+
 func main() {
 	log.Info("Bridge is running")
 	config.LoadConfig()
+	flag.Parse()
+
+	var pprofCpuFile *os.File
+	var pprofMemFile *os.File
+	// CPU profiling
+	if *cpuprofile != "" {
+		var err error
+		pprofCpuFile, err = os.Create(*cpuprofile)
+		if err != nil {
+			log.Fatal("could not create CPU profile: ", err)
+		}
+		if err := runtimeprof.StartCPUProfile(pprofCpuFile); err != nil {
+			log.Fatal("could not start CPU profile: ", err)
+		}
+	}
+
+	// Memory profiling
+	if *memprofile != "" {
+		var err error
+		pprofMemFile, err = os.Create(*memprofile)
+		if err != nil {
+			log.Fatal("could not create memory profile: ", err)
+		}
+	}
+
+	// Signal handling for graceful profiling shutdown
+	c := make(chan os.Signal, 1)
+	signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+	go func() {
+		<-c
+		log.Info("Received signal, stopping profiling...")
+		if pprofCpuFile != nil {
+			runtimeprof.StopCPUProfile()
+		}
+		if pprofMemFile != nil {
+			runtime.GC()
+			if err := runtimeprof.WriteHeapProfile(pprofMemFile); err != nil {
+				log.Error("could not write memory profile: ", err)
+			}
+			if err := pprofMemFile.Close(); err != nil {
+				log.Error("error closing memory profile file: ", err)
+			}
+		}
+		os.Exit(0)
+	}()
 	var (
 		dbConn db
 		err    error
@@ -44,11 +100,11 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/metrics", promhttp.Handler())
-	mux.HandleFunc("/debug/pprof/", pprof.Index)
-	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
-	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
-	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
-	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
+	mux.HandleFunc("/debug/pprof/", httpprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", httpprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", httpprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", httpprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", httpprof.Trace)
 
 	go func() {
 		log.Fatal(http.ListenAndServe(":9103", mux))

@@ -4,14 +4,37 @@
 **note:** for common issues and troubleshooting, see [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
 
 ## requirements
-- golang 1.18
+- golang 1.24
 - postgres
 
 ## how to  install
-- git clone https://github.com/ton-connect/bridge
-- cd bridge
-- go build ./ 
-- go run bridge
+
+```
+git clone https://github.com/ton-connect/bridge
+make build
+./bridge
+```
+
+## how to debug
+
+Prometheus metrics: `http://localhost:9103/metrics`
+
+Profiling:
+```bash
+brew install graphviz
+./bridge -cpuprofile=cpu.prof -memprofile=mem.prof
+...
+go tool pprof cpu.prof
+go tool pprof -png cpu.prof > cpu.png
+go tool pprof -http=:8080 cpu.prof  # Web UI
+```
+
+Profiles saved on Ctrl+C (SIGINT). Common commands: `top`, `list <func>`, `web`, `png`
+
+HTTP endpoints:
+- `http://localhost:9103/debug/pprof/` - Profile index
+- `http://localhost:9103/debug/pprof/profile` - CPU profile
+- `http://localhost:9103/debug/pprof/heap` - Memory profile
 
 ## environments
 - LOG_LEVEL ##example"info"
