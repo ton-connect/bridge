@@ -11,6 +11,7 @@ import (
 var Config = struct {
 	LogLevel               string   `env:"LOG_LEVEL" envDefault:"info"`
 	Port                   int      `env:"PORT" envDefault:"8081"`
+	MetricsPort            int      `env:"METRICS_PORT" envDefault:"9103"`
 	DbURI                  string   `env:"POSTGRES_URI"`
 	WebhookURL             string   `env:"WEBHOOK_URL"`
 	CopyToURL              string   `env:"COPY_TO_URL"`

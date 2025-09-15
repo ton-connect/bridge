@@ -46,7 +46,7 @@ func main() {
 		mux.HandleFunc("/debug/pprof/", pprof.Index)
 	}
 	go func() {
-		log.Fatal(http.ListenAndServe(":9103", mux))
+		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Config.MetricsPort), mux))
 	}()
 
 	e := echo.New()

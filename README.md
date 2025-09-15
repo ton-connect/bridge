@@ -18,6 +18,7 @@ make build
 ## environments
 - LOG_LEVEL ##example"info"
 - PORT ##example"8081"
+- METRICS_PORT ##example"9103"
 - POSTGRES_URI ##example"postgres://user:pass@host/dbname"
 - WEBHOOK_URL ##example"https://your-webhook-url.com"
 - COPY_TO_URL ##example"https://your-copy-url.com"
