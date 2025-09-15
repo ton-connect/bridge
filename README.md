@@ -33,20 +33,8 @@ make build
 - SELF_SIGNED_TLS ##example"false"
 - TRUSTED_PROXY_RANGES ##example"10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" (comma-separated list of IP ranges to trust for X-Forwarded-For header)
 
-## how to debug
+## how to profile
 
-Prometheus metrics: `http://localhost:9103/metrics`
+Bridge exposes Prometheus metrics at http://localhost:9103/metrics.
 
-Profiling:
-```bash
-brew install graphviz
-./bridge -cpuprofile=cpu.prof -memprofile=mem.prof
-...
-go tool pprof cpu.prof
-go tool pprof -png cpu.prof > cpu.png
-go tool pprof -http=:8080 cpu.prof  # Web UI
-```
-
-Profiles saved on Ctrl+C (SIGINT). Common commands: `top`, `list <func>`, `web`, `png`
-
-HTTP endpoints: `http://localhost:9103/debug/pprof/`. For more information, see [usage examples](https://pkg.go.dev/net/http/pprof#hdr-Usage_examples).
+Profiling will not affect performance unless you start exploring it. To view all available profiles, open http://localhost:9103/debug/pprof in your browser. For more information, see the [usage examples](https://pkg.go.dev/net/http/pprof/#hdr-Usage_examples).
