@@ -1,4 +1,4 @@
-package memory
+package storage
 
 import (
 	"context"
@@ -10,10 +10,9 @@ import (
 
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/datatype"
-	"github.com/tonkeeper/bridge/storage"
 )
 
-type Storage struct {
+type MemStorage struct {
 	db   map[string][]message
 	lock sync.Mutex
 }
@@ -27,8 +26,8 @@ func (m message) IsExpired(now time.Time) bool {
 	return m.expireAt.Before(now)
 }
 
-func NewStorage() *Storage {
-	s := Storage{
+func NewMemStorage() *MemStorage {
+	s := MemStorage{
 		db: map[string][]message{},
 	}
 	go s.watcher()
@@ -40,7 +39,7 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 	results := make([]message, 0)
 	for _, m := range ms {
 		if m.IsExpired(now) {
-			if !storage.ExpiredCache.IsMarked(m.EventId) {
+			if !ExpiredCache.IsMarked(m.EventId) {
 				var bridgeMsg datatype.BridgeMessage
 				fromID := "unknown"
 				hash := sha256.Sum256(m.Message)
@@ -67,7 +66,7 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 	return results
 }
 
-func (s *Storage) watcher() {
+func (s *MemStorage) watcher() {
 	for {
 		s.lock.Lock()
 		for key, msgs := range s.db {
@@ -75,14 +74,14 @@ func (s *Storage) watcher() {
 		}
 		s.lock.Unlock()
 
-		_ = storage.ExpiredCache.Cleanup()
-		_ = storage.TransferedCache.Cleanup()
+		_ = ExpiredCache.Cleanup()
+		_ = TransferedCache.Cleanup()
 
 		time.Sleep(time.Second)
 	}
 }
 
-func (s *Storage) GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error) {
+func (s *MemStorage) GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -106,7 +105,7 @@ func (s *Storage) GetMessages(ctx context.Context, keys []string, lastEventId in
 	return results, nil
 }
 
-func (s *Storage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error {
+func (s *MemStorage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 

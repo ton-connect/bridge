@@ -1,4 +1,4 @@
-package memory
+package storage
 
 import (
 	"context"
@@ -63,7 +63,7 @@ func Test_removeExpiredMessages(t *testing.T) {
 }
 
 func TestStorage(t *testing.T) {
-	s := &Storage{db: map[string][]message{}}
+	s := &MemStorage{db: map[string][]message{}}
 	_ = s.Add(context.Background(), datatype.SseMessage{EventId: 1, To: "1"}, 2)
 	_ = s.Add(context.Background(), datatype.SseMessage{EventId: 2, To: "2"}, 2)
 	_ = s.Add(context.Background(), datatype.SseMessage{EventId: 3, To: "2"}, 2)
@@ -145,7 +145,7 @@ func TestStorage_watcher(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &Storage{db: tt.db}
+			s := &MemStorage{db: tt.db}
 			go s.watcher()
 			time.Sleep(500 * time.Millisecond)
 			s.lock.Lock()

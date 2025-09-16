@@ -83,11 +83,6 @@ type handler struct {
 	analytics         tonmetrics.AnalyticsClient
 }
 
-type db interface {
-	GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error)
-	Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error
-}
-
 func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
 	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
 	connectionCache.StartBackgroundCleanup(nil)
