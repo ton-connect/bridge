@@ -75,7 +75,7 @@ type stream struct {
 type handler struct {
 	Mux               sync.RWMutex
 	Connections       map[string]*stream
-	storage           db
+	storage           storage.Storage
 	_eventIDs         int64
 	heartbeatInterval time.Duration
 	connectionCache   *ConnectionCache
@@ -83,7 +83,7 @@ type handler struct {
 	analytics         tonmetrics.AnalyticsClient
 }
 
-func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
+func newHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
 	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
 	connectionCache.StartBackgroundCleanup(nil)
 

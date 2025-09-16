@@ -16,7 +16,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/datatype"
 )
 
@@ -68,7 +67,7 @@ func MigrateDb(postgresURI string) error {
 
 func NewPgStorage(postgresURI string) (*PgStorage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	log := log.WithField("prefix", "NewStorage")
+	log := logrus.WithField("prefix", "NewStorage")
 	defer cancel()
 	c, err := pgxpool.Connect(ctx, postgresURI)
 	if err != nil {
@@ -87,7 +86,7 @@ func NewPgStorage(postgresURI string) (*PgStorage, error) {
 }
 
 func (s *PgStorage) worker() {
-	log := log.WithField("prefix", "Storage.worker")
+	log := logrus.WithField("prefix", "Storage.worker")
 	for {
 		<-time.NewTimer(time.Minute).C
 		log.Info("time to db check")
