@@ -3,21 +3,19 @@ package main
 import (
 	"fmt"
 	"net/http"
-	_ "net/http/pprof"
+	"net/http/pprof"
 	"time"
 
 	"github.com/labstack/echo-contrib/prometheus"
-	"github.com/tonkeeper/bridge/storage/memory"
-	"github.com/tonkeeper/bridge/storage/pg"
-	"golang.org/x/exp/slices"
-	"golang.org/x/time/rate"
-
-	"github.com/tonkeeper/bridge/config"
-
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
+	"github.com/tonkeeper/bridge/config"
+	"github.com/tonkeeper/bridge/storage/memory"
+	"github.com/tonkeeper/bridge/storage/pg"
+	"golang.org/x/exp/slices"
+	"golang.org/x/time/rate"
 )
 
 func main() {
@@ -42,9 +40,13 @@ func main() {
 		extractor, _ = newRealIPExtractor([]string{})
 	}
 
-	http.Handle("/metrics", promhttp.Handler())
+	mux := http.NewServeMux()
+	mux.Handle("/metrics", promhttp.Handler())
+	if config.Config.PprofEnabled {
+		mux.HandleFunc("/debug/pprof/", pprof.Index)
+	}
 	go func() {
-		log.Fatal(http.ListenAndServe(":9103", nil))
+		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Config.MetricsPort), mux))
 	}()
 
 	e := echo.New()

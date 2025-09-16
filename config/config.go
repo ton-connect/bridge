@@ -11,6 +11,7 @@ import (
 var Config = struct {
 	LogLevel               string   `env:"LOG_LEVEL" envDefault:"info"`
 	Port                   int      `env:"PORT" envDefault:"8081"`
+	MetricsPort            int      `env:"METRICS_PORT" envDefault:"9103"`
 	DbURI                  string   `env:"POSTGRES_URI"`
 	WebhookURL             string   `env:"WEBHOOK_URL"`
 	CopyToURL              string   `env:"COPY_TO_URL"`
@@ -26,6 +27,7 @@ var Config = struct {
 	DisconnectEventMaxSize int      `env:"DISCONNECT_EVENT_MAX_SIZE" envDefault:"512"`
 	TrustedProxyRanges     []string `env:"TRUSTED_PROXY_RANGES" envDefault:"0.0.0.0/0"`
 	MaxBodySize            int64    `env:"MAX_BODY_SIZE" envDefault:"10485760"` // 10 MB
+	PprofEnabled           bool     `env:"PPROF_ENABLED" envDefault:"true"`
 	TFAnalyticsEnabled     bool     `env:"TF_ANALYTICS_ENABLED" envDefault:"false"`
 	BridgeName             string   `env:"BRIDGE_NAME" envDefault:"ton-connect-bridge"`
 	BridgeVersion          string   `env:"BRIDGE_VERSION" envDefault:"1.0.0"` // TODO start using build version
