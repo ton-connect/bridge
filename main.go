@@ -12,7 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/config"
-	"github.com/tonkeeper/bridge/storage"
+	"github.com/tonkeeper/bridge/internal/v1/storage"
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 )

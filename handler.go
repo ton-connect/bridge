@@ -24,7 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/datatype"
-	"github.com/tonkeeper/bridge/storage"
+	"github.com/tonkeeper/bridge/internal/v1/storage"
 	"github.com/tonkeeper/bridge/tonmetrics"
 )
 
