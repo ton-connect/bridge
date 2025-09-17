@@ -45,14 +45,14 @@ type BridgeGateway struct {
 	baseURL   string
 	sessionID string
 
-	client  *http.Client
-	resp    *http.Response
-	cancel  context.CancelFunc
-	msgs    chan SSEEvent
-	errs    chan error
-	ready   bool
-	mu      sync.RWMutex
-	closed  bool
+	client *http.Client
+	resp   *http.Response
+	cancel context.CancelFunc
+	msgs   chan SSEEvent
+	errs   chan error
+	ready  bool
+	mu     sync.RWMutex
+	closed bool
 }
 
 type OpenOpts struct {
