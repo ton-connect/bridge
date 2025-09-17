@@ -11,12 +11,12 @@ import (
 // A tiny threadsafe buffer for received wallet messages.
 type recvBuf struct {
 	mu   sync.Mutex
-	msgs []BridgeAppEvent
+	msgs map[string]BridgeAppEvent
 }
 
 func (b *recvBuf) add(e BridgeAppEvent) {
 	b.mu.Lock()
-	b.msgs = append(b.msgs, e)
+	b.msgs[e.ID] = e
 	b.mu.Unlock()
 }
 
@@ -51,7 +51,7 @@ func (b *recvBuf) contains(method, id string, params []string) bool {
 
 func TestBridgeStress_10x100(t *testing.T) {
 	const (
-		CLIENT_COUNT        = 10
+		CLIENT_COUNT        = 100
 		MESSAGES_PER_CLIENT = 100
 	)
 
@@ -80,7 +80,9 @@ func TestBridgeStress_10x100(t *testing.T) {
 			t.Fatalf("open app #%d: %v", i, err)
 		}
 
-		rb := &recvBuf{}
+		rb := &recvBuf{
+			msgs: map[string]BridgeAppEvent{},
+		}
 
 		// wallet provider (records messages)
 		wallet, err := OpenProvider(context.Background(), ProviderOpenOpts{
