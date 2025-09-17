@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -95,7 +96,9 @@ func OpenProvider(ctx context.Context, opts ProviderOpenOpts) (*BridgeProvider, 
 	for _, c := range opts.Clients {
 		p.clients[c.SessionID] = c.ClientID
 		if err := p.openSession(c.SessionID, ""); err != nil {
-			p.Close()
+			if err = p.Close(); err != nil {
+				log.Println("error during p.Close():", err)
+			}
 			return nil, err
 		}
 	}
@@ -236,11 +239,19 @@ func (p *BridgeProvider) Send(ctx context.Context, msg JSONRPC, fromSession, toC
 	req.Header.Set("Content-Type", "text/plain")
 	resp, err := p.httpc.Do(req)
 	if err == nil && resp.StatusCode/100 == 2 {
-		resp.Body.Close()
+		defer func() {
+			if err = resp.Body.Close(); err != nil {
+				log.Println("error during resp.Body.Close():", err)
+			}
+		}()
 		return nil
 	}
 	if resp != nil {
-		resp.Body.Close()
+		defer func() {
+			if err = resp.Body.Close(); err != nil {
+				log.Println("error during resp.Body.Close():", err)
+			}
+		}()
 	}
 	return fmt.Errorf("send attempt failed: %v", err)
 }
@@ -261,7 +272,11 @@ func TestBridgeProvider_SendAndRetrieve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open app: %v", err)
 	}
-	defer app.Close()
+	defer func() {
+		if err = app.Close(); err != nil {
+			log.Println("error during app.Close():", err)
+		}
+	}()
 
 	// wallet provider with a resolver-like listener
 	resCh := make(chan BridgeAppEvent, 1)
@@ -273,7 +288,11 @@ func TestBridgeProvider_SendAndRetrieve(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open wallet: %v", err)
 	}
-	defer wallet.Close()
+	defer func() {
+		if err = wallet.Close(); err != nil {
+			log.Println("error during wallet.Close():", err)
+		}
+	}()
 
 	// send
 	if err := app.Send(context.Background(),
@@ -306,7 +325,11 @@ func TestBridgeProvider_ReconnectToAnotherWalletAndReceive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open app: %v", err)
 	}
-	defer app.Close()
+	defer func() {
+		if err = app.Close(); err != nil {
+			log.Println("error during app.Close():", err)
+		}
+	}()
 
 	// wallet #1
 	resCh1 := make(chan BridgeAppEvent, 1)
@@ -318,7 +341,11 @@ func TestBridgeProvider_ReconnectToAnotherWalletAndReceive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open wallet1: %v", err)
 	}
-	defer wallet1.Close()
+	defer func() {
+		if err = wallet1.Close(); err != nil {
+			log.Println("error during wallet1.Close():", err)
+		}
+	}()
 
 	// send to wallet1
 	if err := app.Send(context.Background(),
@@ -351,7 +378,11 @@ func TestBridgeProvider_ReconnectToAnotherWalletAndReceive(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open wallet2: %v", err)
 	}
-	defer wallet2.Close()
+	defer func() {
+		if err = wallet2.Close(); err != nil {
+			log.Println("error during wallet2.Close():", err)
+		}
+	}()
 
 	// app adds a new connection (app2 <-> wallet2) while keeping the old one
 	if err := app.RestoreConnection(context.Background(), []clientPair{
@@ -391,7 +422,11 @@ func TestBridgeProvider_ReceiveAfterReconnectWithLastEventID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open app: %v", err)
 	}
-	defer app.Close()
+	defer func() {
+		if err = app.Close(); err != nil {
+			log.Println("error during app.Close():", err)
+		}
+	}()
 
 	// wallet online -> catch first message
 	resCh := make(chan BridgeAppEvent, 1)

@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"os"
@@ -108,7 +109,12 @@ func OpenBridge(ctx context.Context, opts OpenOpts) (*BridgeGateway, error) {
 	go func() {
 		defer close(gw.msgs)
 		defer close(gw.errs)
-		defer gw.Close()
+		// explicitly ignore Close() error to satisfy errcheck
+		defer func() {
+			if err = gw.Close(); err != nil {
+				log.Println("error during gw.Close():", err)
+			}
+		}()
 
 		sc := bufio.NewScanner(resp.Body)
 		sc.Buffer(make([]byte, 0, 64*1024), 2*1024*1024)
@@ -221,7 +227,11 @@ func (g *BridgeGateway) Send(ctx context.Context, payload []byte, fromSession, t
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer func() {
+		if err = resp.Body.Close(); err != nil {
+			log.Println("error during resp.Body.Close():", err)
+		}
+	}()
 	if resp.StatusCode/100 != 2 {
 		b, _ := io.ReadAll(resp.Body)
 		return fmt.Errorf("send status %d: %s", resp.StatusCode, string(b))
@@ -278,7 +288,11 @@ func getBridgeLastEventID(t *testing.T, sender *BridgeGateway, senderSession str
 	if err != nil {
 		t.Fatalf("open receiver: %v", err)
 	}
-	defer receiver.Close()
+	defer func() {
+		if err = receiver.Close(); err != nil {
+			log.Println("error during receiver.Close():", err)
+		}
+	}()
 
 	if !receiver.IsReady() {
 		t.Fatal("receiver not ready")
@@ -327,7 +341,11 @@ func TestBridge_ReceiveMessageOverOpenConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sender: %v", err)
 	}
-	defer sender.Close()
+	defer func() {
+		if err = sender.Close(); err != nil {
+			log.Println("error during sender.Close():", err)
+		}
+	}()
 	if !sender.IsReady() {
 		t.Fatal("sender not ready")
 	}
@@ -337,7 +355,7 @@ func TestBridge_ReceiveMessageOverOpenConnection(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open receiver: %v", err)
 	}
-	defer receiver.Close()
+	defer func() { _ = receiver.Close() }()
 	if !receiver.IsReady() {
 		t.Fatal("receiver not ready")
 	}
@@ -375,7 +393,11 @@ func TestBridge_NoMessageAfterReconnectWithUpdatedLastEventID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sender: %v", err)
 	}
-	defer sender.Close()
+	defer func() {
+		if err = sender.Close(); err != nil {
+			log.Println("error during sender.Close():", err)
+		}
+	}()
 
 	session := randomSessionID(t)
 
@@ -403,7 +425,11 @@ func TestBridge_NoMessageAfterReconnectWithUpdatedLastEventID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open receiver2: %v", err)
 	}
-	defer r2.Close()
+	defer func() {
+		if err = r2.Close(); err != nil {
+			log.Println("error during r2.Close():", err)
+		}
+	}()
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, testNoMsgTimeout)
 	defer cancelWait()
@@ -422,7 +448,11 @@ func TestBridge_ReceiveMessageAgainAfterReconnectWithValidLastEventID(t *testing
 	if err != nil {
 		t.Fatalf("open sender: %v", err)
 	}
-	defer sender.Close()
+	defer func() {
+		if err = sender.Close(); err != nil {
+			log.Println("error during sender.Close():", err)
+		}
+	}()
 
 	session := randomSessionID(t)
 
@@ -458,7 +488,11 @@ func TestBridge_ReceiveMessageAgainAfterReconnectWithValidLastEventID(t *testing
 	if err != nil {
 		t.Fatalf("open receiver2: %v", err)
 	}
-	defer r2.Close()
+	defer func() {
+		if err = r2.Close(); err != nil {
+			log.Println("error during r2.Close():", err)
+		}
+	}()
 	if !r2.IsReady() {
 		t.Fatal("receiver2 not ready")
 	}
@@ -487,7 +521,11 @@ func TestBridge_NoDeliveryAfterReconnectWithFutureLastEventID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sender: %v", err)
 	}
-	defer sender.Close()
+	defer func() {
+		if err = sender.Close(); err != nil {
+			log.Println("error during sender.Close():", err)
+		}
+	}()
 
 	session := randomSessionID(t)
 
@@ -507,7 +545,11 @@ func TestBridge_NoDeliveryAfterReconnectWithFutureLastEventID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open receiver: %v", err)
 	}
-	defer r.Close()
+	defer func() {
+		if err = r.Close(); err != nil {
+			log.Println("error during r.Close():", err)
+		}
+	}()
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, testNoMsgTimeout)
 	defer cancelWait()
@@ -525,7 +567,11 @@ func TestBridge_DeliveryAfterReconnectWithoutLastEventID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sender: %v", err)
 	}
-	defer sender.Close()
+	defer func() {
+		if err = sender.Close(); err != nil {
+			log.Println("error during sender.Close():", err)
+		}
+	}()
 
 	session := randomSessionID(t)
 
@@ -539,7 +585,11 @@ func TestBridge_DeliveryAfterReconnectWithoutLastEventID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open receiver: %v", err)
 	}
-	defer r.Close()
+	defer func() {
+		if err = r.Close(); err != nil {
+			log.Println("error during r.Close():", err)
+		}
+	}()
 
 	ev, err := r.WaitMessage(ctx)
 	if err != nil {
@@ -567,7 +617,11 @@ func TestBridge_TTLExpires_NoDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sender: %v", err)
 	}
-	defer sender.Close()
+	defer func() {
+		if err = sender.Close(); err != nil {
+			log.Println("error during sender.Close():", err)
+		}
+	}()
 
 	session := randomSessionID(t)
 	ttl := 1
@@ -581,7 +635,11 @@ func TestBridge_TTLExpires_NoDelivery(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open receiver: %v", err)
 	}
-	defer r.Close()
+	defer func() {
+		if err = r.Close(); err != nil {
+			log.Println("error during r.Close():", err)
+		}
+	}()
 
 	waitCtx, cancelWait := context.WithTimeout(ctx, testNoMsgTimeout)
 	defer cancelWait()
@@ -599,7 +657,11 @@ func TestBridge_MultipleMessagesInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open sender: %v", err)
 	}
-	defer sender.Close()
+	defer func() {
+		if err = sender.Close(); err != nil {
+			log.Println("error during sender.Close():", err)
+		}
+	}()
 	if !sender.IsReady() {
 		t.Fatal("sender not ready")
 	}
@@ -609,7 +671,11 @@ func TestBridge_MultipleMessagesInOrder(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open receiver: %v", err)
 	}
-	defer r.Close()
+	defer func() {
+		if err = sender.Close(); err != nil {
+			log.Println("error during sender.Close():", err)
+		}
+	}()
 	if !r.IsReady() {
 		t.Fatal("receiver not ready")
 	}
