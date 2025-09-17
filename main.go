@@ -12,8 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/config"
-	"github.com/tonkeeper/bridge/storage/memory"
-	"github.com/tonkeeper/bridge/storage/pg"
+	"github.com/tonkeeper/bridge/internal/v1/storage"
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 )
@@ -21,17 +20,10 @@ import (
 func main() {
 	log.Info("Bridge is running")
 	config.LoadConfig()
-	var (
-		dbConn db
-		err    error
-	)
-	if config.Config.DbURI != "" {
-		dbConn, err = pg.NewStorage(config.Config.DbURI)
-		if err != nil {
-			log.Fatalf("db connection %v", err)
-		}
-	} else {
-		dbConn = memory.NewStorage()
+
+	dbConn, err := storage.NewStorage(config.Config.DbURI)
+	if err != nil {
+		log.Fatalf("db connection %v", err)
 	}
 
 	extractor, err := newRealIPExtractor(config.Config.TrustedProxyRanges)

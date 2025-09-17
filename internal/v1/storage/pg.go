@@ -1,4 +1,4 @@
-package pg
+package storage
 
 import (
 	"context"
@@ -17,7 +17,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/datatype"
-	"github.com/tonkeeper/bridge/storage"
 )
 
 var (
@@ -36,7 +35,7 @@ var (
 )
 
 type Message []byte
-type Storage struct {
+type PgStorage struct {
 	postgres *pgxpool.Pool
 }
 
@@ -66,7 +65,7 @@ func MigrateDb(postgresURI string) error {
 	return nil
 }
 
-func NewStorage(postgresURI string) (*Storage, error) {
+func NewPgStorage(postgresURI string) (*PgStorage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	log := logrus.WithField("prefix", "NewStorage")
 	defer cancel()
@@ -79,24 +78,24 @@ func NewStorage(postgresURI string) (*Storage, error) {
 		log.Info("migrte err: ", err)
 		return nil, err
 	}
-	s := Storage{
+	s := PgStorage{
 		postgres: c,
 	}
 	go s.worker()
 	return &s, nil
 }
 
-func (s *Storage) worker() {
+func (s *PgStorage) worker() {
 	log := logrus.WithField("prefix", "Storage.worker")
 	for {
 		<-time.NewTimer(time.Minute).C
 		log.Info("time to db check")
 
-		expiredCleaned := storage.ExpiredCache.Cleanup()
-		transferedCleaned := storage.TransferedCache.Cleanup()
+		expiredCleaned := ExpiredCache.Cleanup()
+		transferedCleaned := TransferedCache.Cleanup()
 		log.Infof("cleaned %d expired and %d transfered cache entries", expiredCleaned, transferedCleaned)
-		expiredMessagesCacheSizeMetric.Set(float64(storage.ExpiredCache.Len()))
-		transferedMessagesCacheSizeMetric.Set(float64(storage.TransferedCache.Len()))
+		expiredMessagesCacheSizeMetric.Set(float64(ExpiredCache.Len()))
+		transferedMessagesCacheSizeMetric.Set(float64(TransferedCache.Len()))
 
 		var lastProcessedEndTime *time.Time
 
@@ -125,7 +124,7 @@ func (s *Storage) worker() {
 					lastProcessedEndTime = &endTime
 				}
 
-				delivered := storage.ExpiredCache.IsMarked(eventID)
+				delivered := ExpiredCache.IsMarked(eventID)
 
 				if !delivered {
 					fromID := "unknown"
@@ -165,7 +164,7 @@ func (s *Storage) worker() {
 	}
 }
 
-func (s *Storage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error {
+func (s *PgStorage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error {
 	_, err := s.postgres.Exec(ctx, `
 		INSERT INTO bridge.messages
 		(
@@ -182,7 +181,7 @@ func (s *Storage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) e
 	return nil
 }
 
-func (s *Storage) GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error) { // interface{}
+func (s *PgStorage) GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error) { // interface{}
 	log := logrus.WithField("prefix", "Storage.GetQueue")
 	var messages []datatype.SseMessage
 	rows, err := s.postgres.Query(ctx, `SELECT event_id, bridge_message

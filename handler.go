@@ -24,7 +24,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/datatype"
-	"github.com/tonkeeper/bridge/storage"
+	"github.com/tonkeeper/bridge/internal/v1/storage"
 	"github.com/tonkeeper/bridge/tonmetrics"
 )
 
@@ -75,7 +75,7 @@ type stream struct {
 type handler struct {
 	Mux               sync.RWMutex
 	Connections       map[string]*stream
-	storage           db
+	storage           storage.Storage
 	_eventIDs         int64
 	heartbeatInterval time.Duration
 	connectionCache   *ConnectionCache
@@ -83,12 +83,7 @@ type handler struct {
 	analytics         tonmetrics.AnalyticsClient
 }
 
-type db interface {
-	GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error)
-	Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error
-}
-
-func newHandler(db db, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
+func newHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
 	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
 	connectionCache.StartBackgroundCleanup(nil)
 
