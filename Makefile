@@ -29,7 +29,7 @@ lint:
 test: test-unit test-bench
 
 test-unit:
-	go test $$(go list ./... | grep -v /vendor/ | grep -v /test/) -race -coverprofile cover.out
+	go test $$(go list ./... | grep -v vendor | grep -v test) -race -coverprofile cover.out
 
 test-bench:
 	go test -race -count 10 -timeout 15s -bench=BenchmarkConnectionCache -benchmem .

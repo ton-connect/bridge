@@ -15,5 +15,5 @@ jobs:
      - name: Check out code
        uses: actions/checkout@v5
 
-     - name: unit tests
+     - name: test build
        run: make build
