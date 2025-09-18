@@ -32,25 +32,10 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Start bridge services
+    - name: Start bridge
       run: docker compose -f docker-compose.${{ matrix.storage }}.yml up --build -d bridge
 
-    - name: Wait for bridge to be ready
-      run: |
-        echo "Waiting for bridge service to be ready..."
-        for i in $(seq 1 60); do
-          if curl -sSf http://localhost:9103/metrics >/dev/null 2>&1; then
-            echo "Bridge is ready"
-            exit 0
-          fi
-          echo "Waiting... ($i/60)"
-          sleep 2
-        done
-        echo "Bridge service not accessible after 60 seconds"
-        docker compose -f docker-compose.${{ matrix.storage }}.yml logs bridge
-        exit 1
-
-    - name: Run bridge-sdk tests (capture exit code)
+    - name: Run bridge-sdk tests
       id: bridge_sdk_tests
       run: |
         docker compose -f docker-compose.${{ matrix.storage }}.yml run --rm integration || rc=$?
@@ -60,7 +45,7 @@ jobs:
           echo "Bridge SDK tests failed with exit code $rc"
         fi
 
-    - name: Run go-integration tests (capture exit code)
+    - name: Run go-integration tests
       id: go_integration_tests
       run: |
         docker compose -f docker-compose.${{ matrix.storage }}.yml run --rm gointegration || rc=$?
