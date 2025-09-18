@@ -39,7 +39,7 @@ npm install
 
 # Run tests
 echo "🧪 Running bridge-sdk tests..."
-BRIDGE_URL="$BRIDGE_URL" npx jest
+BRIDGE_URL="$BRIDGE_URL" npx jest gateway provider
 
 echo "✅ Bridge-sdk tests completed successfully!"
 
