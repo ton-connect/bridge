@@ -32,11 +32,43 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Run bridge-sdk tests against ${{ matrix.storage }} storage
-      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up integration
+    - name: Start bridge services
+      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up --build -d bridge
 
-    - name: Run go-integration tests against ${{ matrix.storage }} storage
-      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up --exit-code-from gointegration
+    - name: Wait for bridge to be ready
+      run: |
+        echo "Waiting for bridge service to be ready..."
+        for i in $(seq 1 60); do
+          if docker compose -f docker-compose.${{ matrix.storage }}.yml exec -T bridge curl -sSf http://localhost:8081/metrics >/dev/null 2>&1; then
+            echo "Bridge is ready"
+            exit 0
+          fi
+          echo "Waiting... ($i/60)"
+          sleep 1
+        done
+        echo "Bridge service not accessible after 60 seconds"
+        docker compose -f docker-compose.${{ matrix.storage }}.yml logs bridge
+        exit 1
+
+    - name: Run bridge-sdk tests (capture exit code)
+      id: bridge_sdk_tests
+      run: |
+        docker compose -f docker-compose.${{ matrix.storage }}.yml run --rm integration || rc=$?
+        rc=${rc:-0}
+        echo "sdk_rc=$rc" >> $GITHUB_OUTPUT
+        if [ $rc -ne 0 ]; then
+          echo "Bridge SDK tests failed with exit code $rc"
+        fi
+
+    - name: Run go-integration tests (capture exit code)
+      id: go_integration_tests
+      run: |
+        docker compose -f docker-compose.${{ matrix.storage }}.yml run --rm gointegration || rc=$?
+        rc=${rc:-0}
+        echo "go_rc=$rc" >> $GITHUB_OUTPUT
+        if [ $rc -ne 0 ]; then
+          echo "Go integration tests failed with exit code $rc"
+        fi
 
     - name: Get performance metrics
       if: github.event_name == 'pull_request'
@@ -54,3 +86,11 @@ jobs:
     - name: Clean up containers
       if: always()
       run: docker compose -f docker-compose.${{ matrix.storage }}.yml down -v
+
+    - name: Fail job if any tests failed
+      if: ${{ fromJSON(steps.bridge_sdk_tests.outputs.sdk_rc) != 0 || fromJSON(steps.go_integration_tests.outputs.go_rc) != 0 }}
+      run: |
+        echo "Test failures detected:"
+        echo "  Bridge SDK tests: exit code ${{ steps.bridge_sdk_tests.outputs.sdk_rc }}"
+        echo "  Go integration tests: exit code ${{ steps.go_integration_tests.outputs.go_rc }}"
+        exit 1
