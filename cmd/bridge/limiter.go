@@ -1,4 +1,4 @@
-package middleware
+package main
 
 import (
 	"fmt"
@@ -33,10 +33,10 @@ func NewConnectionLimiter(i int, extractor *utils.RealIPExtractor) *ConnectionsL
 	}
 }
 
-// LeaseConnection increases a number of connections per given token and
+// leaseConnection increases a number of connections per given token and
 // returns a release function to be called once a request is finished.
-// If the token reaches the limit of max simultaneous connections, LeaseConnection returns an error.
-func (auth *ConnectionsLimiter) LeaseConnection(request *http.Request) (release func(), err error) {
+// If the token reaches the limit of max simultaneous connections, leaseConnection returns an error.
+func (auth *ConnectionsLimiter) leaseConnection(request *http.Request) (release func(), err error) {
 	key := fmt.Sprintf("ip-%v", auth.realIP.Extract(request))
 	auth.mu.Lock()
 	defer auth.mu.Unlock()
@@ -56,7 +56,7 @@ func (auth *ConnectionsLimiter) LeaseConnection(request *http.Request) (release 
 	}, nil
 }
 
-func SkipRateLimitsByToken(request *http.Request) bool {
+func skipRateLimitsByToken(request *http.Request) bool {
 	if request == nil {
 		return false
 	}
