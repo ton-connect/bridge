@@ -32,8 +32,11 @@ jobs:
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
 
-    - name: Run integration tests against ${{ matrix.storage }} storage
-      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up --exit-code-from integration
+    - name: Run bridge-sdk tests against ${{ matrix.storage }} storage
+      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up integration
+
+    - name: Run go-integration tests against ${{ matrix.storage }} storage
+      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up gointegration
 
     - name: Get performance metrics
       if: github.event_name == 'pull_request'
