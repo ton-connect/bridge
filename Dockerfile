@@ -9,6 +9,6 @@ RUN go build -o /tmp/bridge github.com/tonkeeper/bridge/cmd/bridge
 
 FROM scratch AS bridge
 COPY --from=gobuild /tmp/bridge /app/bridge
-CMD ["/app/bridge/cmd/bridge"]
+CMD ["/app/bridge"]
 
 
