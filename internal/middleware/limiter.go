@@ -1,4 +1,4 @@
-package main
+package middleware
 
 import (
 	"fmt"
@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/tonkeeper/bridge/config"
+	"github.com/tonkeeper/bridge/internal/utils"
 	"golang.org/x/exp/slices"
 )
 
@@ -21,10 +22,10 @@ type ConnectionsLimiter struct {
 	mu          sync.Mutex
 	connections map[string]int
 	max         int
-	realIP      *realIPExtractor
+	realIP      *utils.RealIPExtractor
 }
 
-func newConnectionLimiter(i int, extractor *realIPExtractor) *ConnectionsLimiter {
+func NewConnectionLimiter(i int, extractor *utils.RealIPExtractor) *ConnectionsLimiter {
 	return &ConnectionsLimiter{
 		connections: map[string]int{},
 		max:         i,
@@ -32,10 +33,10 @@ func newConnectionLimiter(i int, extractor *realIPExtractor) *ConnectionsLimiter
 	}
 }
 
-// leaseConnection increases a number of connections per given token and
+// LeaseConnection increases a number of connections per given token and
 // returns a release function to be called once a request is finished.
-// If the token reaches the limit of max simultaneous connections, leaseConnection returns an error.
-func (auth *ConnectionsLimiter) leaseConnection(request *http.Request) (release func(), err error) {
+// If the token reaches the limit of max simultaneous connections, LeaseConnection returns an error.
+func (auth *ConnectionsLimiter) LeaseConnection(request *http.Request) (release func(), err error) {
 	key := fmt.Sprintf("ip-%v", auth.realIP.Extract(request))
 	auth.mu.Lock()
 	defer auth.mu.Unlock()
@@ -55,7 +56,7 @@ func (auth *ConnectionsLimiter) leaseConnection(request *http.Request) (release 
 	}, nil
 }
 
-func skipRateLimitsByToken(request *http.Request) bool {
+func SkipRateLimitsByToken(request *http.Request) bool {
 	if request == nil {
 		return false
 	}

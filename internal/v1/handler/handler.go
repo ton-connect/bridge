@@ -1,4 +1,4 @@
-package main
+package handlerv1
 
 import (
 	"bytes"
@@ -24,6 +24,8 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/datatype"
+	handler_common "github.com/tonkeeper/bridge/internal/handler"
+	"github.com/tonkeeper/bridge/internal/utils"
 	"github.com/tonkeeper/bridge/internal/v1/storage"
 	"github.com/tonkeeper/bridge/tonmetrics"
 )
@@ -79,11 +81,11 @@ type handler struct {
 	_eventIDs         int64
 	heartbeatInterval time.Duration
 	connectionCache   *ConnectionCache
-	realIP            *realIPExtractor
+	realIP            *utils.RealIPExtractor
 	analytics         tonmetrics.AnalyticsClient
 }
 
-func newHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *realIPExtractor) *handler {
+func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor) *handler {
 	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
 	connectionCache.StartBackgroundCleanup(nil)
 
@@ -105,7 +107,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	_, ok := c.Response().Writer.(http.Flusher)
 	if !ok {
 		http.Error(c.Response().Writer, "streaming unsupported", http.StatusInternalServerError)
-		return c.JSON(HttpResError("streaming unsupported", http.StatusBadRequest))
+		return c.JSON(utils.HttpResError("streaming unsupported", http.StatusBadRequest))
 	}
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "private, no-cache, no-transform")
@@ -116,11 +118,11 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	_, _ = fmt.Fprint(c.Response(), "\n")
 	c.Response().Flush()
 
-	paramsStore, err := NewParamsStorage(c, config.Config.MaxBodySize)
+	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
 	heartbeatType := "legacy"
@@ -133,7 +135,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "invalid heartbeat type. Supported: legacy and message"
 		log.Error(errorMsg)
-		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
 	enableQueueDoneEvent := false
@@ -149,7 +151,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "Last-Event-ID should be int"
 			log.Error(errorMsg)
-			return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
 	lastEventIdQuery, ok := paramsStore.Get("last_event_id")
@@ -159,7 +161,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
 			log.Error(errorMsg)
-			return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
 	clientId, ok := paramsStore.Get("client_id")
@@ -167,7 +169,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 	clientIds := strings.Split(clientId, ",")
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
@@ -176,7 +178,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	session := h.CreateSession(clientIds, lastEventId)
 
 	ip := h.realIP.Extract(c.Request())
-	origin := ExtractOrigin(c.Request().Header.Get("Origin"))
+	origin := utils.ExtractOrigin(c.Request().Header.Get("Origin"))
 	userAgent := c.Request().Header.Get("User-Agent")
 
 	// Store connection in cache
@@ -261,7 +263,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
 	toId, ok := params["to"]
@@ -269,7 +271,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
 		log.Error(errorMsg)
-		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
 	ttlParam, ok := params["ttl"]
@@ -277,25 +279,25 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
 		log.Error(errorMsg)
-		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 	if ttl > 300 { // TODO: config
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" too high"
 		log.Error(errorMsg)
-		return c.JSON(HttpResError(errorMsg, http.StatusBadRequest))
+		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 	message, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
 	data := append(message, []byte(clientId[0])...)
@@ -324,7 +326,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if ok {
 		topic = topicParam[0]
 		go func(clientID, topic, message string) {
-			SendWebhook(clientID, WebhookData{Topic: topic, Hash: message})
+			handler_common.SendWebhook(clientID, handler_common.WebhookData{Topic: topic, Hash: message})
 		}(clientId[0], topic, string(message))
 	}
 
@@ -355,11 +357,11 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	enableRequestSource := !ok || len(noRequestSourceParam) == 0 || strings.ToLower(noRequestSourceParam[0]) != "true"
 
 	if enableRequestSource {
-		origin := ExtractOrigin(c.Request().Header.Get("Origin"))
+		origin := utils.ExtractOrigin(c.Request().Header.Get("Origin"))
 		ip := h.realIP.Extract(c.Request())
 		userAgent := c.Request().Header.Get("User-Agent")
 
-		encryptedRequestSource, err := encryptRequestSourceWithWalletID(
+		encryptedRequestSource, err := utils.EncryptRequestSourceWithWalletID(
 			datatype.BridgeRequestSource{
 				Origin:    origin,
 				IP:        ip,
@@ -371,7 +373,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		if err != nil {
 			badRequestMetric.Inc()
 			log.Error(err)
-			return c.JSON(HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
+			return c.JSON(utils.HttpResError(fmt.Sprintf("failed to encrypt request source: %v", err), http.StatusBadRequest))
 		}
 		requestSource = encryptedRequestSource
 	}
@@ -385,7 +387,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
 	if topic == "disconnect" && len(mes) < config.Config.DisconnectEventMaxSize {
@@ -448,28 +450,28 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	))
 
 	transferedMessagesNumMetric.Inc()
-	return c.JSON(http.StatusOK, HttpResOk())
+	return c.JSON(http.StatusOK, utils.HttpResOk())
 
 }
 
 func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	ip := h.realIP.Extract(c.Request())
 
-	paramsStore, err := NewParamsStorage(c, config.Config.MaxBodySize)
+	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
 	if err != nil {
 		badRequestMetric.Inc()
-		return c.JSON(HttpResError(err.Error(), http.StatusBadRequest))
+		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
 	clientId, ok := paramsStore.Get("client_id")
 	if !ok {
 		badRequestMetric.Inc()
-		return c.JSON(HttpResError("param \"client_id\" not present", http.StatusBadRequest))
+		return c.JSON(utils.HttpResError("param \"client_id\" not present", http.StatusBadRequest))
 	}
 	url, ok := paramsStore.Get("url")
 	if !ok {
 		badRequestMetric.Inc()
-		return c.JSON(HttpResError("param \"url\" not present", http.StatusBadRequest))
+		return c.JSON(utils.HttpResError("param \"url\" not present", http.StatusBadRequest))
 	}
 	qtype, ok := paramsStore.Get("type")
 	if !ok {
@@ -478,11 +480,11 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 
 	switch strings.ToLower(qtype) {
 	case "connect":
-		status := h.connectionCache.Verify(clientId, ip, ExtractOrigin(url))
+		status := h.connectionCache.Verify(clientId, ip, utils.ExtractOrigin(url))
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
 		badRequestMetric.Inc()
-		return c.JSON(HttpResError("param \"type\" must be one of: connect, message", http.StatusBadRequest))
+		return c.JSON(utils.HttpResError("param \"type\" must be one of: connect, message", http.StatusBadRequest))
 	}
 }
 

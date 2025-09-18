@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"net/http"
@@ -141,7 +141,7 @@ func TestRealIPExtractor(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			realIP, err := newRealIPExtractor(tt.trustedRanges)
+			realIP, err := NewRealIPExtractor(tt.trustedRanges)
 			if err != nil {
 				t.Fatalf("failed to create realIPExtractor: %v", err)
 			}

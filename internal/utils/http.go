@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"net/http"
@@ -41,12 +41,12 @@ func ExtractOrigin(rawURL string) string {
 	return u.Scheme + "://" + u.Host
 }
 
-type realIPExtractor struct {
+type RealIPExtractor struct {
 	strategy realclientip.RightmostTrustedRangeStrategy
 }
 
-// newRealIPExtractor creates a new realIPExtractor with the given trusted ranges.
-func newRealIPExtractor(trustedRanges []string) (*realIPExtractor, error) {
+// NewRealIPExtractor creates a new realIPExtractor with the given trusted ranges.
+func NewRealIPExtractor(trustedRanges []string) (*RealIPExtractor, error) {
 	ipNets, err := realclientip.AddressesAndRangesToIPNets(trustedRanges...)
 	if err != nil {
 		return nil, err
@@ -57,14 +57,14 @@ func newRealIPExtractor(trustedRanges []string) (*realIPExtractor, error) {
 		return nil, err
 	}
 
-	return &realIPExtractor{
+	return &RealIPExtractor{
 		strategy: strategy,
 	}, nil
 }
 
 var remoteAddrStrategy = realclientip.RemoteAddrStrategy{}
 
-func (e *realIPExtractor) Extract(request *http.Request) string {
+func (e *RealIPExtractor) Extract(request *http.Request) string {
 	headers := request.Header.Clone()
 
 	newXForwardedFor := []string{}
