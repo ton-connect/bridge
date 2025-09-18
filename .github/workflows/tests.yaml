@@ -39,12 +39,12 @@ jobs:
       run: |
         echo "Waiting for bridge service to be ready..."
         for i in $(seq 1 60); do
-          if docker compose -f docker-compose.${{ matrix.storage }}.yml exec -T bridge curl -sSf http://localhost:8081/metrics >/dev/null 2>&1; then
+          if curl -sSf http://localhost:9103/metrics >/dev/null 2>&1; then
             echo "Bridge is ready"
             exit 0
           fi
           echo "Waiting... ($i/60)"
-          sleep 1
+          sleep 2
         done
         echo "Bridge service not accessible after 60 seconds"
         docker compose -f docker-compose.${{ matrix.storage }}.yml logs bridge
