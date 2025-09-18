@@ -36,7 +36,7 @@ jobs:
       run: docker compose -f docker-compose.${{ matrix.storage }}.yml up integration
 
     - name: Run go-integration tests against ${{ matrix.storage }} storage
-      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up gointegration
+      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up --exit-code-from gointegration
 
     - name: Get performance metrics
       if: github.event_name == 'pull_request'
