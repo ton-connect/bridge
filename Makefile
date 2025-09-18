@@ -34,6 +34,9 @@ test-unit:
 test-bench:
 	go test -race -count 10 -timeout 15s -bench=BenchmarkConnectionCache -benchmem .
 
+test-integration:
+	go test -v -p 10 -v -run TestBridge ./test/
+
 test-bridge-sdk:
 	@./scripts/test-bridge-sdk.sh
 

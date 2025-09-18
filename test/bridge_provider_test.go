@@ -238,22 +238,22 @@ func (p *BridgeProvider) Send(ctx context.Context, msg JSONRPC, fromSession, toC
 	req, _ := http.NewRequestWithContext(ctx, "POST", u.String(), strings.NewReader(b64))
 	req.Header.Set("Content-Type", "text/plain")
 	resp, err := p.httpc.Do(req)
-	if err == nil && resp.StatusCode/100 == 2 {
-		defer func() {
-			if err = resp.Body.Close(); err != nil {
-				log.Println("error during resp.Body.Close():", err)
-			}
-		}()
-		return nil
+	defer func() {
+		if resp == nil || resp.Body == nil {
+			return
+		}
+		if err = resp.Body.Close(); err != nil {
+			log.Println("error during resp.Body.Close():", err)
+		}
+	}()
+
+	if err != nil {
+		return fmt.Errorf("send request failed: %v", err)
 	}
-	if resp != nil {
-		defer func() {
-			if err = resp.Body.Close(); err != nil {
-				log.Println("error during resp.Body.Close():", err)
-			}
-		}()
+	if resp.StatusCode != 200 {
+		return fmt.Errorf("send bad status: %s", resp.Status)
 	}
-	return fmt.Errorf("send attempt failed: %v", err)
+	return nil
 }
 
 // ===== Tests (ported 1:1 from your Jest) =====

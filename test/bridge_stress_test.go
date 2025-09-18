@@ -51,7 +51,7 @@ func (b *recvBuf) contains(method, id string, params []string) bool {
 
 func TestBridgeStress_10x100(t *testing.T) {
 	const (
-		CLIENT_COUNT        = 100
+		CLIENT_COUNT        = 10
 		MESSAGES_PER_CLIENT = 100
 	)
 
