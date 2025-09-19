@@ -9,6 +9,7 @@ RUN apk add --no-cache \
     bash \
     ca-certificates \
     bind-tools \
+    go \
     git
 
 # Set working directory

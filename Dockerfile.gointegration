@@ -1,0 +1,25 @@
+# Create a new file: Dockerfile.integration
+FROM golang:1.24-alpine
+
+# Install necessary packages including make and git
+RUN apk add --no-cache \
+    make \
+    bash \
+    ca-certificates \
+    curl \
+    bind-tools
+
+# Create app directory
+WORKDIR /app
+
+# # Copy only module files and the test folder to keep the image small
+# COPY Makefile Makefile
+# COPY go.mod go.mod
+# COPY go.sum go.sum
+# COPY test/ ./test/
+
+COPY Makefile go.mod go.sum .
+COPY test/ ./test/
+
+# Default command - run the Makefile integration target which runs go tests
+CMD ["make", "test-gointegration"]

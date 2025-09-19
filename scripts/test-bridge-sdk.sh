@@ -39,6 +39,12 @@ npm install
 
 # Run tests
 echo "🧪 Running bridge-sdk tests..."
-BRIDGE_URL="$BRIDGE_URL" npx jest
+BRIDGE_URL="$BRIDGE_URL" npx jest gateway provider
 
 echo "✅ Bridge-sdk tests completed successfully!"
+
+cd ..
+
+echo "🚀 Running go integration tests..."
+BRIDGE_URL="$BRIDGE_URL" go test -v -p 10 -v -run TestBridge ./test/
+
