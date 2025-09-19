@@ -14,7 +14,7 @@ require (
 	github.com/sirupsen/logrus v1.9.3
 	golang.org/x/crypto v0.42.0
 	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df
-	golang.org/x/time v0.11.0
+	golang.org/x/time v0.13.0
 )
 
 require (
