@@ -12,10 +12,28 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/config"
+	"github.com/tonkeeper/bridge/internal/utils"
+	"github.com/tonkeeper/bridge/internal/v1/handler"
 	"github.com/tonkeeper/bridge/internal/v1/storage"
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 )
+
+func connectionsLimitMiddleware(counter *ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if skipper(c) {
+				return next(c)
+			}
+			release, err := counter.leaseConnection(c.Request())
+			if err != nil {
+				return c.JSON(utils.HttpResError(err.Error(), http.StatusTooManyRequests))
+			}
+			defer release()
+			return next(c)
+		}
+	}
+}
 
 func main() {
 	log.Info("Bridge is running")
@@ -26,10 +44,10 @@ func main() {
 		log.Fatalf("db connection %v", err)
 	}
 
-	extractor, err := newRealIPExtractor(config.Config.TrustedProxyRanges)
+	extractor, err := utils.NewRealIPExtractor(config.Config.TrustedProxyRanges)
 	if err != nil {
 		log.Warnf("failed to create realIPExtractor: %v, using defaults", err)
-		extractor, _ = newRealIPExtractor([]string{})
+		extractor, _ = utils.NewRealIPExtractor([]string{})
 	}
 
 	mux := http.NewServeMux()
@@ -57,7 +75,7 @@ func main() {
 		},
 		Store: middleware.NewRateLimiterMemoryStore(rate.Limit(config.Config.RPSLimit)),
 	}))
-	e.Use(connectionsLimitMiddleware(newConnectionLimiter(config.Config.ConnectionsLimit, extractor), func(c echo.Context) bool {
+	e.Use(connectionsLimitMiddleware(NewConnectionLimiter(config.Config.ConnectionsLimit, extractor), func(c echo.Context) bool {
 		if skipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/events" {
 			return true
 		}
@@ -75,9 +93,12 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := newHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor)
+	h := handlerv1.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor)
 
-	registerHandlers(e, h)
+	e.GET("/bridge/events", h.EventRegistrationHandler)
+	e.POST("/bridge/message", h.SendMessageHandler)
+	e.POST("/bridge/verify", h.ConnectVerifyHandler)
+
 	var existedPaths []string
 	for _, r := range e.Routes() {
 		existedPaths = append(existedPaths, r.Path)
@@ -87,7 +108,7 @@ func main() {
 	})
 	e.Use(p.HandlerFunc)
 	if config.Config.SelfSignedTLS {
-		cert, key, err := generateSelfSignedCertificate()
+		cert, key, err := utils.GenerateSelfSignedCertificate()
 		if err != nil {
 			log.Fatalf("failed to generate self signed certificate: %v", err)
 		}

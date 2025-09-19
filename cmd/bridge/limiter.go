@@ -9,6 +9,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/tonkeeper/bridge/config"
+	"github.com/tonkeeper/bridge/internal/utils"
 	"golang.org/x/exp/slices"
 )
 
@@ -21,10 +22,10 @@ type ConnectionsLimiter struct {
 	mu          sync.Mutex
 	connections map[string]int
 	max         int
-	realIP      *realIPExtractor
+	realIP      *utils.RealIPExtractor
 }
 
-func newConnectionLimiter(i int, extractor *realIPExtractor) *ConnectionsLimiter {
+func NewConnectionLimiter(i int, extractor *utils.RealIPExtractor) *ConnectionsLimiter {
 	return &ConnectionsLimiter{
 		connections: map[string]int{},
 		max:         i,

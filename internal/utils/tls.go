@@ -1,4 +1,4 @@
-package main
+package utils
 
 import (
 	"crypto/ecdsa"
@@ -18,8 +18,8 @@ import (
 	"golang.org/x/crypto/nacl/box"
 )
 
-// generateSelfSignedCertificate generates a self-signed X.509 certificate and private key
-func generateSelfSignedCertificate() ([]byte, []byte, error) {
+// GenerateSelfSignedCertificate generates a self-signed X.509 certificate and private key
+func GenerateSelfSignedCertificate() ([]byte, []byte, error) {
 	privateKey, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	if err != nil {
 		return nil, nil, err
@@ -60,7 +60,7 @@ func generateSelfSignedCertificate() ([]byte, []byte, error) {
 }
 
 // EncryptRequestSourceWithWalletID encrypts the request source metadata using the wallet's Curve25519 public key
-func encryptRequestSourceWithWalletID(requestSource datatype.BridgeRequestSource, walletID string) (string, error) {
+func EncryptRequestSourceWithWalletID(requestSource datatype.BridgeRequestSource, walletID string) (string, error) {
 	data, err := json.Marshal(requestSource)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request source: %w", err)

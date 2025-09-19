@@ -4,8 +4,10 @@
 *.dll
 *.so
 *.dylib
+bridge
 .vscode/
 vendor/
+.DS_Store
 
 # Test binary, built with `go test -c`
 *.test
@@ -20,3 +22,5 @@ vendor/
 env.yaml
 bridge
 benchmark/k6
+bridge-sdk/
+

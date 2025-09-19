@@ -15,7 +15,7 @@ endif
 all: imports fmt test
 
 build:
-	go build -o bridge ./
+	go build -mod=mod -o bridge ./cmd/bridge
 
 fmt:
 	gofmt -w $(GOFMT_FILES)
@@ -32,7 +32,7 @@ test-unit:
 	go test $$(go list ./... | grep -v vendor | grep -v test) -race -coverprofile cover.out
 
 test-bench:
-	go test -race -count 10 -timeout 15s -bench=BenchmarkConnectionCache -benchmem .
+	go test -race -count 10 -timeout 15s -bench=BenchmarkConnectionCache -benchmem ./internal/v1/handler
 
 test-gointegration:
 	go test -v -p 10 -v -run TestBridge ./test/
