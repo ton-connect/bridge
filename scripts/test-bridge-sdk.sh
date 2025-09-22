@@ -35,11 +35,21 @@ fi
 # Install dependencies
 echo "📋 Installing bridge-sdk dependencies..."
 cd "$BRIDGE_SDK_DIR"
+
+# Workaround for Rollup optional dependencies issue in Docker environments
+# Remove package-lock.json and node_modules as suggested by the error message
+echo "🧹 Cleaning npm artifacts to resolve optional dependencies issue..."
+rm -rf package-lock.json node_modules
+
+echo "📦 Installing dependencies with clean state..."
 npm install
+
+# Force Rollup to use JavaScript fallback instead of native binaries
+export ROLLUP_NO_BUNDLER_WORKER=1
 
 # Run tests
 echo "🧪 Running bridge-sdk tests..."
-BRIDGE_URL="$BRIDGE_URL" npx jest gateway provider
+BRIDGE_URL="$BRIDGE_URL" npx vitest run gateway provider
 
 echo "✅ Bridge-sdk tests completed successfully!"
 
