@@ -1,8 +1,9 @@
-package main
+package handlerv1
 
 import (
 	"context"
 	"log"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,21 +27,29 @@ func (m *mockDB) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) er
 func TestMultipleRuns(t *testing.T) {
 	runs := 10 // Reduced runs for faster testing
 
+	var wg sync.WaitGroup
+
 	for i := 0; i < runs; i++ {
 		log.Print("TestMultipleRuns run", i)
 
+		wg.Add(1)
 		go func(runNum int) {
+			defer wg.Done()
+
 			mockDb := &mockDB{}
 			session := NewSession(mockDb, []string{"client1"}, 0)
 
-			heartbeatInterval := 1 * time.Microsecond
+			heartbeatInterval := 1 * time.Millisecond // Use milliseconds instead of microseconds
 			session.Start("heartbeat", false, heartbeatInterval)
 
 			// Random small delay to vary timing
-			time.Sleep(5 * time.Microsecond)
+			time.Sleep(5 * time.Millisecond)
 
 			close(session.Closer)
-			time.Sleep(200 * time.Microsecond)
+			time.Sleep(10 * time.Millisecond) // Give more time for cleanup
 		}(i)
 	}
+
+	// Wait for all goroutines to complete
+	wg.Wait()
 }
