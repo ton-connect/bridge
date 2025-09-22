@@ -17,7 +17,6 @@ type Session struct {
 	storage     storage.Storage
 	Closer      chan interface{}
 	lastEventId int64
-	closeOnce   sync.Once
 	done        chan struct{}
 }
 
@@ -29,7 +28,6 @@ func NewSession(s storage.Storage, clientIds []string, lastEventId int64) *Sessi
 		MessageCh:   make(chan datatype.SseMessage, 10),
 		Closer:      make(chan interface{}),
 		lastEventId: lastEventId,
-		closeOnce:   sync.Once{},
 		done:        make(chan struct{}),
 	}
 	return &session
@@ -56,7 +54,8 @@ func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, hea
 	s.retrieveHistoricMessages(log, enableQueueDoneEvent)
 
 	<-s.Closer
-	s.closeSession()
+	<-s.done // Wait for the heartbeat goroutine to finish
+	close(s.MessageCh)
 }
 
 func (s *Session) retrieveHistoricMessages(log *logrus.Entry, doneEvent bool) {
@@ -93,12 +92,4 @@ func (s *Session) AddMessageToQueue(msg datatype.SseMessage) bool {
 
 func (s *Session) Start(heartbeatMessage string, enableQueueDoneEvent bool, heartbeatInterval time.Duration) {
 	go s.worker(heartbeatMessage, enableQueueDoneEvent, heartbeatInterval)
-}
-
-// closeSession safely closes the MessageCh channel
-func (s *Session) closeSession() {
-	s.closeOnce.Do(func() {
-		<-s.done // Wait for the heartbeat goroutine to finish
-		close(s.MessageCh)
-	})
 }
