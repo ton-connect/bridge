@@ -4,28 +4,51 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"strings"
 	"time"
 
 	"github.com/labstack/echo-contrib/prometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
+	client_prometheus "github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/config"
+	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
 	"github.com/tonkeeper/bridge/internal/utils"
-	"github.com/tonkeeper/bridge/internal/v1/handler"
+	handlerv1 "github.com/tonkeeper/bridge/internal/v1/handler"
 	"github.com/tonkeeper/bridge/internal/v1/storage"
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 )
 
-func connectionsLimitMiddleware(counter *ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
+var (
+	tokenUsageMetric = promauto.NewCounterVec(client_prometheus.CounterOpts{
+		Name: "bridge_token_usage",
+	}, []string{"token"})
+	healthMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
+		Name: "bridge_health_status",
+		Help: "Health status of the bridge (1 = healthy, 0 = unhealthy)",
+	})
+	readyMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
+		Name: "bridge_ready_status",
+		Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
+	})
+)
+
+func init() {
+	client_prometheus.MustRegister(healthMetric)
+	client_prometheus.MustRegister(readyMetric)
+}
+
+func connectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
 		return func(c echo.Context) error {
 			if skipper(c) {
 				return next(c)
 			}
-			release, err := counter.leaseConnection(c.Request())
+			release, err := counter.LeaseConnection(c.Request())
 			if err != nil {
 				return c.JSON(utils.HttpResError(err.Error(), http.StatusTooManyRequests))
 			}
@@ -33,6 +56,23 @@ func connectionsLimitMiddleware(counter *ConnectionsLimiter, skipper func(c echo
 			return next(c)
 		}
 	}
+}
+
+func skipRateLimitsByToken(request *http.Request) bool {
+	if request == nil {
+		return false
+	}
+	authorization := request.Header.Get("Authorization")
+	if authorization == "" {
+		return false
+	}
+	token := strings.TrimPrefix(authorization, "Bearer ")
+	exist := slices.Contains(config.Config.RateLimitsByPassToken, token)
+	if exist {
+		tokenUsageMetric.WithLabelValues(token).Inc()
+		return true
+	}
+	return false
 }
 
 func main() {
@@ -75,7 +115,7 @@ func main() {
 		},
 		Store: middleware.NewRateLimiterMemoryStore(rate.Limit(config.Config.RPSLimit)),
 	}))
-	e.Use(connectionsLimitMiddleware(NewConnectionLimiter(config.Config.ConnectionsLimit, extractor), func(c echo.Context) bool {
+	e.Use(connectionsLimitMiddleware(bridge_middleware.NewConnectionLimiter(config.Config.ConnectionsLimit, extractor), func(c echo.Context) bool {
 		if skipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/events" {
 			return true
 		}
