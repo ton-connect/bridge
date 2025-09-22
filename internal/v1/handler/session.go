@@ -35,7 +35,7 @@ func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, hea
 	log := logrus.WithField("prefix", "Session.worker")
 
 	wg := sync.WaitGroup{}
-	go s.runHeartbeat(&wg, log, heartbeatMessage, heartbeatInterval)
+	s.runHeartbeat(&wg, log, heartbeatMessage, heartbeatInterval)
 
 	s.retrieveHistoricMessages(&wg, log, enableQueueDoneEvent)
 
@@ -50,19 +50,21 @@ func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, hea
 
 func (s *Session) runHeartbeat(wg *sync.WaitGroup, log *logrus.Entry, heartbeatMessage string, heartbeatInterval time.Duration) {
 	wg.Add(1)
-	defer wg.Done()
+	go func() {
+		defer wg.Done()
 
-	ticker := time.NewTicker(heartbeatInterval)
-	defer ticker.Stop()
+		ticker := time.NewTicker(heartbeatInterval)
+		defer ticker.Stop()
 
-	for {
-		select {
-		case <-s.Closer:
-			return
-		case <-ticker.C:
-			s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)}
+		for {
+			select {
+			case <-s.Closer:
+				return
+			case <-ticker.C:
+				s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)}
+			}
 		}
-	}
+	}()
 }
 
 func (s *Session) retrieveHistoricMessages(wg *sync.WaitGroup, log *logrus.Entry, doneEvent bool) {
