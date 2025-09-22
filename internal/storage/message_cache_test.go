@@ -176,7 +176,7 @@ func BenchmarkConcurrentCleaning(b *testing.B) {
 	workers := runtime.NumCPU() * 4
 
 	for it := 0; it < b.N; it++ {
-		mc := NewMessageCache(true, 100 * time.Millisecond)
+		mc := NewMessageCache(true, 100*time.Millisecond)
 		var wg sync.WaitGroup
 		jobs := make(chan int64, workers)
 
