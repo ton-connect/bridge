@@ -4,15 +4,14 @@ import (
 	"context"
 	"time"
 
+	"github.com/tonkeeper/bridge/config"
 	"github.com/tonkeeper/bridge/datatype"
 	common_storage "github.com/tonkeeper/bridge/internal/storage"
 )
 
 var (
-	// ExpiredCache    = common_storage.NewMessageCache(config.Config.EnableExpiredCache, time.Hour)
-	// TransferedCache = common_storage.NewMessageCache(config.Config.EnableTransferedCache, time.Minute)
-	ExpiredCache    = common_storage.NewMessageCache(time.Hour)
-	TransferedCache = common_storage.NewMessageCache(time.Minute)
+	ExpiredCache    = common_storage.NewMessageCache(config.Config.EnableExpiredCache, time.Hour)
+	TransferedCache = common_storage.NewMessageCache(config.Config.EnableTransferedCache, time.Minute)
 )
 
 type Storage interface {
