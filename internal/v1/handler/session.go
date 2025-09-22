@@ -17,14 +17,11 @@ type Session struct {
 	storage     storage.Storage
 	Closer      chan interface{}
 	lastEventId int64
-	ctx         context.Context
-	cancel      context.CancelFunc
 	closeOnce   sync.Once
-	wg          sync.WaitGroup
+	done        chan struct{}
 }
 
 func NewSession(s storage.Storage, clientIds []string, lastEventId int64) *Session {
-	ctx, cancel := context.WithCancel(context.Background())
 	session := Session{
 		mux:         sync.RWMutex{},
 		ClientIds:   clientIds,
@@ -32,9 +29,8 @@ func NewSession(s storage.Storage, clientIds []string, lastEventId int64) *Sessi
 		MessageCh:   make(chan datatype.SseMessage, 10),
 		Closer:      make(chan interface{}),
 		lastEventId: lastEventId,
-		ctx:         ctx,
-		cancel:      cancel,
 		closeOnce:   sync.Once{},
+		done:        make(chan struct{}),
 	}
 	return &session
 }
@@ -45,13 +41,10 @@ func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, hea
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
-	s.wg.Add(1)
 	go func() {
-		defer s.wg.Done()
+		defer close(s.done) // Signal when this goroutine is done
 		for {
 			select {
-			case <-s.ctx.Done():
-				return
 			case <-s.Closer:
 				return
 			case <-ticker.C:
@@ -86,13 +79,9 @@ func (s *Session) retrieveHistoricMessages(log *logrus.Entry, doneEvent bool) {
 // AddMessageToQueue safely attempts to add a message to the session's message queue.
 func (s *Session) AddMessageToQueue(msg datatype.SseMessage) bool {
 	select {
-	case <-s.ctx.Done():
+	case <-s.done:
 		return false
-	default:
-	}
-
-	select {
-	case <-s.ctx.Done():
+	case <-s.Closer:
 		return false
 	case s.MessageCh <- msg:
 		return true
@@ -109,8 +98,7 @@ func (s *Session) Start(heartbeatMessage string, enableQueueDoneEvent bool, hear
 // closeSession safely closes the MessageCh channel
 func (s *Session) closeSession() {
 	s.closeOnce.Do(func() {
-		s.cancel()         // Cancel the context first to stop all goroutines
-		s.wg.Wait()        // Wait for all goroutines to finish
-		close(s.MessageCh) // Now it's safe to close the channel
+		<-s.done // Wait for the heartbeat goroutine to finish
+		close(s.MessageCh)
 	})
 }
