@@ -405,7 +405,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if ok {
 		s.mux.Lock()
 		for _, ses := range s.Sessions {
-			ses.AddMessageToQueue(ctx, sseMessage)
+			ses.AddMessageToQueue(sseMessage)
 		}
 		s.mux.Unlock()
 	}

@@ -17,9 +17,14 @@ type Session struct {
 	storage     storage.Storage
 	Closer      chan interface{}
 	lastEventId int64
+	ctx         context.Context
+	cancel      context.CancelFunc
+	closeOnce   sync.Once
+	wg          sync.WaitGroup
 }
 
 func NewSession(s storage.Storage, clientIds []string, lastEventId int64) *Session {
+	ctx, cancel := context.WithCancel(context.Background())
 	session := Session{
 		mux:         sync.RWMutex{},
 		ClientIds:   clientIds,
@@ -27,6 +32,9 @@ func NewSession(s storage.Storage, clientIds []string, lastEventId int64) *Sessi
 		MessageCh:   make(chan datatype.SseMessage, 10),
 		Closer:      make(chan interface{}),
 		lastEventId: lastEventId,
+		ctx:         ctx,
+		cancel:      cancel,
+		closeOnce:   sync.Once{},
 	}
 	return &session
 }
@@ -34,68 +42,75 @@ func NewSession(s storage.Storage, clientIds []string, lastEventId int64) *Sessi
 func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, heartbeatInterval time.Duration) {
 	log := logrus.WithField("prefix", "Session.worker")
 
-	wg := sync.WaitGroup{}
-	go s.runHeartbeat(&wg, log, heartbeatMessage, heartbeatInterval)
-
-	s.retrieveHistoricMessages(&wg, log, enableQueueDoneEvent)
-
-	// Wait for closer to be closed from the outside
-	// Happens when connection is closed
-	<-s.Closer
-
-	// Wait for channel producers to finish before closing the channel
-	wg.Wait()
-	close(s.MessageCh)
-}
-
-func (s *Session) runHeartbeat(wg *sync.WaitGroup, log *logrus.Entry, heartbeatMessage string, heartbeatInterval time.Duration) {
-	wg.Add(1)
-	defer wg.Done()
-
 	ticker := time.NewTicker(heartbeatInterval)
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-s.Closer:
-			return
-		case <-ticker.C:
-			s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)}
+	s.wg.Add(1)
+	go func() {
+		defer s.wg.Done()
+		for {
+			select {
+			case <-s.ctx.Done():
+				return
+			case <-s.Closer:
+				return
+			case <-ticker.C:
+				s.AddMessageToQueue(datatype.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)})
+			}
 		}
-	}
+	}()
+
+	s.retrieveHistoricMessages(log, enableQueueDoneEvent)
+
+	<-s.Closer
+	s.closeSession()
 }
 
-func (s *Session) retrieveHistoricMessages(wg *sync.WaitGroup, log *logrus.Entry, doneEvent bool) {
-	wg.Add(1)
-	defer wg.Done()
-
+func (s *Session) retrieveHistoricMessages(log *logrus.Entry, doneEvent bool) {
 	messages, err := s.storage.GetMessages(context.TODO(), s.ClientIds, s.lastEventId)
 	if err != nil {
 		log.Info("get queue error: ", err)
 	}
 
 	for _, m := range messages {
-		select {
-		case <-s.Closer:
-			return
-		default:
-			s.MessageCh <- m
+		if !s.AddMessageToQueue(m) {
+			return // Session is closed, stop sending
 		}
 	}
 
 	if doneEvent {
-		s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte("event: message\r\ndata: queue_done\r\n\r\n")}
+		s.AddMessageToQueue(datatype.SseMessage{EventId: -1, Message: []byte("event: message\r\ndata: queue_done\r\n\r\n")})
 	}
 }
 
-func (s *Session) AddMessageToQueue(ctx context.Context, mes datatype.SseMessage) {
+// AddMessageToQueue safely attempts to add a message to the session's message queue.
+func (s *Session) AddMessageToQueue(msg datatype.SseMessage) bool {
 	select {
-	case <-s.Closer:
+	case <-s.ctx.Done():
+		return false
 	default:
-		s.MessageCh <- mes
+	}
+
+	select {
+	case <-s.ctx.Done():
+		return false
+	case s.MessageCh <- msg:
+		return true
+	default:
+		// Channel is full, could log this or handle differently
+		return false
 	}
 }
 
 func (s *Session) Start(heartbeatMessage string, enableQueueDoneEvent bool, heartbeatInterval time.Duration) {
 	go s.worker(heartbeatMessage, enableQueueDoneEvent, heartbeatInterval)
+}
+
+// closeSession safely closes the MessageCh channel
+func (s *Session) closeSession() {
+	s.closeOnce.Do(func() {
+		s.cancel()         // Cancel the context first to stop all goroutines
+		s.wg.Wait()        // Wait for all goroutines to finish
+		close(s.MessageCh) // Now it's safe to close the channel
+	})
 }
