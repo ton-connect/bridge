@@ -25,7 +25,7 @@ func (m *mockDB) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) er
 
 // TestMultipleRuns runs the panic test multiple times to increase chances of hitting the race condition
 func TestMultipleRuns(t *testing.T) {
-	runs := 10 // Reduced runs for faster testing
+	runs := 100 // Reduced runs for faster testing
 
 	var wg sync.WaitGroup
 
@@ -39,14 +39,14 @@ func TestMultipleRuns(t *testing.T) {
 			mockDb := &mockDB{}
 			session := NewSession(mockDb, []string{"client1"}, 0)
 
-			heartbeatInterval := 1 * time.Millisecond // Use milliseconds instead of microseconds
+			heartbeatInterval := 1 * time.Millisecond
 			session.Start("heartbeat", false, heartbeatInterval)
 
 			// Random small delay to vary timing
 			time.Sleep(5 * time.Millisecond)
 
 			close(session.Closer)
-			time.Sleep(10 * time.Millisecond) // Give more time for cleanup
+			time.Sleep(10 * time.Millisecond)
 		}(i)
 	}
 
