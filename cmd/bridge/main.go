@@ -27,20 +27,22 @@ var (
 	tokenUsageMetric = promauto.NewCounterVec(client_prometheus.CounterOpts{
 		Name: "bridge_token_usage",
 	}, []string{"token"})
-	healthMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
-		Name: "bridge_health_status",
-		Help: "Health status of the bridge (1 = healthy, 0 = unhealthy)",
-	})
-	readyMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
-		Name: "bridge_ready_status",
-		Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
-	})
+	// TODO ready and health metrics
+	// healthMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
+	// 	Name: "bridge_health_status",
+	// 	Help: "Health status of the bridge (1 = healthy, 0 = unhealthy)",
+	// })
+	// readyMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
+	// 	Name: "bridge_ready_status",
+	// 	Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
+	// })
 )
 
-func init() {
-	client_prometheus.MustRegister(healthMetric)
-	client_prometheus.MustRegister(readyMetric)
-}
+// TODO ready and health metrics
+// func init() {
+// 	client_prometheus.MustRegister(healthMetric)
+// 	client_prometheus.MustRegister(readyMetric)
+// }
 
 func connectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {

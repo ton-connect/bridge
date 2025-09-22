@@ -2,9 +2,9 @@ package middleware
 
 import (
 	"fmt"
+	"github.com/tonkeeper/bridge/internal/utils"
 	"net/http"
 	"sync"
-	"github.com/tonkeeper/bridge/internal/utils"
 )
 
 // ConnectionsLimiter is a middleware that limits the number of simultaneous connections per IP.
