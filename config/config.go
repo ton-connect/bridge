@@ -34,6 +34,8 @@ var Config = struct {
 	BridgeURL              string   `env:"BRIDGE_URL" envDefault:"localhost"`
 	Environment            string   `env:"ENVIRONMENT" envDefault:"production"`
 	NetworkId              string   `env:"NETWORK_ID" envDefault:"-239"`
+	EnableTransferedCache  bool     `env:"ENABLE_TRANSFERED_CACHE" envDefault:"true"`
+	EnableExpiredCache     bool     `env:"ENABLE_EXPIRED_CACHE" envDefault:"true"`
 }{}
 
 func LoadConfig() {

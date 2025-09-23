@@ -9,7 +9,7 @@ import (
 )
 
 func TestMarkAndIsMarkedBasic(t *testing.T) {
-	mc := NewMessageCache(time.Hour)
+	mc := NewMessageCache(true, time.Hour)
 
 	// Initially not marked
 	if mc.IsMarked(42) {
@@ -32,7 +32,7 @@ func TestMarkAndIsMarkedBasic(t *testing.T) {
 
 func TestConcurrentMarkAndIsMarked(t *testing.T) {
 	const total = 1000000
-	mc := NewMessageCache(time.Hour)
+	mc := NewMessageCache(true, time.Hour)
 	workers := runtime.NumCPU() * 4
 
 	// First pass: ensure MarkIfNotExists returns true for each unique id and IsMarked true
@@ -105,7 +105,7 @@ func TestConcurrentMarkAndIsMarked(t *testing.T) {
 
 func TestCleanupRemovesOldEntries(t *testing.T) {
 	ttl := 50 * time.Millisecond
-	mc := NewMessageCache(ttl)
+	mc := NewMessageCache(true, ttl).(*InMemoryMessageCache)
 
 	// populate entries: 10 old, 10 fresh
 	mc.mutex.Lock()
@@ -142,7 +142,7 @@ func BenchmarkConcurrentMarkIsMarked(b *testing.B) {
 	workers := runtime.NumCPU() * 4
 
 	for it := 0; it < b.N; it++ {
-		mc := NewMessageCache(time.Second)
+		mc := NewMessageCache(true, time.Second)
 		var wg sync.WaitGroup
 		jobs := make(chan int64, workers)
 
@@ -176,7 +176,7 @@ func BenchmarkConcurrentCleaning(b *testing.B) {
 	workers := runtime.NumCPU() * 4
 
 	for it := 0; it < b.N; it++ {
-		mc := NewMessageCache(100 * time.Millisecond)
+		mc := NewMessageCache(true, 100*time.Millisecond)
 		var wg sync.WaitGroup
 		jobs := make(chan int64, workers)
 
