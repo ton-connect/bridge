@@ -42,3 +42,43 @@ Bridge exposes Prometheus metrics at http://localhost:9103/metrics.
 Profiling will not affect performance unless you start exploring it. To view all available profiles, open http://localhost:9103/debug/pprof in your browser. For more information, see the [usage examples](https://pkg.go.dev/net/http/pprof/#hdr-Usage_examples).
 
 To enable profiling feature, use `PPROF_ENABLED=true` flag.
+
+## Use local TON Connect Bridge
+
+Default url `http://localhost:8081/bridge`
+
+### Docker
+
+```bash
+git clone https://github.com/ton-connect/bridge.git
+cd bridge
+docker compose -f docker-compose.memory.yml up --build -d
+curl -I -f -s -o /dev/null -w "%{http_code}\n" http://localhost:9103/metrics
+```
+
+### GitHub Action
+
+Example usage from another repository:
+
+```yaml
+name: e2e
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start Bridge
+        uses: ton-connect/bridge/actions/local@master
+        with:
+          repository: "ton-connect/bridge"
+          branch: "master"
+
+      - name: Run E2E tests
+        env:
+          BRIDGE_URL: http://localhost:8081/bridge
+        run: |
+          npm run e2e
+```

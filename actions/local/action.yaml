@@ -1,0 +1,69 @@
+name: "TON Connect Bridge"
+description: "Builds and starts the Bridge service via docker compose and exposes it at http://localhost:8081/bridge"
+author: "TON Tech"
+
+inputs:
+  repository:
+    description: "TON Connect Bridge repository"
+    default: "ton-connect/bridge"
+  branch:
+    description: "Branch of repository"
+    default: "master"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Checkout TON Connect Bridge repository
+      uses: actions/checkout@v5
+      with:
+        repository: ${{ inputs.repository }}
+        ref: ${{ inputs.branch }}
+        path: ton-connect-bridge
+    
+    - name: Ensure dependencies
+      shell: bash
+      # language=bash
+      run: |
+        set -euo pipefail
+        docker --version
+        docker compose version
+    
+    - name: Start TON Connect Bridge service
+      shell: bash
+      # language=bash
+      run: |
+        set -euo pipefail
+        cd ton-connect-bridge
+        echo "Starting TON Connect Bridge service with docker-compose.memory.yml..."
+        docker compose -f docker-compose.memory.yml up --build -d
+        
+        echo "Waiting for services to be ready..."
+        sleep 10
+        
+        echo "Checking if TON Connect Bridge service is accessible..."
+        max_attempts=30
+        attempt=1
+        
+        while [ $attempt -le $max_attempts ]; do
+          echo "Attempt $attempt/$max_attempts: Checking http://localhost:8081/bridge"
+          if curl -I -f -s -o /dev/null -w "%{http_code}\n" http://localhost:9103/metrics; then
+            echo "✅ TON Connect Bridge service is accessible at http://localhost:8081/bridge"
+            break
+          else
+            echo "❌ TON Connect Bridge service not ready yet, waiting 5 seconds..."
+            sleep 5
+            attempt=$((attempt + 1))
+          fi
+        done
+        
+        if [ $attempt -gt $max_attempts ]; then
+          echo "❌ TON Connect Bridge service failed to start within expected time"
+          echo "Docker containers status:"
+          docker compose -f docker-compose.memory.yml ps
+          echo "TON Connect Bridge container logs:"
+          docker compose -f docker-compose.memory.yml logs bridge
+          exit 1
+        fi
+        
+        echo "🚀 TON Connect Bridge service is now running and accessible at http://localhost:8081/bridge"
+
