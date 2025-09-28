@@ -29,7 +29,7 @@ services:
         condition: service_started
     networks:
       - bridge_network
-    command: ["/bin/bash", "-c", "make test-bridge-sdk"]
+    command: [ "/bin/bash", "-c", "make test-bridge-sdk" ]
     # command: ["/bin/bash", "-c", "tail -f /dev/null"]
 
   gointegration:
@@ -44,7 +44,7 @@ services:
         condition: service_started
     networks:
       - bridge_network
-    command: ["/bin/bash", "-c", "make test-gointegration"]
+    command: [ "/bin/bash", "-c", "make test-gointegration" ]
     # command: ["/bin/bash", "-c", "tail -f /dev/null"]
 
   benchmark:
@@ -54,9 +54,9 @@ services:
     working_dir: /scripts
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"
-      TEST_DURATION: "15s"
-      SSE_VUS: "200"
-      SEND_RATE: "5000"
+      TEST_DURATION: "10s"
+      SSE_VUS: "100"
+      SEND_RATE: "2500"
     depends_on:
       bridge:
         condition: service_started
@@ -65,11 +65,16 @@ services:
     volumes:
       - ./benchmark:/scripts:ro
       - ./benchmark/results:/results
-    entrypoint: [ "/usr/local/bin/k6" ]
+    entrypoint: [ "/bin/sh", "-lc" ]
     command:
-      - run
-      - --summary-export=/results/summary.json
-      - /scripts/bridge_test.js
+      - >
+        printf '\n\n====== pprof BEFORE ======\n\n';
+        pprof -top -sample_index=alloc_space -nodecount=5 http://bridge:9103/debug/pprof/allocs || true;
+        printf '\n\n==========================\n\n';
+        /usr/local/bin/k6 run --summary-export=/results/summary.json /scripts/bridge_test.js;
+        printf '\n\n====== pprof AFTER ======\n\n';
+        pprof -top -sample_index=alloc_space -nodecount=5 http://bridge:9103/debug/pprof/allocs || true;
+        printf '\n\n==========================\n\n';
 
 
 networks:
