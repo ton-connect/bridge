@@ -5,7 +5,7 @@ RUN apk add --no-cache git build-base \
  && go install github.com/google/pprof@latest
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates
+RUN apk add --no-cache ca-certificates wget
 COPY --from=build /k6 /usr/local/bin/k6
 COPY --from=build /go/bin/pprof /usr/local/bin/pprof
 WORKDIR /scripts

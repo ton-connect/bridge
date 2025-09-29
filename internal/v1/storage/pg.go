@@ -92,10 +92,10 @@ func (s *PgStorage) worker() {
 		log.Info("time to db check")
 
 		expiredCleaned := ExpiredCache.Cleanup()
-		transferedCleaned := TransferedCache.Cleanup()
-		log.Infof("cleaned %d expired and %d transfered cache entries", expiredCleaned, transferedCleaned)
+		transferredCleaned := TransferredCache.Cleanup()
+		log.Infof("cleaned %d expired and %d transfered cache entries", expiredCleaned, transferredCleaned)
 		expiredMessagesCacheSizeMetric.Set(float64(ExpiredCache.Len()))
-		transferedMessagesCacheSizeMetric.Set(float64(TransferedCache.Len()))
+		transferedMessagesCacheSizeMetric.Set(float64(TransferredCache.Len()))
 
 		var lastProcessedEndTime *time.Time
 

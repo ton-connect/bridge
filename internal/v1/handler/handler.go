@@ -303,7 +303,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	data := append(message, []byte(clientId[0])...)
 	sum := sha256.Sum256(data)
 	messageId := int64(binary.BigEndian.Uint64(sum[:8]))
-	if ok := storage.TransferedCache.MarkIfNotExists(messageId); ok {
+	if ok := storage.TransferredCache.MarkIfNotExists(messageId); ok {
 		uniqueTransferedMessagesNumMetric.Inc()
 	}
 

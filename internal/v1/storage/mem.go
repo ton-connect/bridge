@@ -36,7 +36,7 @@ func NewMemStorage() *MemStorage {
 
 func removeExpiredMessages(ms []message, now time.Time, clientID string) []message {
 	log := log.WithField("prefix", "removeExpiredMessages")
-	results := make([]message, 0)
+	results := make([]message, 0) // TODO make([]message, 0, len(ms))
 	for _, m := range ms {
 		if m.IsExpired(now) {
 			if !ExpiredCache.IsMarked(m.EventId) {
@@ -75,7 +75,7 @@ func (s *MemStorage) watcher() {
 		s.lock.Unlock()
 
 		_ = ExpiredCache.Cleanup()
-		_ = TransferedCache.Cleanup()
+		_ = TransferredCache.Cleanup()
 
 		time.Sleep(time.Second)
 	}

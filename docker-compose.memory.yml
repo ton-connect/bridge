@@ -54,8 +54,8 @@ services:
     working_dir: /scripts
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"
-      TEST_DURATION: "10s"
-      SSE_VUS: "100"
+      TEST_DURATION: "2m"
+      SSE_VUS: "50"
       SEND_RATE: "2500"
     depends_on:
       bridge:
@@ -68,13 +68,27 @@ services:
     entrypoint: [ "/bin/sh", "-lc" ]
     command:
       - >
-        printf '\n\n====== pprof BEFORE ======\n\n';
-        pprof -top -sample_index=alloc_space -nodecount=5 http://bridge:9103/debug/pprof/allocs || true;
-        printf '\n\n==========================\n\n';
-        /usr/local/bin/k6 run --summary-export=/results/summary.json /scripts/bridge_test.js;
-        printf '\n\n====== pprof AFTER ======\n\n';
-        pprof -top -sample_index=alloc_space -nodecount=5 http://bridge:9103/debug/pprof/allocs || true;
-        printf '\n\n==========================\n\n';
+        printf '\n\n======  pprof BEFORE  ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 http://bridge:9103/debug/pprof/allocs 2>/dev/null || true;
+        pprof -proto http://bridge:9103/debug/pprof/allocs > /tmp/allocs-before.pb.gz 2>/dev/null || true;
+
+        printf '\n\n====== starting BENCH ======\n\n';
+        printf 'Running load test for %s with:\n' "$(echo $$TEST_DURATION)";
+        printf '  - SSE Virtual Users: %s\n' "$(echo $$SSE_VUS)";
+        printf '  - Send Rate: %s msg/s\n' "$(echo $$SEND_RATE)";
+        printf '  - Target: %s\n\n' "$(echo $$BRIDGE_URL)";
+        printf 'Please wait...\n\n';
+        /usr/local/bin/k6 run --quiet --summary-export=/results/summary.json /scripts/bridge_test.js;
+
+        printf '\n\n======  pprof AFTER   ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 http://bridge:9103/debug/pprof/allocs 2>/dev/null || true;
+        pprof -proto http://bridge:9103/debug/pprof/allocs > /tmp/allocs-after.pb.gz 2>/dev/null || true;
+
+        printf '\n\n======   pprof DIFF   ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 -base=/tmp/allocs-before.pb.gz /tmp/allocs-after.pb.gz || true;
+
+        rm -f /tmp/allocs-before.pb.gz /tmp/allocs-after.pb.gz 2>/dev/null || true;
+        printf '\n\n============================\n\n';
 
 
 networks:

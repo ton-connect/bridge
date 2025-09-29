@@ -10,8 +10,8 @@ import (
 )
 
 var (
-	ExpiredCache    = common_storage.NewMessageCache(config.Config.EnableExpiredCache, time.Hour)
-	TransferedCache = common_storage.NewMessageCache(config.Config.EnableTransferedCache, time.Minute)
+	ExpiredCache     = common_storage.NewMessageCache(config.Config.EnableExpiredCache, time.Hour)
+	TransferredCache = common_storage.NewMessageCache(config.Config.EnableTransferedCache, time.Minute)
 )
 
 type Storage interface {
