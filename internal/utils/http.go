@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/realclientip/realclientip-go"
+	"github.com/sirupsen/logrus"
 )
 
 type HttpRes struct {
@@ -84,8 +85,26 @@ func (e *RealIPExtractor) Extract(request *http.Request) string {
 
 	// RightmostTrustedRangeStrategy ignore the second parameter
 	rightmostTrusted := e.strategy.ClientIP(headers, "")
-	if rightmostTrusted == "" {
-		return remoteAddr
+	if rightmostTrusted != "" {
+		logrus.WithFields(logrus.Fields{
+			"old-x-forwarded-for": oldXForwardedFor,
+			"new-x-forwarded-for": newXForwardedFor,
+			"remote-addr":         request.RemoteAddr,
+			"ip":                  ip,
+		}).Debug("ip extracted: trusted")
+		return rightmostTrusted
 	}
-	return rightmostTrusted
+
+	// Fallback: use RemoteAddrStrategy to cleanly extract IP from RemoteAddr
+	fallbackStrategy := realclientip.RemoteAddrStrategy{}
+	fallbackIP := fallbackStrategy.ClientIP(nil, request.RemoteAddr)
+
+	logrus.WithFields(logrus.Fields{
+		"old-x-forwarded-for": oldXForwardedFor,
+		"new-x-forwarded-for": newXForwardedFor,
+		"remote-addr":         request.RemoteAddr,
+		"ip":                  fallbackIP,
+	}).Debug("ip extracted: fallback")
+
+	return fallbackIP
 }
