@@ -303,10 +303,8 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
-	hsh := sha256.New()
-	_, _ = hsh.Write(message)
-	_, _ = hsh.Write([]byte(clientId[0]))
-	sum := hsh.Sum(nil)
+	data := append(message, []byte(clientId[0])...)
+	sum := sha256.Sum256(data)
 	messageId := int64(binary.BigEndian.Uint64(sum[:8]))
 	if ok := storage.TransferredCache.MarkIfNotExists(messageId); ok {
 		uniqueTransferedMessagesNumMetric.Inc()
