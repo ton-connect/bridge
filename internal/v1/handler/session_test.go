@@ -13,12 +13,12 @@ import (
 // mockDB implements the db interface for testing
 type mockDB struct{}
 
-func (m *mockDB) GetMessages(ctx context.Context, clientIds []string, lastEventId int64) ([]datatype.SseMessage, error) {
+func (m *mockDB) GetMessages(_ context.Context, _ []string, _ int64) ([]datatype.SseMessage, error) {
 	// Return empty slice for testing
 	return []datatype.SseMessage{}, nil
 }
 
-func (m *mockDB) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error {
+func (m *mockDB) Add(_ context.Context, _ datatype.SseMessage, _ int64) error {
 	// Mock implementation - just return nil
 	return nil
 }

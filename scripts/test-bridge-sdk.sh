@@ -3,7 +3,7 @@
 # Script to test the bridge against ton-connect/bridge-sdk
 set -e
 
-BRIDGE_URL=${BRIDGE_URL:-"http://localhost:8080/bridge"}
+BRIDGE_URL=${BRIDGE_URL:-"http://localhost:8081/bridge"}
 BRIDGE_SDK_DIR="bridge-sdk"
 BRIDGE_SDK_REPO="https://github.com/ton-connect/bridge-sdk.git"
 
