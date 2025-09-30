@@ -12,13 +12,16 @@ export let delivery_latency = new Trend('delivery_latency');
 export let json_parse_errors = new Counter('json_parse_errors');
 export let missing_timestamps = new Counter('missing_timestamps');
 
+const PRE_ALLOCATED_VUS = 100
+const MAX_VUS = PRE_ALLOCATED_VUS * 25
+
 const BRIDGE_URL = __ENV.BRIDGE_URL || 'http://localhost:8081/bridge';
 const TEST_DURATION = __ENV.TEST_DURATION || '2m';
 const SSE_VUS = Number(__ENV.SSE_VUS || 1000);
 const SEND_RATE = Number(__ENV.SEND_RATE || 10000);
 
 // Generate valid hex client IDs that the bridge expects
-const POOL = new SharedArray('ids', () => Array.from({length: 100}, (_, i) => {
+const ID_POOL = new SharedArray('ids', () => Array.from({length: 100}, (_, i) => {
   return i.toString(16).padStart(64, '0'); // 64-char hex strings
 }));
 
@@ -44,7 +47,8 @@ export const options = {
             rate: SEND_RATE,
             timeUnit: '1s',
             duration: TEST_DURATION,
-            preAllocatedVUs: 100,
+            preAllocatedVUs: PRE_ALLOCATED_VUS,
+            maxVUs: MAX_VUS,
             exec: 'messageSender'
         },
     },
@@ -97,9 +101,9 @@ export function sseWorker() {
 
 export function messageSender() {
   // Use fixed client pairs to reduce URL variations
-  const vuIndex = exec.vu.idInTest % POOL.length;
-  const to = POOL[vuIndex];
-  const from = POOL[(vuIndex + 1) % POOL.length];
+  const vuIndex = exec.vu.idInTest % ID_POOL.length;
+  const to = ID_POOL[vuIndex];
+  const from = ID_POOL[(vuIndex + 1) % ID_POOL.length];
   const topic = Math.random() < 0.5 ? 'sendTransaction' : 'signData';
   const body = encoding.b64encode(JSON.stringify({ ts: Date.now(), data: 'test_message' }));
   const url = `${BRIDGE_URL}/message?client_id=${from}&to=${to}&ttl=300&topic=${topic}`;

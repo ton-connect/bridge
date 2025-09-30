@@ -1,5 +1,6 @@
 services:
   bridge:
+    image: ton-connect/bridge:latest
     container_name: bridge
     build: .
     environment:
@@ -48,6 +49,7 @@ services:
     # command: ["/bin/bash", "-c", "tail -f /dev/null"]
 
   benchmark:
+    image: ton-connect/benchmark:latest
     build:
       context: .
       dockerfile: benchmark/Benchmark.Dockerfile
@@ -57,7 +59,7 @@ services:
       BRIDGE_URL: "http://bridge:8081/bridge"
       TEST_DURATION: "2m"
       SSE_VUS: "500"
-      SEND_RATE: "2500"
+      SEND_RATE: "10000"
     depends_on:
       bridge:
         condition: service_started
@@ -78,7 +80,7 @@ services:
         printf '  - SSE Virtual Users: %s\n' "$$SSE_VUS";
         printf '  - Send Rate: %s msg/s\n' "$$SEND_RATE";
         printf '  - Target: %s\n\n' "$$BRIDGE_URL";
-        printf '\n\nPlease wait...\n\n\n\n';
+        printf '\n\nPlease wait...\n\n';
         /usr/local/bin/k6 run --quiet --summary-export=/results/summary.json /scripts/bridge_test.js;
 
         printf '\n\n======  pprof AFTER   ======\n\n';
