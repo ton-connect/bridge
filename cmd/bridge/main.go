@@ -80,7 +80,7 @@ func main() {
 	config.LoadConfig()
 
 	dbURI := ""
-    if config.Config.PostgresURI != "" {
+	if config.Config.PostgresURI != "" {
 		dbURI = config.Config.PostgresURI
 	} else if config.Config.ValkeyURI != "" {
 		dbURI = config.Config.ValkeyURI

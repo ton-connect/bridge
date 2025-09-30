@@ -5,8 +5,8 @@ import (
 	"sync"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/internal/v3/storage"
 	"github.com/tonkeeper/bridge/internal/models"
+	"github.com/tonkeeper/bridge/internal/v3/storage"
 )
 
 type Session struct {
