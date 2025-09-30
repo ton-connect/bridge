@@ -9,7 +9,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/datatype"
+	"github.com/tonkeeper/bridge/internal/models"
 )
 
 type MemStorage struct {
@@ -18,7 +18,7 @@ type MemStorage struct {
 }
 
 type message struct {
-	datatype.SseMessage
+	models.SseMessage
 	expireAt time.Time
 }
 
@@ -40,7 +40,7 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 	for _, m := range ms {
 		if m.IsExpired(now) {
 			if !ExpiredCache.IsMarked(m.EventId) {
-				var bridgeMsg datatype.BridgeMessage
+				var bridgeMsg models.BridgeMessage
 				fromID := "unknown"
 				hash := sha256.Sum256(m.Message)
 				messageHash := hex.EncodeToString(hash[:])
@@ -81,12 +81,12 @@ func (s *MemStorage) watcher() {
 	}
 }
 
-func (s *MemStorage) GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error) {
+func (s *MemStorage) GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]models.SseMessage, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
 	now := time.Now()
-	results := make([]datatype.SseMessage, 0)
+	results := make([]models.SseMessage, 0)
 	for _, key := range keys {
 		messages, ok := s.db[key]
 		if !ok {
@@ -105,7 +105,7 @@ func (s *MemStorage) GetMessages(ctx context.Context, keys []string, lastEventId
 	return results, nil
 }
 
-func (s *MemStorage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error {
+func (s *MemStorage) Add(ctx context.Context, mes models.SseMessage, ttl int64) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
