@@ -1,6 +1,5 @@
 services:
   bridge:
-    image: ton-connect/bridge:latest
     container_name: bridge
     build: .
     environment:
@@ -49,7 +48,6 @@ services:
     # command: ["/bin/bash", "-c", "tail -f /dev/null"]
 
   benchmark:
-    image: ton-connect/benchmark:latest
     build:
       context: .
       dockerfile: benchmark/Benchmark.Dockerfile
@@ -57,7 +55,7 @@ services:
     working_dir: /scripts
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"
-      TEST_DURATION: "2m"
+      TEST_DURATION: "5m"
       SSE_VUS: "500"
       SEND_RATE: "10000"
     depends_on:
