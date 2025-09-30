@@ -223,16 +223,19 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		}
 		c.Response().Flush()
 		if msg.EventId != -1 {
-			hash := sha256.Sum256(messageToSend)
-			messageHash := hex.EncodeToString(hash[:])
 
-			logrus.WithFields(logrus.Fields{
-				"hash":     messageHash,
-				"from":     bridgeMsg.From,
-				"to":       msg.To,
-				"event_id": msg.EventId,
-				"trace_id": bridgeMsg.TraceId,
-			}).Debug("message sent")
+			if logrus.IsLevelEnabled(logrus.DebugLevel) {
+				hash := sha256.Sum256(messageToSend)
+				messageHash := hex.EncodeToString(hash[:])
+
+				logrus.WithFields(logrus.Fields{
+					"hash":     messageHash,
+					"from":     bridgeMsg.From,
+					"to":       msg.To,
+					"event_id": msg.EventId,
+					"trace_id": bridgeMsg.TraceId,
+				}).Debug("message sent")
+			}
 
 			go h.analytics.SendEvent(tonmetrics.CreateBridgeRequestReceivedEvent(
 				config.Config.BridgeURL,
@@ -255,7 +258,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 
 func (h *handler) SendMessageHandler(c echo.Context) error {
 	ctx := c.Request().Context()
-	log := logrus.WithContext(ctx).WithField("prefix", "SendMessageHandler")
+	log := logrus.WithContext(ctx)
 
 	params := c.QueryParams()
 	clientId, ok := params["client_id"]
@@ -300,8 +303,10 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
-	data := append(message, []byte(clientId[0])...)
-	sum := sha256.Sum256(data)
+	hsh := sha256.New()
+	_, _ = hsh.Write(message)
+	_, _ = hsh.Write([]byte(clientId[0]))
+	sum := hsh.Sum(nil)
 	messageId := int64(binary.BigEndian.Uint64(sum[:8]))
 	if ok := storage.TransferredCache.MarkIfNotExists(messageId); ok {
 		uniqueTransferedMessagesNumMetric.Inc()
@@ -418,25 +423,30 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}
 	}()
 
-	var bridgeMsg datatype.BridgeMessage
-	fromId := "unknown"
+	if logrus.IsLevelEnabled(logrus.DebugLevel) {
+		var (
+			bridgeMsg   datatype.BridgeMessage
+			fromId      = "unknown"
+			messageHash string
+		)
 
-	hash := sha256.Sum256(sseMessage.Message)
-	messageHash := hex.EncodeToString(hash[:])
+		if err := json.Unmarshal(sseMessage.Message, &bridgeMsg); err == nil {
+			fromId = bridgeMsg.From
+			contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+			messageHash = hex.EncodeToString(contentHash[:])
+		} else {
+			hash := sha256.Sum256(sseMessage.Message)
+			messageHash = hex.EncodeToString(hash[:])
+		}
 
-	if err := json.Unmarshal(sseMessage.Message, &bridgeMsg); err == nil {
-		fromId = bridgeMsg.From
-		contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
-		messageHash = hex.EncodeToString(contentHash[:])
+		log.WithFields(logrus.Fields{
+			"hash":     messageHash,
+			"from":     fromId,
+			"to":       toId[0],
+			"event_id": sseMessage.EventId,
+			"trace_id": bridgeMsg.TraceId,
+		}).Debug("message received")
 	}
-
-	log.WithFields(logrus.Fields{
-		"hash":     messageHash,
-		"from":     fromId,
-		"to":       toId[0],
-		"event_id": sseMessage.EventId,
-		"trace_id": bridgeMsg.TraceId,
-	}).Debug("message received")
 
 	go h.analytics.SendEvent(tonmetrics.CreateBridgeRequestSentEvent(
 		config.Config.BridgeURL,
@@ -451,7 +461,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, utils.HttpResOk())
-
 }
 
 func (h *handler) ConnectVerifyHandler(c echo.Context) error {
@@ -468,7 +477,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		return c.JSON(utils.HttpResError("param \"client_id\" not present", http.StatusBadRequest))
 	}
-	url, ok := paramsStore.Get("url")
+	_url, ok := paramsStore.Get("url")
 	if !ok {
 		badRequestMetric.Inc()
 		return c.JSON(utils.HttpResError("param \"url\" not present", http.StatusBadRequest))
@@ -480,7 +489,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 
 	switch strings.ToLower(qtype) {
 	case "connect":
-		status := h.connectionCache.Verify(clientId, ip, utils.ExtractOrigin(url))
+		status := h.connectionCache.Verify(clientId, ip, utils.ExtractOrigin(_url))
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
 		badRequestMetric.Inc()
@@ -496,7 +505,7 @@ func (h *handler) removeConnection(ses *Session) {
 		s, ok := h.Connections[id]
 		h.Mux.RUnlock()
 		if !ok {
-			log.Info("alredy removed")
+			log.Info("already removed")
 			continue
 		}
 		s.mux.Lock()

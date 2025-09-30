@@ -51,11 +51,12 @@ services:
     build:
       context: .
       dockerfile: benchmark/Benchmark.Dockerfile
+    container_name: benchmark
     working_dir: /scripts
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"
       TEST_DURATION: "2m"
-      SSE_VUS: "50"
+      SSE_VUS: "500"
       SEND_RATE: "2500"
     depends_on:
       bridge:
@@ -73,11 +74,11 @@ services:
         pprof -proto http://bridge:9103/debug/pprof/allocs > /tmp/allocs-before.pb.gz 2>/dev/null || true;
 
         printf '\n\n====== starting BENCH ======\n\n';
-        printf 'Running load test for %s with:\n' "$(echo $$TEST_DURATION)";
-        printf '  - SSE Virtual Users: %s\n' "$(echo $$SSE_VUS)";
-        printf '  - Send Rate: %s msg/s\n' "$(echo $$SEND_RATE)";
-        printf '  - Target: %s\n\n' "$(echo $$BRIDGE_URL)";
-        printf 'Please wait...\n\n';
+        printf 'Running load test for %s with:\n' "$$TEST_DURATION";
+        printf '  - SSE Virtual Users: %s\n' "$$SSE_VUS";
+        printf '  - Send Rate: %s msg/s\n' "$$SEND_RATE";
+        printf '  - Target: %s\n\n' "$$BRIDGE_URL";
+        printf '\n\nPlease wait...\n\n\n\n';
         /usr/local/bin/k6 run --quiet --summary-export=/results/summary.json /scripts/bridge_test.js;
 
         printf '\n\n======  pprof AFTER   ======\n\n';

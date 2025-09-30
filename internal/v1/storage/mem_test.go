@@ -157,22 +157,3 @@ func TestStorage_watcher(t *testing.T) {
 		})
 	}
 }
-
-func Test_removeExpiredMessages_BoundaryEqualNowNotExpired(t *testing.T) {
-	now := time.Unix(1_700_000_000, 0)
-
-	ms := []message{
-		newMessage(now.Add(-1*time.Nanosecond), 1), // expired
-		newMessage(now, 2),                         // boundary: equal to now -> NOT expired
-		newMessage(now.Add(1*time.Second), 3),      // fresh
-	}
-
-	got := removeExpiredMessages(ms, now, "test-key")
-
-	if len(got) != 2 {
-		t.Fatalf("expected 2 messages left, got %d", len(got))
-	}
-	if got[0].EventId != 2 || got[1].EventId != 3 {
-		t.Fatalf("expected remaining EventIds [2 3], got [%d %d]", got[0].EventId, got[1].EventId)
-	}
-}

@@ -23,19 +23,31 @@ const POOL = new SharedArray('ids', () => Array.from({length: 100}, (_, i) => {
 }));
 
 export const options = {
-  discardResponseBodies: true,
-  systemTags: ['status', 'method', 'name', 'scenario'], // Exclude 'url' to prevent metrics explosion
-  thresholds: {
-    http_req_failed: ['rate<0.01'],
-    delivery_latency: ['p(95)<2000'],
-    sse_errors: ['count<10'], // SSE should be very stable
-    json_parse_errors: ['count<5'], // Should rarely fail to parse
-    missing_timestamps: ['count<100'], // Most messages should have timestamps
-  },
-  scenarios: {
-    sse: { executor: 'constant-vus', vus: SSE_VUS, duration: TEST_DURATION, exec: 'sseWorker' },
-    senders: { executor: 'constant-arrival-rate', rate: SEND_RATE, timeUnit: '1s', duration: TEST_DURATION, preAllocatedVUs: 100, exec: 'messageSender' },
-  },
+    discardResponseBodies: true,
+    systemTags: ['status', 'method', 'name', 'scenario'], // Exclude 'url' to prevent metrics explosion
+    thresholds: {
+        http_req_failed: ['rate<0.01'],
+        delivery_latency: ['p(95)<2000'],
+        sse_errors: ['count<10'], // SSE should be very stable
+        json_parse_errors: ['count<5'], // Should rarely fail to parse
+        missing_timestamps: ['count<100'], // Most messages should have timestamps
+    },
+    scenarios: {
+        sse: {
+            executor: 'constant-vus',
+            vus: SSE_VUS,
+            duration: TEST_DURATION,
+            exec: 'sseWorker'
+        },
+        senders: {
+            executor: 'constant-arrival-rate',
+            rate: SEND_RATE,
+            timeUnit: '1s',
+            duration: TEST_DURATION,
+            preAllocatedVUs: 100,
+            exec: 'messageSender'
+        },
+    },
 };
 
 export function sseWorker() {

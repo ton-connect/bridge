@@ -22,6 +22,8 @@ type message struct {
 	expireAt time.Time
 }
 
+var removeExpiredLogger = log.WithField("prefix", "removeExpiredMessages")
+
 func (m message) IsExpired(now time.Time) bool {
 	return m.expireAt.Before(now)
 }
@@ -34,36 +36,47 @@ func NewMemStorage() *MemStorage {
 	return &s
 }
 
-func removeExpiredMessages(ms []message, now time.Time, clientID string) []message {
-	log := log.WithField("prefix", "removeExpiredMessages")
-	results := make([]message, 0) // TODO make([]message, 0, len(ms))
-	for _, m := range ms {
-		if m.IsExpired(now) {
-			if !ExpiredCache.IsMarked(m.EventId) {
-				var bridgeMsg datatype.BridgeMessage
-				fromID := "unknown"
-				hash := sha256.Sum256(m.Message)
-				messageHash := hex.EncodeToString(hash[:])
+func removeExpiredMessages(messages []message, now time.Time, clientID string) []message {
+	i := 0
+	for _, msg := range messages {
+		if !msg.IsExpired(now) {
+			messages[i] = msg
+			i++
+			continue
+		}
 
-				if err := json.Unmarshal(m.Message, &bridgeMsg); err == nil {
-					fromID = bridgeMsg.From
-					contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
-					messageHash = hex.EncodeToString(contentHash[:])
-				}
+		if !ExpiredCache.IsMarked(msg.EventId) &&
+			removeExpiredLogger.Logger != nil &&
+			removeExpiredLogger.Logger.IsLevelEnabled(log.DebugLevel) {
 
-				log.WithFields(map[string]interface{}{
-					"hash":     messageHash,
-					"from":     fromID,
-					"to":       clientID,
-					"event_id": m.EventId,
-					"trace_id": bridgeMsg.TraceId,
-				}).Debug("message expired")
+			var (
+				bridgeMsg   datatype.BridgeMessage
+				fromID      = "unknown"
+				messageHash string
+			)
+			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+				fromID = bridgeMsg.From
+				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+				messageHash = hex.EncodeToString(contentHash[:])
+			} else {
+				sum := sha256.Sum256(msg.Message)
+				messageHash = hex.EncodeToString(sum[:])
 			}
-		} else {
-			results = append(results, m)
+
+			removeExpiredLogger.WithFields(log.Fields{
+				"hash":     messageHash,
+				"from":     fromID,
+				"to":       clientID,
+				"event_id": msg.EventId,
+				"trace_id": bridgeMsg.TraceId,
+			}).Debug("message expired")
 		}
 	}
-	return results
+
+	for j := i; j < len(messages); j++ {
+		messages[j] = message{}
+	}
+	return messages[:i]
 }
 
 func (s *MemStorage) watcher() {
@@ -81,7 +94,7 @@ func (s *MemStorage) watcher() {
 	}
 }
 
-func (s *MemStorage) GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error) {
+func (s *MemStorage) GetMessages(_ context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error) {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
@@ -105,7 +118,7 @@ func (s *MemStorage) GetMessages(ctx context.Context, keys []string, lastEventId
 	return results, nil
 }
 
-func (s *MemStorage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error {
+func (s *MemStorage) Add(_ context.Context, mes datatype.SseMessage, ttl int64) error {
 	s.lock.Lock()
 	defer s.lock.Unlock()
 
