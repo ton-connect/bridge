@@ -79,36 +79,22 @@ func main() {
 	log.Info("Bridge is running")
 	config.LoadConfig()
 
-	// dbURI := ""
-	// store := "memory"
-	// if config.Config.Storage != "" {
-	// 	store = config.Config.Storage
-	// }
-
-	// switch store {
-	// case "postgres":
-	// 	log.Info("Using PostgreSQL storage")
-	// 	dbURI = config.Config.PostgresURI
-	// case "valkey":
-	// 	log.Info("Using Valkey storage")
-	// 	dbURI = config.Config.ValkeyURI
-	// default:
-	// 	log.Info("Using in-memory storage as default")
-	// 	// No URI needed for memory storage
-	// }
-
-	dbConn, err := storage.NewStorage(config.Config.DbURI)
+	dbURI := ""
+    if config.Config.PostgresURI != "" {
+		dbURI = config.Config.PostgresURI
+	} else if config.Config.ValkeyURI != "" {
+		dbURI = config.Config.ValkeyURI
+	}
+	dbConn, err := storagev1.NewStorage(dbURI)
 
 	if err != nil {
 		log.Fatalf("failed to create storage: %v", err)
 	}
-	// if _, ok := dbConn.(*storage.MemStorage); ok {
-	// 	log.Info("Using in-memory storage")
-	// } else if _, ok := dbConn.(*storage.ValkeyStorage); ok {
-	// 	log.Info("Using Valkey/Redis storage")
-	// } else {
-	// 	log.Info("Using PostgreSQL storage")
-	// }
+	if _, ok := dbConn.(*storagev1.MemStorage); ok {
+		log.Info("Using in-memory storage")
+	} else {
+		log.Info("Using PostgreSQL storage")
+	}
 
 	healthMetric.Set(1)
 	if err := dbConn.HealthCheck(); err != nil {

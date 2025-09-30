@@ -1,7 +1,8 @@
-package storage
+package storagev1
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/tonkeeper/bridge/config"
@@ -21,8 +22,8 @@ type Storage interface {
 }
 
 func NewStorage(dbURI string) (Storage, error) {
-	if dbURI != "" {
+	if strings.HasPrefix(dbURI, "postgres") {
 		return NewPgStorage(dbURI)
 	}
-	return NewMemStorage(), nil
+	return NewMemStorage()
 }

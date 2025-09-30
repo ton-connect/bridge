@@ -1,4 +1,4 @@
-package storage
+package storagev1
 
 import (
 	"context"
@@ -26,12 +26,12 @@ func (m message) IsExpired(now time.Time) bool {
 	return m.expireAt.Before(now)
 }
 
-func NewMemStorage() *MemStorage {
+func NewMemStorage() (*MemStorage, error) {
 	s := MemStorage{
 		db: map[string][]message{},
 	}
 	go s.watcher()
-	return &s
+	return &s, nil
 }
 
 func removeExpiredMessages(ms []message, now time.Time, clientID string) []message {

@@ -14,12 +14,12 @@ type Session struct {
 	mux         sync.RWMutex
 	ClientIds   []string
 	MessageCh   chan models.SseMessage
-	storage     storage.Storage
+	storage     storagev1.Storage
 	Closer      chan interface{}
 	lastEventId int64
 }
 
-func NewSession(s storage.Storage, clientIds []string, lastEventId int64) *Session {
+func NewSession(s storagev1.Storage, clientIds []string, lastEventId int64) *Session {
 	session := Session{
 		mux:         sync.RWMutex{},
 		ClientIds:   clientIds,
@@ -48,6 +48,7 @@ func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, hea
 	close(s.MessageCh)
 }
 
+// TODO unused parameter
 func (s *Session) runHeartbeat(wg *sync.WaitGroup, log *logrus.Entry, heartbeatMessage string, heartbeatInterval time.Duration) {
 	wg.Add(1)
 	go func() {
