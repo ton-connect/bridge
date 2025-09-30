@@ -48,7 +48,7 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 	results := make([]message, 0)
 	for _, m := range ms {
 		if m.IsExpired(now) {
-			if !GlobalExpiredCache.IsDelivered(m.EventId) {
+			if !ExpiredCache.IsMarked(m.EventId) {
 				var bridgeMsg models.BridgeMessage
 				fromID := "unknown"
 				hash := sha256.Sum256(m.Message)

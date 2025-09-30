@@ -199,7 +199,7 @@ loop:
 			}).Debug("message sent")
 
 			deliveredMessagesMetric.Inc()
-			storagev3.GlobalExpiredCache.MarkDelivered(msg.EventId)
+			storagev3.ExpiredCache.Mark(msg.EventId)
 		case <-ticker.C:
 			_, err = fmt.Fprint(c.Response(), heartbeatMsg)
 			if err != nil {
