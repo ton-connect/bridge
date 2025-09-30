@@ -12,6 +12,7 @@ var Config = struct {
 	LogLevel               string   `env:"LOG_LEVEL" envDefault:"info"`
 	Port                   int      `env:"PORT" envDefault:"8081"`
 	MetricsPort            int      `env:"METRICS_PORT" envDefault:"9103"`
+	Storage                string   `env:"STORAGE" envDefault:"memory"` // For v3 only: memory or valkey
 	PostgresURI            string   `env:"POSTGRES_URI"`
 	ValkeyURI              string   `env:"VALKEY_URI"`
 	WebhookURL             string   `env:"WEBHOOK_URL"`
