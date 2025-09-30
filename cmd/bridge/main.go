@@ -14,7 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/config"
+	"github.com/tonkeeper/bridge/internal/config"
 	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
 	"github.com/tonkeeper/bridge/internal/utils"
 	handlerv1 "github.com/tonkeeper/bridge/internal/v1/handler"

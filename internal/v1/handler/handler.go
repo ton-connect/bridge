@@ -22,7 +22,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/config"
+	"github.com/tonkeeper/bridge/internal/config"
 	handler_common "github.com/tonkeeper/bridge/internal/handler"
 	"github.com/tonkeeper/bridge/internal/models"
 	"github.com/tonkeeper/bridge/internal/utils"

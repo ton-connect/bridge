@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/tonkeeper/bridge/config"
+	"github.com/tonkeeper/bridge/internal/config"
 	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
 	handlerv3 "github.com/tonkeeper/bridge/internal/v3/handler"
 	storagev3 "github.com/tonkeeper/bridge/internal/v3/storage"

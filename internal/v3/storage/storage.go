@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/tonkeeper/bridge/config"
+	"github.com/tonkeeper/bridge/internal/config"
 	"github.com/tonkeeper/bridge/internal/models"
 	common_storage "github.com/tonkeeper/bridge/internal/storage"
 )
