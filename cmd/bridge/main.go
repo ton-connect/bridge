@@ -27,22 +27,20 @@ var (
 	tokenUsageMetric = promauto.NewCounterVec(client_prometheus.CounterOpts{
 		Name: "bridge_token_usage",
 	}, []string{"token"})
-	// TODO ready and health metrics
-	// healthMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
-	// 	Name: "bridge_health_status",
-	// 	Help: "Health status of the bridge (1 = healthy, 0 = unhealthy)",
-	// })
-	// readyMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
-	// 	Name: "bridge_ready_status",
-	// 	Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
-	// })
+	healthMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
+		Name: "bridge_health_status",
+		Help: "Health status of the bridge (1 = healthy, 0 = unhealthy)",
+	})
+	readyMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
+		Name: "bridge_ready_status",
+		Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
+	})
 )
 
-// TODO ready and health metrics
-// func init() {
-// 	client_prometheus.MustRegister(healthMetric)
-// 	client_prometheus.MustRegister(readyMetric)
-// }
+func init() {
+	client_prometheus.MustRegister(healthMetric)
+	client_prometheus.MustRegister(readyMetric)
+}
 
 func connectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -81,10 +79,56 @@ func main() {
 	log.Info("Bridge is running")
 	config.LoadConfig()
 
+	// dbURI := ""
+	// store := "memory"
+	// if config.Config.Storage != "" {
+	// 	store = config.Config.Storage
+	// }
+
+	// switch store {
+	// case "postgres":
+	// 	log.Info("Using PostgreSQL storage")
+	// 	dbURI = config.Config.PostgresURI
+	// case "valkey":
+	// 	log.Info("Using Valkey storage")
+	// 	dbURI = config.Config.ValkeyURI
+	// default:
+	// 	log.Info("Using in-memory storage as default")
+	// 	// No URI needed for memory storage
+	// }
+
 	dbConn, err := storage.NewStorage(config.Config.DbURI)
+
 	if err != nil {
-		log.Fatalf("db connection %v", err)
+		log.Fatalf("failed to create storage: %v", err)
 	}
+	// if _, ok := dbConn.(*storage.MemStorage); ok {
+	// 	log.Info("Using in-memory storage")
+	// } else if _, ok := dbConn.(*storage.ValkeyStorage); ok {
+	// 	log.Info("Using Valkey/Redis storage")
+	// } else {
+	// 	log.Info("Using PostgreSQL storage")
+	// }
+
+	healthMetric.Set(1)
+	if err := dbConn.HealthCheck(); err != nil {
+		readyMetric.Set(0)
+	} else {
+		readyMetric.Set(1)
+	}
+
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			if err := dbConn.HealthCheck(); err != nil {
+				readyMetric.Set(0)
+			} else {
+				readyMetric.Set(1)
+			}
+		}
+	}()
 
 	extractor, err := utils.NewRealIPExtractor(config.Config.TrustedProxyRanges)
 	if err != nil {
