@@ -3,7 +3,6 @@
 
 **note:** for common issues and troubleshooting, see [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
 
-
 ## requirements
 - golang 1.24
 - postgres
