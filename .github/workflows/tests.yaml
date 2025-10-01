@@ -70,6 +70,7 @@ jobs:
         message-path: metrics.md
         message-id: performance-metrics-${{ matrix.storage }}-${{ github.run_number }}
         refresh-message-position: true
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Clean up containers
       if: always()
