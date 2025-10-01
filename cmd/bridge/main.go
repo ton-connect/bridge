@@ -35,6 +35,9 @@ var (
 		Name: "bridge_ready_status",
 		Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
 	})
+
+	// Shared health status updated by background goroutine
+	healthy = 0
 )
 
 func init() {
@@ -75,6 +78,17 @@ func skipRateLimitsByToken(request *http.Request) bool {
 	return false
 }
 
+func updateHealthStatus(dbConn storage.Storage) {
+	if err := dbConn.HealthCheck(); err != nil {
+		healthy = 0
+	} else {
+		healthy = 1
+	}
+
+	healthMetric.Set(float64(healthy))
+	readyMetric.Set(float64(healthy))
+}
+
 func main() {
 	log.Info("Bridge is running")
 	config.LoadConfig()
@@ -84,23 +98,13 @@ func main() {
 		log.Fatalf("db connection %v", err)
 	}
 
-	healthMetric.Set(1)
-	if err := dbConn.HealthCheck(); err != nil {
-		readyMetric.Set(0)
-	} else {
-		readyMetric.Set(1)
-	}
-
+	updateHealthStatus(dbConn)
 	go func() {
-		ticker := time.NewTicker(30 * time.Second)
+		ticker := time.NewTicker(5 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
-			if err := dbConn.HealthCheck(); err != nil {
-				readyMetric.Set(0)
-			} else {
-				readyMetric.Set(1)
-			}
+			updateHealthStatus(dbConn)
 		}
 	}()
 
@@ -111,44 +115,22 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-	mux.Handle("/health", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log := log.WithField("prefix", "HealthHandler")
-		log.Debug("health check request received")
 
-		healthMetric.Set(1)
-
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.WriteHeader(http.StatusOK)
-		_, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n")
-		if err != nil {
-			log.Errorf("health response write error: %v", err)
-		}
-	}))
-	mux.Handle("/ready", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		log := log.WithField("prefix", "ReadyHandler")
-		log.Debug("readiness check request received")
 
-		if err := dbConn.HealthCheck(); err != nil {
-			log.Errorf("database connection error: %v", err)
-			readyMetric.Set(0)
-			w.Header().Set("Content-Type", "application/json")
+		if healthy == 0 {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, err := fmt.Fprintf(w, `{"status":"not ready"}`+"\n")
-			if err != nil {
-				log.Errorf("readiness response write error: %v", err)
-			}
+			fmt.Fprintf(w, `{"status":"unhealthy"}`+"\n")
 			return
 		}
 
-		readyMetric.Set(1)
-
-		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, err := fmt.Fprintf(w, `{"status":"ready"}`+"\n")
-		if err != nil {
-			log.Errorf("readiness response write error: %v", err)
-		}
-	}))
+		fmt.Fprintf(w, `{"status":"ok"}`+"\n")
+	}
+
+	mux.Handle("/health", http.HandlerFunc(healthHandler))
+	mux.Handle("/ready", http.HandlerFunc(healthHandler))
 	mux.Handle("/metrics", promhttp.Handler())
 	if config.Config.PprofEnabled {
 		mux.HandleFunc("/debug/pprof/", pprof.Index)

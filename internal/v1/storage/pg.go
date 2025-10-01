@@ -209,11 +209,13 @@ func (s *PgStorage) HealthCheck() error {
 	log := logrus.WithField("prefix", "Storage.HealthCheck")
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
 	defer cancel()
-	err := s.postgres.Ping(ctx)
-	if err != nil {
+
+	var result int
+	err := s.postgres.QueryRow(ctx, "SELECT 1 FROM bridge.messages LIMIT 1").Scan(&result)
+	if err != nil && err.Error() != "no rows in result set" {
 		log.Errorf("database health check failed: %v", err)
 		return err
 	}
-	log.Info("database is healthy")
+
 	return nil
 }
