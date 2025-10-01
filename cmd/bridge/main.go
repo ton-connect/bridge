@@ -120,7 +120,7 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, err := fmt.Fprintf(w, `{"status":"ready"}`)
+		_, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n")
 		if err != nil {
 			log.Errorf("health response write error: %v", err)
 		}
@@ -134,7 +134,7 @@ func main() {
 			readyMetric.Set(0)
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusServiceUnavailable)
-			_, err := fmt.Fprintf(w, `{"status":"not ready"}`)
+			_, err := fmt.Fprintf(w, `{"status":"not ready"}`+"\n")
 			if err != nil {
 				log.Errorf("readiness response write error: %v", err)
 			}
@@ -145,7 +145,7 @@ func main() {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		_, err := fmt.Fprintf(w, `{"status":"ready"}`)
+		_, err := fmt.Fprintf(w, `{"status":"ready"}`+"\n")
 		if err != nil {
 			log.Errorf("readiness response write error: %v", err)
 		}
