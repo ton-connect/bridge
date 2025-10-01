@@ -90,7 +90,7 @@ func (e *RealIPExtractor) Extract(request *http.Request) string {
 			"old-x-forwarded-for": oldXForwardedFor,
 			"new-x-forwarded-for": newXForwardedFor,
 			"remote-addr":         request.RemoteAddr,
-			"ip":                  ip,
+			"ip":                  rightmostTrusted,
 		}).Debug("ip extracted: trusted")
 		return rightmostTrusted
 	}
