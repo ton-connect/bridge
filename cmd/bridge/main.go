@@ -27,15 +27,14 @@ var (
 	tokenUsageMetric = promauto.NewCounterVec(client_prometheus.CounterOpts{
 		Name: "bridge_token_usage",
 	}, []string{"token"})
-	// TODO ready and health metrics
-	// healthMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
-	// 	Name: "bridge_health_status",
-	// 	Help: "Health status of the bridge (1 = healthy, 0 = unhealthy)",
-	// })
-	// readyMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
-	// 	Name: "bridge_ready_status",
-	// 	Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
-	// })
+	healthMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
+		Name: "bridge_health_status",
+		Help: "Health status of the bridge (1 = healthy, 0 = unhealthy)",
+	})
+	readyMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
+		Name: "bridge_ready_status",
+		Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
+	})
 )
 
 // TODO ready and health metrics
@@ -85,6 +84,26 @@ func main() {
 	if err != nil {
 		log.Fatalf("db connection %v", err)
 	}
+
+	healthMetric.Set(1)
+	if err := dbConn.HealthCheck(); err != nil {
+		readyMetric.Set(0)
+	} else {
+		readyMetric.Set(1)
+	}
+
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			if err := dbConn.HealthCheck(); err != nil {
+				readyMetric.Set(0)
+			} else {
+				readyMetric.Set(1)
+			}
+		}
+	}()
 
 	extractor, err := utils.NewRealIPExtractor(config.Config.TrustedProxyRanges)
 	if err != nil {

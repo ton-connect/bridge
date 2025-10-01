@@ -204,3 +204,16 @@ func (s *PgStorage) GetMessages(ctx context.Context, keys []string, lastEventId 
 	}
 	return messages, nil
 }
+
+func (s *PgStorage) HealthCheck() error {
+	log := logrus.WithField("prefix", "Storage.HealthCheck")
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*5)
+	defer cancel()
+	err := s.postgres.Ping(ctx)
+	if err != nil {
+		log.Errorf("database health check failed: %v", err)
+		return err
+	}
+	log.Info("database is healthy")
+	return nil
+}

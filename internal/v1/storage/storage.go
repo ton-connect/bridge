@@ -17,7 +17,7 @@ var (
 type Storage interface {
 	GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]models.SseMessage, error)
 	Add(ctx context.Context, mes models.SseMessage, ttl int64) error
-	// HealthCheck() error
+	HealthCheck() error
 }
 
 func NewStorage(dbURI string) (Storage, error) {
