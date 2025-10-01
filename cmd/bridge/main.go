@@ -37,11 +37,10 @@ var (
 	})
 )
 
-// TODO ready and health metrics
-// func init() {
-// 	client_prometheus.MustRegister(healthMetric)
-// 	client_prometheus.MustRegister(readyMetric)
-// }
+func init() {
+	client_prometheus.MustRegister(healthMetric)
+	client_prometheus.MustRegister(readyMetric)
+}
 
 func connectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
