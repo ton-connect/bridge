@@ -1,4 +1,4 @@
-package datatype
+package models
 
 type SseMessage struct {
 	EventId int64

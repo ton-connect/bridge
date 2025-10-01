@@ -7,18 +7,18 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tonkeeper/bridge/datatype"
+	"github.com/tonkeeper/bridge/internal/models"
 )
 
 // mockDB implements the db interface for testing
 type mockDB struct{}
 
-func (m *mockDB) GetMessages(ctx context.Context, clientIds []string, lastEventId int64) ([]datatype.SseMessage, error) {
+func (m *mockDB) GetMessages(ctx context.Context, clientIds []string, lastEventId int64) ([]models.SseMessage, error) {
 	// Return empty slice for testing
-	return []datatype.SseMessage{}, nil
+	return []models.SseMessage{}, nil
 }
 
-func (m *mockDB) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error {
+func (m *mockDB) Add(ctx context.Context, mes models.SseMessage, ttl int64) error {
 	// Mock implementation - just return nil
 	return nil
 }

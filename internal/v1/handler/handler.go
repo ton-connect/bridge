@@ -22,9 +22,9 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/config"
-	"github.com/tonkeeper/bridge/datatype"
+	"github.com/tonkeeper/bridge/internal/config"
 	handler_common "github.com/tonkeeper/bridge/internal/handler"
+	"github.com/tonkeeper/bridge/internal/models"
 	"github.com/tonkeeper/bridge/internal/utils"
 	"github.com/tonkeeper/bridge/internal/v1/storage"
 	"github.com/tonkeeper/bridge/tonmetrics"
@@ -198,10 +198,10 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	for msg := range session.MessageCh {
 
 		// Parse the message, add BridgeConnectSource, keep it for later logging
-		var bridgeMsg datatype.BridgeMessage
+		var bridgeMsg models.BridgeMessage
 		messageToSend := msg.Message
 		if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
-			bridgeMsg.BridgeConnectSource = datatype.BridgeConnectSource{
+			bridgeMsg.BridgeConnectSource = models.BridgeConnectSource{
 				IP: connectIP,
 			}
 			if modifiedMessage, err := json.Marshal(bridgeMsg); err == nil {
@@ -362,7 +362,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		userAgent := c.Request().Header.Get("User-Agent")
 
 		encryptedRequestSource, err := utils.EncryptRequestSourceWithWalletID(
-			datatype.BridgeRequestSource{
+			models.BridgeRequestSource{
 				Origin:    origin,
 				IP:        ip,
 				Time:      strconv.FormatInt(time.Now().Unix(), 10),
@@ -378,7 +378,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		requestSource = encryptedRequestSource
 	}
 
-	mes, err := json.Marshal(datatype.BridgeMessage{
+	mes, err := json.Marshal(models.BridgeMessage{
 		From:                clientId[0],
 		Message:             string(message),
 		BridgeRequestSource: requestSource,
@@ -394,7 +394,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		ttl = config.Config.DisconnectEventsTTL
 	}
 
-	sseMessage := datatype.SseMessage{
+	sseMessage := models.SseMessage{
 		EventId: h.nextID(),
 		Message: mes,
 		To:      toId[0],
@@ -418,7 +418,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}
 	}()
 
-	var bridgeMsg datatype.BridgeMessage
+	var bridgeMsg models.BridgeMessage
 	fromId := "unknown"
 
 	hash := sha256.Sum256(sseMessage.Message)

@@ -9,7 +9,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/tonkeeper/bridge/config"
+	"github.com/tonkeeper/bridge/internal/config"
 )
 
 func TestSendWebhook(t *testing.T) {

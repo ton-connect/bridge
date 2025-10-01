@@ -4,8 +4,8 @@ import (
 	"context"
 	"time"
 
-	"github.com/tonkeeper/bridge/config"
-	"github.com/tonkeeper/bridge/datatype"
+	"github.com/tonkeeper/bridge/internal/config"
+	"github.com/tonkeeper/bridge/internal/models"
 	common_storage "github.com/tonkeeper/bridge/internal/storage"
 )
 
@@ -15,8 +15,8 @@ var (
 )
 
 type Storage interface {
-	GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error)
-	Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error
+	GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]models.SseMessage, error)
+	Add(ctx context.Context, mes models.SseMessage, ttl int64) error
 	// HealthCheck() error
 }
 

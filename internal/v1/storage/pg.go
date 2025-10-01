@@ -16,7 +16,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/datatype"
+	"github.com/tonkeeper/bridge/internal/models"
 )
 
 var (
@@ -131,7 +131,7 @@ func (s *PgStorage) worker() {
 					hash := sha256.Sum256(bridgeMessageBytes)
 					messageHash := hex.EncodeToString(hash[:])
 
-					var bridgeMsg datatype.BridgeMessage
+					var bridgeMsg models.BridgeMessage
 					if err := json.Unmarshal(bridgeMessageBytes, &bridgeMsg); err == nil {
 						fromID = bridgeMsg.From
 						traceID = bridgeMsg.TraceId
@@ -164,7 +164,7 @@ func (s *PgStorage) worker() {
 	}
 }
 
-func (s *PgStorage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64) error {
+func (s *PgStorage) Add(ctx context.Context, mes models.SseMessage, ttl int64) error {
 	_, err := s.postgres.Exec(ctx, `
 		INSERT INTO bridge.messages
 		(
@@ -181,9 +181,9 @@ func (s *PgStorage) Add(ctx context.Context, mes datatype.SseMessage, ttl int64)
 	return nil
 }
 
-func (s *PgStorage) GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]datatype.SseMessage, error) { // interface{}
+func (s *PgStorage) GetMessages(ctx context.Context, keys []string, lastEventId int64) ([]models.SseMessage, error) { // interface{}
 	log := logrus.WithField("prefix", "Storage.GetQueue")
-	var messages []datatype.SseMessage
+	var messages []models.SseMessage
 	rows, err := s.postgres.Query(ctx, `SELECT event_id, bridge_message
 	FROM bridge.messages
 	WHERE current_timestamp < end_time 
@@ -194,7 +194,7 @@ func (s *PgStorage) GetMessages(ctx context.Context, keys []string, lastEventId 
 		return nil, err
 	}
 	for rows.Next() {
-		var mes datatype.SseMessage
+		var mes models.SseMessage
 		err = rows.Scan(&mes.EventId, &mes.Message)
 		if err != nil {
 			log.Info(err)

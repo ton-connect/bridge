@@ -6,14 +6,14 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/datatype"
+	"github.com/tonkeeper/bridge/internal/models"
 	"github.com/tonkeeper/bridge/internal/v1/storage"
 )
 
 type Session struct {
 	mux         sync.RWMutex
 	ClientIds   []string
-	MessageCh   chan datatype.SseMessage
+	MessageCh   chan models.SseMessage
 	storage     storage.Storage
 	Closer      chan interface{}
 	lastEventId int64
@@ -24,7 +24,7 @@ func NewSession(s storage.Storage, clientIds []string, lastEventId int64) *Sessi
 		mux:         sync.RWMutex{},
 		ClientIds:   clientIds,
 		storage:     s,
-		MessageCh:   make(chan datatype.SseMessage, 10),
+		MessageCh:   make(chan models.SseMessage, 10),
 		Closer:      make(chan interface{}),
 		lastEventId: lastEventId,
 	}
@@ -61,7 +61,7 @@ func (s *Session) runHeartbeat(wg *sync.WaitGroup, log *logrus.Entry, heartbeatM
 			case <-s.Closer:
 				return
 			case <-ticker.C:
-				s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)}
+				s.MessageCh <- models.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)}
 			}
 		}
 	}()
@@ -86,11 +86,11 @@ func (s *Session) retrieveHistoricMessages(wg *sync.WaitGroup, log *logrus.Entry
 	}
 
 	if doneEvent {
-		s.MessageCh <- datatype.SseMessage{EventId: -1, Message: []byte("event: message\r\ndata: queue_done\r\n\r\n")}
+		s.MessageCh <- models.SseMessage{EventId: -1, Message: []byte("event: message\r\ndata: queue_done\r\n\r\n")}
 	}
 }
 
-func (s *Session) AddMessageToQueue(ctx context.Context, mes datatype.SseMessage) {
+func (s *Session) AddMessageToQueue(ctx context.Context, mes models.SseMessage) {
 	select {
 	case <-s.Closer:
 	default:
