@@ -22,9 +22,6 @@ jobs:
   integration:
     name: integration-${{ matrix.storage }}
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      pull-requests: write
     strategy:
       matrix:
         storage: [memory, postgres]
