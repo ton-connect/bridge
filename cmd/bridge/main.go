@@ -121,12 +121,18 @@ func main() {
 
 		if healthy == 0 {
 			w.WriteHeader(http.StatusServiceUnavailable)
-			fmt.Fprintf(w, `{"status":"unhealthy"}`+"\n")
+			_, err := fmt.Fprintf(w, `{"status":"unhealthy"}`+"\n")
+			if err != nil {
+				log.Errorf("health response write error: %v", err)
+			}
 			return
 		}
 
 		w.WriteHeader(http.StatusOK)
-		fmt.Fprintf(w, `{"status":"ok"}`+"\n")
+		_, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n")
+		if err != nil {
+			log.Errorf("health response write error: %v", err)
+		}
 	}
 
 	mux.Handle("/health", http.HandlerFunc(healthHandler))
