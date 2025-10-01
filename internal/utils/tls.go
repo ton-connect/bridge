@@ -14,7 +14,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/tonkeeper/bridge/datatype"
+	"github.com/tonkeeper/bridge/internal/models"
 	"golang.org/x/crypto/nacl/box"
 )
 
@@ -60,7 +60,7 @@ func GenerateSelfSignedCertificate() ([]byte, []byte, error) {
 }
 
 // EncryptRequestSourceWithWalletID encrypts the request source metadata using the wallet's Curve25519 public key
-func EncryptRequestSourceWithWalletID(requestSource datatype.BridgeRequestSource, walletID string) (string, error) {
+func EncryptRequestSourceWithWalletID(requestSource models.BridgeRequestSource, walletID string) (string, error) {
 	data, err := json.Marshal(requestSource)
 	if err != nil {
 		return "", fmt.Errorf("failed to marshal request source: %w", err)
