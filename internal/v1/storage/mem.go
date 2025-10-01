@@ -112,3 +112,7 @@ func (s *MemStorage) Add(ctx context.Context, mes models.SseMessage, ttl int64) 
 	s.db[mes.To] = append(s.db[mes.To], message{SseMessage: mes, expireAt: time.Now().Add(time.Duration(ttl) * time.Second)})
 	return nil
 }
+
+func (s *MemStorage) HealthCheck() error {
+	return nil // Always healthy
+}

@@ -23,6 +23,10 @@ func (m *mockDB) Add(ctx context.Context, mes models.SseMessage, ttl int64) erro
 	return nil
 }
 
+func (m *mockDB) HealthCheck() error {
+	return nil // Always healthy
+}
+
 // TestMultipleRuns runs the panic test multiple times to increase chances of hitting the race condition
 func TestMultipleRuns(t *testing.T) {
 	runs := 10 // Reduced runs for faster testing

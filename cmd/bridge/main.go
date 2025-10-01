@@ -27,22 +27,23 @@ var (
 	tokenUsageMetric = promauto.NewCounterVec(client_prometheus.CounterOpts{
 		Name: "bridge_token_usage",
 	}, []string{"token"})
-	// TODO ready and health metrics
-	// healthMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
-	// 	Name: "bridge_health_status",
-	// 	Help: "Health status of the bridge (1 = healthy, 0 = unhealthy)",
-	// })
-	// readyMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
-	// 	Name: "bridge_ready_status",
-	// 	Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
-	// })
+	healthMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
+		Name: "bridge_health_status",
+		Help: "Health status of the bridge (1 = healthy, 0 = unhealthy)",
+	})
+	readyMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
+		Name: "bridge_ready_status",
+		Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
+	})
+
+	// Shared health status updated by background goroutine
+	healthy = 0
 )
 
-// TODO ready and health metrics
-// func init() {
-// 	client_prometheus.MustRegister(healthMetric)
-// 	client_prometheus.MustRegister(readyMetric)
-// }
+func init() {
+	client_prometheus.MustRegister(healthMetric)
+	client_prometheus.MustRegister(readyMetric)
+}
 
 func connectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
 	return func(next echo.HandlerFunc) echo.HandlerFunc {
@@ -77,6 +78,17 @@ func skipRateLimitsByToken(request *http.Request) bool {
 	return false
 }
 
+func updateHealthStatus(dbConn storage.Storage) {
+	if err := dbConn.HealthCheck(); err != nil {
+		healthy = 0
+	} else {
+		healthy = 1
+	}
+
+	healthMetric.Set(float64(healthy))
+	readyMetric.Set(float64(healthy))
+}
+
 func main() {
 	log.Info("Bridge is running")
 	config.LoadConfig()
@@ -86,6 +98,16 @@ func main() {
 		log.Fatalf("db connection %v", err)
 	}
 
+	updateHealthStatus(dbConn)
+	go func() {
+		ticker := time.NewTicker(5 * time.Second)
+		defer ticker.Stop()
+
+		for range ticker.C {
+			updateHealthStatus(dbConn)
+		}
+	}()
+
 	extractor, err := utils.NewRealIPExtractor(config.Config.TrustedProxyRanges)
 	if err != nil {
 		log.Warnf("failed to create realIPExtractor: %v, using defaults", err)
@@ -93,6 +115,28 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+
+	healthHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		if healthy == 0 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, err := fmt.Fprintf(w, `{"status":"unhealthy"}`+"\n")
+			if err != nil {
+				log.Errorf("health response write error: %v", err)
+			}
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n")
+		if err != nil {
+			log.Errorf("health response write error: %v", err)
+		}
+	}
+
+	mux.Handle("/health", http.HandlerFunc(healthHandler))
+	mux.Handle("/ready", http.HandlerFunc(healthHandler))
 	mux.Handle("/metrics", promhttp.Handler())
 	if config.Config.PprofEnabled {
 		mux.HandleFunc("/debug/pprof/", pprof.Index)
