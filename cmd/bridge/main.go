@@ -112,6 +112,44 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
+	mux.Handle("/health", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log := log.WithField("prefix", "HealthHandler")
+		log.Debug("health check request received")
+
+		healthMetric.Set(1)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, err := fmt.Fprintf(w, `{"status":"ready"}`)
+		if err != nil {
+			log.Errorf("health response write error: %v", err)
+		}
+	}))
+	mux.Handle("/ready", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		log := log.WithField("prefix", "ReadyHandler")
+		log.Debug("readiness check request received")
+
+		if err := dbConn.HealthCheck(); err != nil {
+			log.Errorf("database connection error: %v", err)
+			readyMetric.Set(0)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusServiceUnavailable)
+			_, err := fmt.Fprintf(w, `{"status":"not ready"}`)
+			if err != nil {
+				log.Errorf("readiness response write error: %v", err)
+			}
+			return
+		}
+
+		readyMetric.Set(1)
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, err := fmt.Fprintf(w, `{"status":"ready"}`)
+		if err != nil {
+			log.Errorf("readiness response write error: %v", err)
+		}
+	}))
 	mux.Handle("/metrics", promhttp.Handler())
 	if config.Config.PprofEnabled {
 		mux.HandleFunc("/debug/pprof/", pprof.Index)
