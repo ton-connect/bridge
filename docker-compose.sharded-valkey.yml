@@ -65,6 +65,14 @@ services:
     command: >
       sh -c "
         sleep 10 &&
+        echo 'Resetting cluster state on all nodes...' &&
+        valkey-cli -h 172.20.0.20 -p 6379 FLUSHALL &&
+        valkey-cli -h 172.20.0.21 -p 6380 FLUSHALL &&
+        valkey-cli -h 172.20.0.22 -p 6381 FLUSHALL &&
+        valkey-cli -h 172.20.0.20 -p 6379 CLUSTER RESET HARD &&
+        valkey-cli -h 172.20.0.21 -p 6380 CLUSTER RESET HARD &&
+        valkey-cli -h 172.20.0.22 -p 6381 CLUSTER RESET HARD &&
+        echo 'Creating new cluster...' &&
         valkey-cli --cluster create 172.20.0.20:6379 172.20.0.21:6380 172.20.0.22:6381 --cluster-replicas 0 --cluster-yes &&
         echo 'Cluster created successfully' &&
         valkey-cli -c -h 172.20.0.20 -p 6379 cluster nodes &&
