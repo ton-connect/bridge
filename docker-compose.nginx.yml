@@ -125,7 +125,7 @@ services:
       dockerfile: Dockerfile.gointegration
     container_name: bridge-gointegration
     environment:
-      BRIDGE_URL: "http://bridge:8081/bridge"
+      BRIDGE_URL: "http://nginx:80/bridge"
     depends_on:
       bridge:
         condition: service_started
