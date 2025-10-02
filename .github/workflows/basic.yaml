@@ -15,5 +15,8 @@ jobs:
      - name: Check out code
        uses: actions/checkout@v5
 
-     - name: test build
+     - name: test buildV1
        run: make build
+
+     - name: test buildV3
+       run: make build3

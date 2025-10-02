@@ -3,9 +3,14 @@ package main
 import (
 	"fmt"
 	"net/http"
-	"net/http/pprof"
+	_ "net/http/pprof"
 	"strings"
 	"time"
+
+	"github.com/tonkeeper/bridge/internal/config"
+	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
+	handlerv3 "github.com/tonkeeper/bridge/internal/v3/handler"
+	storagev3 "github.com/tonkeeper/bridge/internal/v3/storage"
 
 	"github.com/labstack/echo-contrib/prometheus"
 	"github.com/labstack/echo/v4"
@@ -14,11 +19,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/internal/config"
-	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
 	"github.com/tonkeeper/bridge/internal/utils"
-	handlerv1 "github.com/tonkeeper/bridge/internal/v1/handler"
-	"github.com/tonkeeper/bridge/internal/v1/storage"
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 )
@@ -27,6 +28,7 @@ var (
 	tokenUsageMetric = promauto.NewCounterVec(client_prometheus.CounterOpts{
 		Name: "bridge_token_usage",
 	}, []string{"token"})
+
 	healthMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
 		Name: "bridge_health_status",
 		Help: "Health status of the bridge (1 = healthy, 0 = unhealthy)",
@@ -35,30 +37,11 @@ var (
 		Name: "bridge_ready_status",
 		Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
 	})
-
-	// Shared health status updated by background goroutine
-	healthy = 0
 )
 
 func init() {
 	client_prometheus.MustRegister(healthMetric)
 	client_prometheus.MustRegister(readyMetric)
-}
-
-func connectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			if skipper(c) {
-				return next(c)
-			}
-			release, err := counter.LeaseConnection(c.Request())
-			if err != nil {
-				return c.JSON(utils.HttpResError(err.Error(), http.StatusTooManyRequests))
-			}
-			defer release()
-			return next(c)
-		}
-	}
 }
 
 func skipRateLimitsByToken(request *http.Request) bool {
@@ -78,33 +61,74 @@ func skipRateLimitsByToken(request *http.Request) bool {
 	return false
 }
 
-func updateHealthStatus(dbConn storage.Storage) {
-	if err := dbConn.HealthCheck(); err != nil {
-		healthy = 0
-	} else {
-		healthy = 1
+func connectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if skipper(c) {
+				return next(c)
+			}
+			release, err := counter.LeaseConnection(c.Request())
+			if err != nil {
+				return c.JSON(utils.HttpResError(err.Error(), http.StatusTooManyRequests))
+			}
+			defer release()
+			return next(c)
+		}
 	}
-
-	healthMetric.Set(float64(healthy))
-	readyMetric.Set(float64(healthy))
 }
 
 func main() {
 	log.Info("Bridge is running")
 	config.LoadConfig()
 
-	dbConn, err := storage.NewStorage(config.Config.PostgresURI)
-	if err != nil {
-		log.Fatalf("db connection %v", err)
+	dbURI := ""
+	store := "memory"
+	if config.Config.Storage != "" {
+		store = config.Config.Storage
 	}
 
-	updateHealthStatus(dbConn)
+	switch store {
+	case "postgres":
+		log.Info("Using PostgreSQL storage")
+		dbURI = config.Config.PostgresURI
+	case "valkey":
+		log.Info("Using Valkey storage")
+		dbURI = config.Config.ValkeyURI
+	default:
+		log.Info("Using in-memory storage as default")
+		// No URI needed for memory storage
+	}
+
+	dbConn, err := storagev3.NewStorage(store, dbURI)
+
+	if err != nil {
+		log.Fatalf("failed to create storage: %v", err)
+	}
+	if _, ok := dbConn.(*storagev3.MemStorage); ok {
+		log.Info("Using in-memory storage")
+	} else if _, ok := dbConn.(*storagev3.ValkeyStorage); ok {
+		log.Info("Using Valkey/Redis storage")
+	} else {
+		log.Info("Using PostgreSQL storage")
+	}
+
+	healthMetric.Set(1)
+	if err := dbConn.HealthCheck(); err != nil {
+		readyMetric.Set(0)
+	} else {
+		readyMetric.Set(1)
+	}
+
 	go func() {
-		ticker := time.NewTicker(5 * time.Second)
+		ticker := time.NewTicker(30 * time.Second)
 		defer ticker.Stop()
 
 		for range ticker.C {
-			updateHealthStatus(dbConn)
+			if err := dbConn.HealthCheck(); err != nil {
+				readyMetric.Set(0)
+			} else {
+				readyMetric.Set(1)
+			}
 		}
 	}()
 
@@ -113,37 +137,6 @@ func main() {
 		log.Warnf("failed to create realIPExtractor: %v, using defaults", err)
 		extractor, _ = utils.NewRealIPExtractor([]string{})
 	}
-
-	mux := http.NewServeMux()
-
-	healthHandler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		if healthy == 0 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, err := fmt.Fprintf(w, `{"status":"unhealthy"}`+"\n")
-			if err != nil {
-				log.Errorf("health response write error: %v", err)
-			}
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		_, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n")
-		if err != nil {
-			log.Errorf("health response write error: %v", err)
-		}
-	}
-
-	mux.Handle("/health", http.HandlerFunc(healthHandler))
-	mux.Handle("/ready", http.HandlerFunc(healthHandler))
-	mux.Handle("/metrics", promhttp.Handler())
-	if config.Config.PprofEnabled {
-		mux.HandleFunc("/debug/pprof/", pprof.Index)
-	}
-	go func() {
-		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Config.MetricsPort), mux))
-	}()
 
 	e := echo.New()
 	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
@@ -179,17 +172,58 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := handlerv1.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor)
+	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second)
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)
-	e.POST("/bridge/verify", h.ConnectVerifyHandler)
+
+	// Health and ready endpoints
+	e.GET("/health", func(c echo.Context) error {
+		log := log.WithField("prefix", "HealthHandler")
+		log.Debug("health check request received")
+
+		healthMetric.Set(1)
+
+		response := map[string]string{
+			"status": "ok",
+		}
+		log.Debug("health check response sent")
+		return c.JSON(http.StatusOK, response)
+	})
+
+	e.GET("/ready", func(c echo.Context) error {
+		log := log.WithField("prefix", "ReadyHandler")
+		log.Debug("readiness check request received")
+
+		if err := dbConn.HealthCheck(); err != nil {
+			log.Errorf("database connection error: %v", err)
+			readyMetric.Set(0)
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"status": "Database not ready",
+			})
+		}
+
+		readyMetric.Set(1)
+
+		response := map[string]string{
+			"status": "ready",
+		}
+		log.Debug("readiness check response sent")
+		return c.JSON(http.StatusOK, response)
+	})
+
+	// Metrics endpoint
+	e.GET("/metrics", echo.WrapHandler(promhttp.Handler()))
 
 	var existedPaths []string
 	for _, r := range e.Routes() {
 		existedPaths = append(existedPaths, r.Path)
 	}
 	p := prometheus.NewPrometheus("http", func(c echo.Context) bool {
+		// Skip metrics collection for health/ready/metrics endpoints and non-existent paths
+		if c.Path() == "/health" || c.Path() == "/ready" || c.Path() == "/metrics" {
+			return true
+		}
 		return !slices.Contains(existedPaths, c.Path())
 	})
 	e.Use(p.HandlerFunc)
