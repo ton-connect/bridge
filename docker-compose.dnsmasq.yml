@@ -1,0 +1,138 @@
+services:
+  dnsmasq:
+    image: jpillora/dnsmasq
+    ports:
+      - "5353:53/udp"
+      - "5353:53/tcp"
+      - "8080:8080"
+    volumes:
+      - ./dnsmasq.conf:/etc/dnsmasq.conf
+    cap_add:
+      - NET_ADMIN
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.10
+    restart: unless-stopped
+
+  valkey:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.20
+    dns:
+      - 172.20.0.10  # dnsmasq IP
+    restart: unless-stopped
+
+  bridge1:
+    build:
+      context: .
+      dockerfile: Dockerfile.bridge3
+    container_name: bridge-instance1
+    environment:
+      PORT: 8080
+      STORAGE: "valkey"
+      VALKEY_URI: "redis://valkey:6379"
+      CORS_ENABLE: "true"
+      HEARTBEAT_INTERVAL: 10
+      RPS_LIMIT: 1000
+      CONNECTIONS_LIMIT: 200
+    depends_on:
+      valkey:
+        condition: service_healthy
+      dnsmasq:
+        condition: service_started
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.30
+    dns:
+      - 172.20.0.10  # dnsmasq IP
+    restart: unless-stopped
+
+  bridge2:
+    build: .
+    container_name: bridge-instance2
+    environment:
+      PORT: 8080
+      STORAGE: "valkey"
+      VALKEY_URI: "redis://valkey:6379"
+      CORS_ENABLE: "true"
+      HEARTBEAT_INTERVAL: 10
+      RPS_LIMIT: 1000
+      CONNECTIONS_LIMIT: 200
+    depends_on:
+      valkey:
+        condition: service_healthy
+      dnsmasq:
+        condition: service_started
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.31
+    dns:
+      - 172.20.0.10  # dnsmasq IP
+    restart: unless-stopped
+
+  bridge3:
+    build: .
+    container_name: bridge-instance3
+    environment:
+      PORT: 8080
+      STORAGE: "valkey"
+      VALKEY_URI: "redis://valkey:6379"
+      CORS_ENABLE: "true"
+      HEARTBEAT_INTERVAL: 10
+      RPS_LIMIT: 1000
+      CONNECTIONS_LIMIT: 200
+    depends_on:
+      valkey:
+        condition: service_healthy
+      dnsmasq:
+        condition: service_started
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.32
+    dns:
+      - 172.20.0.10  # dnsmasq IP
+    restart: unless-stopped
+
+  integration:
+    build:
+      context: .
+      dockerfile: Dockerfile.integration
+    container_name: bridge-integration
+    environment:
+      BRIDGE_URL: "http://bridge-magic.local:8080/bridge"
+    depends_on:
+      bridge1:
+        condition: service_started
+      bridge2:
+        condition: service_started
+      bridge3:
+        condition: service_started
+      dnsmasq:
+        condition: service_started
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.40  # Add this line!
+    dns:
+      - 172.20.0.10  # dnsmasq IP
+    command: ["/bin/bash", "-c", "make test-bridge-sdk"]
+    # command: ["/bin/bash", "-c", "tail -f /dev/null"]
+
+volumes:
+  valkey_data:
+
+networks:
+  bridge_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
