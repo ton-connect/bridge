@@ -61,7 +61,8 @@ jobs:
         ./scripts/pr-metrics.sh "${{ matrix.storage }}" > metrics.md
 
     - name: Comment PR
-      if: github.event_name == 'pull_request'  
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
       uses: mshick/add-pr-comment@v2
       with:
         message-path: metrics.md
