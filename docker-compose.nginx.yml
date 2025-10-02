@@ -87,10 +87,8 @@ services:
         condition: service_started
     command: ["echo", "All bridge instances are ready"]
     networks:
-      bridge_network:
-        ipv4_address: 172.20.0.20
-    dns:
-      - 172.20.0.10  # dnsmasq IP
+      - bridge_network
+    restart: unless-stopped
 
   nginx:
     image: nginx:alpine
