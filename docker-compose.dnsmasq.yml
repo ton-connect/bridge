@@ -38,7 +38,7 @@ services:
       dockerfile: Dockerfile.bridge3
     container_name: bridge-instance1
     environment:
-      PORT: 8080
+      PORT: 8081
       STORAGE: "valkey"
       VALKEY_URI: "redis://valkey:6379"
       CORS_ENABLE: "true"
@@ -61,7 +61,7 @@ services:
     build: .
     container_name: bridge-instance2
     environment:
-      PORT: 8080
+      PORT: 8081
       STORAGE: "valkey"
       VALKEY_URI: "redis://valkey:6379"
       CORS_ENABLE: "true"
@@ -84,7 +84,7 @@ services:
     build: .
     container_name: bridge-instance3
     environment:
-      PORT: 8080
+      PORT: 8081
       STORAGE: "valkey"
       VALKEY_URI: "redis://valkey:6379"
       CORS_ENABLE: "true"
@@ -127,7 +127,7 @@ services:
       dockerfile: Dockerfile.integration
     container_name: bridge-integration
     environment:
-      BRIDGE_URL: "http://bridge-magic.local:8080/bridge"
+      BRIDGE_URL: "http://bridge-magic.local:8081/bridge"
     depends_on:
       bridge:
         condition: service_started
