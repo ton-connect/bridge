@@ -108,6 +108,21 @@ services:
     command: ["/bin/bash", "-c", "make test-bridge-sdk"]
     # command: ["/bin/bash", "-c", "tail -f /dev/null"]
 
+  gointegration:
+    build:
+      context: .
+      dockerfile: Dockerfile.gointegration
+    container_name: bridge-gointegration
+    environment:
+      BRIDGE_URL: "http://bridge:8081/bridge"
+    depends_on:
+      bridge:
+        condition: service_started
+    networks:
+      - bridge_network
+    command: ["/bin/bash", "-c", "make test-gointegration"]
+    # command: ["/bin/bash", "-c", "tail -f /dev/null"]
+
 volumes:
   valkey_data:
 

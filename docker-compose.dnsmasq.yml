@@ -103,6 +103,24 @@ services:
       - 172.20.0.10  # dnsmasq IP
     restart: unless-stopped
 
+  # Dummy service that waits for all bridge instances
+  bridge:
+    image: alpine:latest
+    container_name: bridge
+    depends_on:
+      bridge1:
+        condition: service_started
+      bridge2:
+        condition: service_started
+      bridge3:
+        condition: service_started
+    command: ["echo", "All bridge instances are ready"]
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.20
+    dns:
+      - 172.20.0.10  # dnsmasq IP
+
   integration:
     build:
       context: .
@@ -111,11 +129,7 @@ services:
     environment:
       BRIDGE_URL: "http://bridge-magic.local:8080/bridge"
     depends_on:
-      bridge1:
-        condition: service_started
-      bridge2:
-        condition: service_started
-      bridge3:
+      bridge:
         condition: service_started
       dnsmasq:
         condition: service_started
@@ -125,6 +139,21 @@ services:
     dns:
       - 172.20.0.10  # dnsmasq IP
     command: ["/bin/bash", "-c", "make test-bridge-sdk"]
+    # command: ["/bin/bash", "-c", "tail -f /dev/null"]
+
+  gointegration:
+    build:
+      context: .
+      dockerfile: Dockerfile.gointegration
+    container_name: bridge-gointegration
+    environment:
+      BRIDGE_URL: "http://bridge:8081/bridge"
+    depends_on:
+      bridge:
+        condition: service_started
+    networks:
+      - bridge_network
+    command: ["/bin/bash", "-c", "make test-gointegration"]
     # command: ["/bin/bash", "-c", "tail -f /dev/null"]
 
 volumes:
