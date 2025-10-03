@@ -14,6 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
+	pkg "github.com/tonkeeper/bridge/internal"
 	"github.com/tonkeeper/bridge/internal/config"
 	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
 	"github.com/tonkeeper/bridge/internal/utils"
@@ -35,6 +36,10 @@ var (
 		Name: "bridge_ready_status",
 		Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
 	})
+	versionMetric = client_prometheus.NewGaugeVec(client_prometheus.GaugeOpts{
+		Name: "bridge_version_info",
+		Help: "Version information of the bridge",
+	}, []string{"version", "git_commit", "build_time"})
 
 	// Shared health status updated by background goroutine
 	healthy = 0
@@ -43,6 +48,8 @@ var (
 func init() {
 	client_prometheus.MustRegister(healthMetric)
 	client_prometheus.MustRegister(readyMetric)
+	client_prometheus.MustRegister(versionMetric)
+	versionMetric.WithLabelValues(pkg.BridgeVersionRevision).Set(1)
 }
 
 func connectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
@@ -90,7 +97,9 @@ func updateHealthStatus(dbConn storage.Storage) {
 }
 
 func main() {
-	log.Info("Bridge is running")
+	log.WithFields(log.Fields{
+		"version": pkg.BridgeVersionRevision,
+	}).Info("Bridge is running")
 	config.LoadConfig()
 
 	dbConn, err := storage.NewStorage(config.Config.PostgresURI)
@@ -135,8 +144,20 @@ func main() {
 		}
 	}
 
+	versionHandler := func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+
+		w.WriteHeader(http.StatusOK)
+		response := fmt.Sprintf(`{"version":"%s"}`, pkg.BridgeVersionRevision)
+		_, err := fmt.Fprintf(w, "%s", response+"\n")
+		if err != nil {
+			log.Errorf("version response write error: %v", err)
+		}
+	}
+
 	mux.Handle("/health", http.HandlerFunc(healthHandler))
 	mux.Handle("/ready", http.HandlerFunc(healthHandler))
+	mux.Handle("/version", http.HandlerFunc(versionHandler))
 	mux.Handle("/metrics", promhttp.Handler())
 	if config.Config.PprofEnabled {
 		mux.HandleFunc("/debug/pprof/", pprof.Index)
