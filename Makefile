@@ -17,6 +17,9 @@ all: imports fmt test
 build:
 	go build -mod=mod -o bridge ./cmd/bridge
 
+build3:
+	go build -mod=mod -o bridge3 ./cmd/bridge3
+
 fmt:
 	gofmt -w $(GOFMT_FILES)
 

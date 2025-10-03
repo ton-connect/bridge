@@ -28,8 +28,10 @@ jobs:
         with:
           languages: go
           build-mode: manual
-      - name: Build
+      - name: BuildV1
         run: make build
+      - name: BuildV3
+        run: make build3
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@v3
         with:
