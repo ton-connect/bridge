@@ -7,6 +7,8 @@ import (
 	"strings"
 	"time"
 
+	"runtime/debug"
+
 	"github.com/labstack/echo-contrib/prometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
@@ -22,6 +24,8 @@ import (
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 )
+
+var GitCommit string // This variable will hold the commit hash
 
 var (
 	tokenUsageMetric = promauto.NewCounterVec(client_prometheus.CounterOpts{
@@ -39,6 +43,22 @@ var (
 	// Shared health status updated by background goroutine
 	healthy = 0
 )
+
+var Commit = func() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		for _, setting := range info.Settings {
+			if setting.Key == "vcs.revision" {
+				return setting.Value
+			}
+		}
+	}
+
+	if GitCommit != "" {
+		return GitCommit
+	}
+
+	return ""
+}()
 
 func init() {
 	client_prometheus.MustRegister(healthMetric)
@@ -118,6 +138,7 @@ func main() {
 
 	healthHandler := func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("X-Build-Commit", Commit)
 
 		if healthy == 0 {
 			w.WriteHeader(http.StatusServiceUnavailable)
