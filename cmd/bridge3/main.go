@@ -14,7 +14,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
-	pkg "github.com/tonkeeper/bridge/internal"
+	"github.com/tonkeeper/bridge/internal"
 	"github.com/tonkeeper/bridge/internal/config"
 	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
 	"github.com/tonkeeper/bridge/internal/utils"
@@ -50,7 +50,7 @@ func init() {
 	client_prometheus.MustRegister(healthMetric)
 	client_prometheus.MustRegister(readyMetric)
 	client_prometheus.MustRegister(versionMetric)
-	versionMetric.WithLabelValues(pkg.BridgeVersionRevision).Set(1)
+	versionMetric.WithLabelValues(internal.BridgeVersionRevision).Set(1)
 }
 
 func skipRateLimitsByToken(request *http.Request) bool {
@@ -98,7 +98,7 @@ func updateHealthStatus(dbConn storagev3.Storage) {
 }
 
 func main() {
-	log.Info(fmt.Sprintf("Bridge %s is running", pkg.BridgeVersionRevision))
+	log.Info(fmt.Sprintf("Bridge3 %s is running", internal.BridgeVersionRevision))
 	config.LoadConfig()
 
 	dbURI := ""
@@ -172,7 +172,7 @@ func main() {
 		w.Header().Set("Content-Type", "application/json")
 
 		w.WriteHeader(http.StatusOK)
-		response := fmt.Sprintf(`{"version":"%s"}`, pkg.BridgeVersionRevision)
+		response := fmt.Sprintf(`{"version":"%s"}`, internal.BridgeVersionRevision)
 		_, err := fmt.Fprintf(w, "%s", response+"\n")
 		if err != nil {
 			log.Errorf("version response write error: %v", err)
