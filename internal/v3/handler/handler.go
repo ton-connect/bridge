@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -21,12 +22,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-
 	"github.com/tonkeeper/bridge/internal/config"
 	handler_common "github.com/tonkeeper/bridge/internal/handler"
 	"github.com/tonkeeper/bridge/internal/models"
 	"github.com/tonkeeper/bridge/internal/utils"
-	storagev3 "github.com/tonkeeper/bridge/internal/v3/storage"
+	"github.com/tonkeeper/bridge/internal/v3/storage"
 )
 
 var validHeartbeatTypes = map[string]string{
@@ -46,6 +46,10 @@ var (
 	transferedMessagesNumMetric = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "number_of_transfered_messages",
 		Help: "The total number of transfered_messages",
+	})
+	uniqueTransferedMessagesNumMetric = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "number_of_unique_transfered_messages",
+		Help: "The total number of unique transfered_messages",
 	})
 	deliveredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "number_of_delivered_messages",
@@ -258,6 +262,14 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
+
+	data := append(message, []byte(clientId[0])...)
+	sum := sha256.Sum256(data)
+	messageId := int64(binary.BigEndian.Uint64(sum[:8]))
+	if ok := storagev3.TransferedCache.MarkIfNotExists(messageId); ok {
+		uniqueTransferedMessagesNumMetric.Inc()
+	}
+
 	if config.Config.CopyToURL != "" {
 		go func() {
 			u, err := url.Parse(config.Config.CopyToURL)

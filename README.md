@@ -34,8 +34,7 @@ make build
 - SELF_SIGNED_TLS ##example"false"
 - TRUSTED_PROXY_RANGES ##example"10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" (comma-separated list of IP ranges to trust for X-Forwarded-For header)
 - PPROF_ENABLED ##examle"true"
-- ENABLE_TRANSFERED_CACHE ##examle"true"
-- ENABLE_EXPIRED_CACHE ##examle"true"
+- LOG_MESSAGES_LIFECYCLE ##examle"false"
 
 ## how to profile
 
