@@ -98,6 +98,7 @@ func updateHealthStatus(dbConn storage.Storage) {
 
 func main() {
 	log.Info(fmt.Sprintf("Bridge %s is running", internal.BridgeVersionRevision))
+	config.LoadConfig()
 
 	dbConn, err := storage.NewStorage(config.Config.PostgresURI)
 	if err != nil {
