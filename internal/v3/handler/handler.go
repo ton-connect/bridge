@@ -71,14 +71,17 @@ type handler struct {
 	storage           storagev3.Storage
 	eventIDGen        *EventIDGenerator
 	heartbeatInterval time.Duration
+	realIP            *utils.RealIPExtractor
 }
 
-func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration) *handler {
+func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor) *handler {
+	// TODO support extractor in v3
 	h := handler{
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
 		storage:           s,
 		eventIDGen:        NewEventIDGenerator(),
+		realIP:            extractor,
 		heartbeatInterval: heartbeatInterval,
 	}
 	return &h
@@ -350,8 +353,11 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, utils.HttpResOk())
-
 }
+
+// func (h *handler) ConnectVerifyHandler(c echo.Context) error {
+// 	return c.JSON(utils.HttpResError("not implemented", http.StatusInternalServerError))
+// }
 
 func (h *handler) removeConnection(ses *Session) {
 	log := logrus.WithField("prefix", "removeConnection")
