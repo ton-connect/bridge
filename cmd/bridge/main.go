@@ -39,7 +39,7 @@ var (
 	versionMetric = client_prometheus.NewGaugeVec(client_prometheus.GaugeOpts{
 		Name: "bridge_version_info",
 		Help: "Version information of the bridge",
-	}, []string{"version", "git_commit", "build_time"})
+	}, []string{"version"})
 
 	// Shared health status updated by background goroutine
 	healthy = 0
@@ -97,10 +97,7 @@ func updateHealthStatus(dbConn storage.Storage) {
 }
 
 func main() {
-	log.WithFields(log.Fields{
-		"version": pkg.BridgeVersionRevision,
-	}).Info("Bridge is running")
-	config.LoadConfig()
+	log.Info(fmt.Sprintf("Bridge %s is running", pkg.BridgeVersionRevision))
 
 	dbConn, err := storage.NewStorage(config.Config.PostgresURI)
 	if err != nil {

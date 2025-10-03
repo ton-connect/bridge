@@ -1,6 +1,6 @@
 GIT_REVISION=`git rev-parse --short HEAD`
 BRIDGE_VERSION=`git describe --tags --abbrev=0`
-LDFLAGS=-ldflags "-X github.com/tonkeeper/bridge/pkg.GitRevision=${GIT_REVISION} -X github.com/tonkeeper/bridge/pkg.BridgeVersion=${BRIDGE_VERSION}"
+LDFLAGS=-ldflags "-X github.com/tonkeeper/bridge/internal.GitRevision=${GIT_REVISION} -X github.com/tonkeeper/bridge/internal.BridgeVersion=${BRIDGE_VERSION}"
 GOFMT_FILES?=$$(find . -name '*.go' | grep -v vendor | grep -v yacc | grep -v .git)
 
 .PHONY: all imports fmt test test-unit test-bench test-bridge-sdk run stop clean logs status help

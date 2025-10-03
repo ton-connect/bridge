@@ -98,9 +98,7 @@ func updateHealthStatus(dbConn storagev3.Storage) {
 }
 
 func main() {
-	log.WithFields(log.Fields{
-		"version": pkg.BridgeVersionRevision,
-	}).Info("Bridge is running")
+	log.Info(fmt.Sprintf("Bridge %s is running", pkg.BridgeVersionRevision))
 	config.LoadConfig()
 
 	dbURI := ""
@@ -230,7 +228,7 @@ func main() {
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)
-	e.POST("/bridge/verify", h.ConnectVerifyHandler)
+	// e.POST("/bridge/verify", h.ConnectVerifyHandler)
 
 	var existedPaths []string
 	for _, r := range e.Routes() {

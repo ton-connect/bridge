@@ -355,9 +355,9 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, utils.HttpResOk())
 }
 
-func (h *handler) ConnectVerifyHandler(c echo.Context) error {
-	return c.JSON(utils.HttpResError("not implemented", http.StatusInternalServerError))
-}
+// func (h *handler) ConnectVerifyHandler(c echo.Context) error {
+// 	return c.JSON(utils.HttpResError("not implemented", http.StatusInternalServerError))
+// }
 
 func (h *handler) removeConnection(ses *Session) {
 	log := logrus.WithField("prefix", "removeConnection")
