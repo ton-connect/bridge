@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/internal/models"
 )
@@ -30,7 +31,7 @@ func NewMemStorage() *MemStorage {
 	s := MemStorage{
 		db: map[string][]message{},
 	}
-	go s.watcher()
+	go s.worker()
 	return &s
 }
 
@@ -66,18 +67,21 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 	return results
 }
 
-func (s *MemStorage) watcher() {
+func (s *MemStorage) worker() {
+	log := logrus.WithField("prefix", "MemStorage.worker")
 	for {
+		<-time.NewTimer(time.Minute).C
 		s.lock.Lock()
-		for key, msgs := range s.db {
-			s.db[key] = removeExpiredMessages(msgs, time.Now(), key)
+		for key, ms := range s.db {
+			s.db[key] = removeExpiredMessages(ms, time.Now(), key)
 		}
 		s.lock.Unlock()
 
-		_ = ExpiredCache.Cleanup()
-		_ = TransferedCache.Cleanup()
-
-		time.Sleep(time.Second)
+		expiredCleaned := ExpiredCache.Cleanup()
+		transferedCleaned := TransferedCache.Cleanup()
+		log.Infof("cleaned %d expired and %d transfered cache entries", expiredCleaned, transferedCleaned)
+		expiredMessagesCacheSizeMetric.Set(float64(ExpiredCache.Len()))
+		transferedMessagesCacheSizeMetric.Set(float64(TransferedCache.Len()))
 	}
 }
 

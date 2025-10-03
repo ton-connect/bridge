@@ -8,16 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/internal/models"
 )
-
-var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
-	Name: "number_of_expired_messages",
-	Help: "The total number of expired messages",
-})
 
 type MemStorage struct {
 	db          map[string][]message
@@ -39,7 +32,7 @@ func NewMemStorage() *MemStorage {
 		db:          map[string][]message{},
 		subscribers: make(map[string][]chan<- models.SseMessage),
 	}
-	go s.watcher()
+	go s.worker()
 	return &s
 }
 
@@ -76,14 +69,21 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 	return results
 }
 
-func (s *MemStorage) watcher() {
+func (s *MemStorage) worker() {
+	log := logrus.WithField("prefix", "MemStorage.worker")
 	for {
+		<-time.NewTimer(time.Minute).C
 		s.lock.Lock()
 		for key, ms := range s.db {
 			s.db[key] = removeExpiredMessages(ms, time.Now(), key)
 		}
 		s.lock.Unlock()
-		time.Sleep(time.Second)
+
+		expiredCleaned := ExpiredCache.Cleanup()
+		transferedCleaned := TransferedCache.Cleanup()
+		log.Infof("cleaned %d expired and %d transfered cache entries", expiredCleaned, transferedCleaned)
+		expiredMessagesCacheSizeMetric.Set(float64(ExpiredCache.Len()))
+		transferedMessagesCacheSizeMetric.Set(float64(TransferedCache.Len()))
 	}
 }
 

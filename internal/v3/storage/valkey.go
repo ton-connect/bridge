@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/internal/models"
 )
@@ -77,10 +78,12 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	}
 
 	log.Info("Successfully connected to Valkey")
-	return &ValkeyStorage{
+	s := &ValkeyStorage{
 		client:      client,
 		subscribers: make(map[string][]chan<- models.SseMessage),
-	}, nil
+	}
+	go s.worker()
+	return s, nil
 }
 
 // Pub publishes a message to Redis and stores it with TTL
@@ -251,6 +254,20 @@ func (s *ValkeyStorage) handlePubSub() {
 			}
 		}
 		s.subMutex.RUnlock()
+	}
+}
+
+func (s *ValkeyStorage) worker() {
+	log := logrus.WithField("prefix", "ValkeyStorage.worker")
+	for {
+		// TODO cleanup expired messages from sorted sets?
+		<-time.NewTimer(time.Minute).C
+
+		expiredCleaned := ExpiredCache.Cleanup()
+		transferedCleaned := TransferedCache.Cleanup()
+		log.Infof("cleaned %d expired and %d transfered cache entries", expiredCleaned, transferedCleaned)
+		expiredMessagesCacheSizeMetric.Set(float64(ExpiredCache.Len()))
+		transferedMessagesCacheSizeMetric.Set(float64(TransferedCache.Len()))
 	}
 }
 
