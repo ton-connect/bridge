@@ -4,16 +4,15 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
-	"strings"
 	"time"
 
 	"github.com/labstack/echo-contrib/prometheus"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
-	client_prometheus "github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
+	"github.com/tonkeeper/bridge/internal"
+	"github.com/tonkeeper/bridge/internal/app"
 	"github.com/tonkeeper/bridge/internal/config"
 	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
 	"github.com/tonkeeper/bridge/internal/utils"
@@ -23,90 +22,19 @@ import (
 	"golang.org/x/time/rate"
 )
 
-var (
-	tokenUsageMetric = promauto.NewCounterVec(client_prometheus.CounterOpts{
-		Name: "bridge_token_usage",
-	}, []string{"token"})
-	healthMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
-		Name: "bridge_health_status",
-		Help: "Health status of the bridge (1 = healthy, 0 = unhealthy)",
-	})
-	readyMetric = client_prometheus.NewGauge(client_prometheus.GaugeOpts{
-		Name: "bridge_ready_status",
-		Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
-	})
-
-	// Shared health status updated by background goroutine
-	healthy = 0
-)
-
-func init() {
-	client_prometheus.MustRegister(healthMetric)
-	client_prometheus.MustRegister(readyMetric)
-}
-
-func connectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
-	return func(next echo.HandlerFunc) echo.HandlerFunc {
-		return func(c echo.Context) error {
-			if skipper(c) {
-				return next(c)
-			}
-			release, err := counter.LeaseConnection(c.Request())
-			if err != nil {
-				return c.JSON(utils.HttpResError(err.Error(), http.StatusTooManyRequests))
-			}
-			defer release()
-			return next(c)
-		}
-	}
-}
-
-func skipRateLimitsByToken(request *http.Request) bool {
-	if request == nil {
-		return false
-	}
-	authorization := request.Header.Get("Authorization")
-	if authorization == "" {
-		return false
-	}
-	token := strings.TrimPrefix(authorization, "Bearer ")
-	exist := slices.Contains(config.Config.RateLimitsByPassToken, token)
-	if exist {
-		tokenUsageMetric.WithLabelValues(token).Inc()
-		return true
-	}
-	return false
-}
-
-func updateHealthStatus(dbConn storage.Storage) {
-	if err := dbConn.HealthCheck(); err != nil {
-		healthy = 0
-	} else {
-		healthy = 1
-	}
-
-	healthMetric.Set(float64(healthy))
-	readyMetric.Set(float64(healthy))
-}
-
 func main() {
-	log.Info("Bridge is running")
+	log.Info(fmt.Sprintf("Bridge %s is running", internal.BridgeVersionRevision))
 	config.LoadConfig()
+	app.InitMetrics()
 
 	dbConn, err := storage.NewStorage(config.Config.PostgresURI)
 	if err != nil {
 		log.Fatalf("db connection %v", err)
 	}
 
-	updateHealthStatus(dbConn)
-	go func() {
-		ticker := time.NewTicker(5 * time.Second)
-		defer ticker.Stop()
-
-		for range ticker.C {
-			updateHealthStatus(dbConn)
-		}
-	}()
+	healthManager := app.NewHealthManager()
+	healthManager.UpdateHealthStatus(dbConn)
+	go healthManager.StartHealthMonitoring(dbConn)
 
 	extractor, err := utils.NewRealIPExtractor(config.Config.TrustedProxyRanges)
 	if err != nil {
@@ -115,28 +43,9 @@ func main() {
 	}
 
 	mux := http.NewServeMux()
-
-	healthHandler := func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-
-		if healthy == 0 {
-			w.WriteHeader(http.StatusServiceUnavailable)
-			_, err := fmt.Fprintf(w, `{"status":"unhealthy"}`+"\n")
-			if err != nil {
-				log.Errorf("health response write error: %v", err)
-			}
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		_, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n")
-		if err != nil {
-			log.Errorf("health response write error: %v", err)
-		}
-	}
-
-	mux.Handle("/health", http.HandlerFunc(healthHandler))
-	mux.Handle("/ready", http.HandlerFunc(healthHandler))
+	mux.Handle("/health", http.HandlerFunc(healthManager.HealthHandler))
+	mux.Handle("/ready", http.HandlerFunc(healthManager.HealthHandler))
+	mux.Handle("/version", http.HandlerFunc(app.VersionHandler))
 	mux.Handle("/metrics", promhttp.Handler())
 	if config.Config.PprofEnabled {
 		mux.HandleFunc("/debug/pprof/", pprof.Index)
@@ -154,15 +63,15 @@ func main() {
 	e.Use(middleware.Logger())
 	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
 		Skipper: func(c echo.Context) bool {
-			if skipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/message" {
+			if app.SkipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/message" {
 				return true
 			}
 			return false
 		},
 		Store: middleware.NewRateLimiterMemoryStore(rate.Limit(config.Config.RPSLimit)),
 	}))
-	e.Use(connectionsLimitMiddleware(bridge_middleware.NewConnectionLimiter(config.Config.ConnectionsLimit, extractor), func(c echo.Context) bool {
-		if skipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/events" {
+	e.Use(app.ConnectionsLimitMiddleware(bridge_middleware.NewConnectionLimiter(config.Config.ConnectionsLimit, extractor), func(c echo.Context) bool {
+		if app.SkipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/events" {
 			return true
 		}
 		return false
