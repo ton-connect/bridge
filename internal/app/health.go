@@ -53,6 +53,7 @@ func (h *HealthManager) StartHealthMonitoring(storage HealthChecker) {
 // HealthHandler returns HTTP handler for health endpoints
 func (h *HealthManager) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Build-Commit", internal.BridgeVersionRevision)
 
 	healthy := atomic.LoadInt64(&h.healthy)
 	if healthy == 0 {
@@ -74,6 +75,7 @@ func (h *HealthManager) HealthHandler(w http.ResponseWriter, r *http.Request) {
 // VersionHandler returns HTTP handler for version endpoint
 func VersionHandler(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Build-Commit", internal.BridgeVersionRevision)
 
 	w.WriteHeader(http.StatusOK)
 	response := fmt.Sprintf(`{"version":"%s"}`, internal.BridgeVersionRevision)
