@@ -1,10 +1,11 @@
 FROM golang:1.24-alpine AS gobuild
+RUN apk add --no-cache make git
 WORKDIR /build-dir
 COPY go.mod .
 COPY go.sum .
 RUN go mod download
 COPY . .
-RUN go build -o /tmp/bridge github.com/tonkeeper/bridge/cmd/bridge
+RUN make build && cp bridge /tmp/bridge
 
 
 FROM scratch AS bridge
