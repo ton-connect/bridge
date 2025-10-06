@@ -25,3 +25,4 @@ bridge3
 benchmark/k6
 bridge-sdk/
 
+.env
