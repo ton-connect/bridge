@@ -16,7 +16,7 @@ var Config = struct {
 
 	// PostgreSQL related settings
 	PostgresURI                   string `env:"POSTGRES_URI"`
-	PostgresMaxConns              int32  `env:"POSTGRES_MAX_CONNS" envDefault:"4"`
+	PostgresMaxConns              int32  `env:"POSTGRES_MAX_CONNS" envDefault:"25"`
 	PostgresMinConns              int32  `env:"POSTGRES_MIN_CONNS" envDefault:"0"`
 	PostgresMaxConnLifetime       string `env:"POSTGRES_MAX_CONN_LIFETIME" envDefault:"1h"`
 	PostgresMaxConnLifetimeJitter string `env:"POSTGRES_MAX_CONN_LIFETIME_JITTER" envDefault:"10m"`
