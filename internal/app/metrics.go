@@ -37,7 +37,7 @@ func InitMetrics() {
 // SetBridgeInfo sets the bridge_info metric with engine, version, and storage labels
 func SetBridgeInfo(engine, storage string) {
 	BridgeInfoMetric.With(client_prometheus.Labels{
-		"engine": engine,
+		"engine":  engine,
 		"version": internal.BridgeVersionRevision,
 		"storage": storage,
 	}).Set(1)
