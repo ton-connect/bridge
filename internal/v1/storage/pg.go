@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/golang-migrate/migrate/v4"
@@ -16,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	"github.com/tonkeeper/bridge/internal/config"
 	"github.com/tonkeeper/bridge/internal/models"
 )
 
@@ -65,14 +67,68 @@ func MigrateDb(postgresURI string) error {
 	return nil
 }
 
+// configurePoolSettings creates a new pgxpool.Config with settings from environment variables
+// See https://pkg.go.dev/github.com/jackc/pgx/v4/pgxpool#ParseConfig
+func configurePoolSettings(postgresURI string) (*pgxpool.Config, error) {
+	log := logrus.WithField("prefix", "configurePoolSettings")
+
+	// Parse the base connection config
+	poolConfig, err := pgxpool.ParseConfig(postgresURI)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse postgres URI: %w", err)
+	}
+
+	// Apply pool configuration from environment variables
+	poolConfig.MaxConns = config.Config.PostgresMaxConns
+	poolConfig.MinConns = config.Config.PostgresMinConns
+
+	// Parse duration strings for timeout settings
+	if maxLifetime, err := time.ParseDuration(config.Config.PostgresMaxConnLifetime); err == nil {
+		poolConfig.MaxConnLifetime = maxLifetime
+	} else {
+		log.Warnf("Invalid PostgresMaxConnLifetime '%s', using default", config.Config.PostgresMaxConnLifetime)
+	}
+
+	if maxLifetimeJitter, err := time.ParseDuration(config.Config.PostgresMaxConnLifetimeJitter); err == nil {
+		poolConfig.MaxConnLifetimeJitter = maxLifetimeJitter
+	} else {
+		log.Warnf("Invalid PostgresMaxConnLifetimeJitter '%s', using default", config.Config.PostgresMaxConnLifetimeJitter)
+	}
+
+	if maxIdleTime, err := time.ParseDuration(config.Config.PostgresMaxConnIdleTime); err == nil {
+		poolConfig.MaxConnIdleTime = maxIdleTime
+	} else {
+		log.Warnf("Invalid PostgresMaxConnIdleTime '%s', using default", config.Config.PostgresMaxConnIdleTime)
+	}
+
+	if healthCheckPeriod, err := time.ParseDuration(config.Config.PostgresHealthCheckPeriod); err == nil {
+		poolConfig.HealthCheckPeriod = healthCheckPeriod
+	} else {
+		log.Warnf("Invalid PostgresHealthCheckPeriod '%s', using default", config.Config.PostgresHealthCheckPeriod)
+	}
+
+	poolConfig.LazyConnect = config.Config.PostgresLazyConnect
+
+	return poolConfig, nil
+}
+
 func NewPgStorage(postgresURI string) (*PgStorage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	log := logrus.WithField("prefix", "NewStorage")
 	defer cancel()
-	c, err := pgxpool.Connect(ctx, postgresURI)
+
+	// Create configured pool config
+	poolConfig, err := configurePoolSettings(postgresURI)
 	if err != nil {
 		return nil, err
 	}
+
+	// Connect using the configured pool settings
+	c, err := pgxpool.ConnectConfig(ctx, poolConfig)
+	if err != nil {
+		return nil, err
+	}
+
 	err = MigrateDb(postgresURI)
 	if err != nil {
 		log.Info("migrte err: ", err)

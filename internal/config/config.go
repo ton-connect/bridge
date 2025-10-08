@@ -9,12 +9,25 @@ import (
 )
 
 var Config = struct {
-	LogLevel               string   `env:"LOG_LEVEL" envDefault:"info"`
-	Port                   int      `env:"PORT" envDefault:"8081"`
-	MetricsPort            int      `env:"METRICS_PORT" envDefault:"9103"`
-	Storage                string   `env:"STORAGE" envDefault:"memory"` // For v3 only: memory or valkey
-	PostgresURI            string   `env:"POSTGRES_URI"`
-	ValkeyURI              string   `env:"VALKEY_URI"`
+	LogLevel    string `env:"LOG_LEVEL" envDefault:"info"`
+	Port        int    `env:"PORT" envDefault:"8081"`
+	MetricsPort int    `env:"METRICS_PORT" envDefault:"9103"`
+	Storage     string `env:"STORAGE" envDefault:"memory"` // For v3 only: memory or valkey
+
+	// PostgreSQL related settings
+	PostgresURI                   string `env:"POSTGRES_URI"`
+	PostgresMaxConns              int32  `env:"POSTGRES_MAX_CONNS" envDefault:"4"`
+	PostgresMinConns              int32  `env:"POSTGRES_MIN_CONNS" envDefault:"0"`
+	PostgresMaxConnLifetime       string `env:"POSTGRES_MAX_CONN_LIFETIME" envDefault:"1h"`
+	PostgresMaxConnLifetimeJitter string `env:"POSTGRES_MAX_CONN_LIFETIME_JITTER" envDefault:"10m"`
+	PostgresMaxConnIdleTime       string `env:"POSTGRES_MAX_CONN_IDLE_TIME" envDefault:"30m"`
+	PostgresHealthCheckPeriod     string `env:"POSTGRES_HEALTH_CHECK_PERIOD" envDefault:"1m"`
+	PostgresLazyConnect           bool   `env:"POSTGRES_LAZY_CONNECT" envDefault:"false"`
+
+	// Redis related settings
+	ValkeyURI string `env:"VALKEY_URI"`
+
+	// Other settings
 	WebhookURL             string   `env:"WEBHOOK_URL"`
 	CopyToURL              string   `env:"COPY_TO_URL"`
 	CorsEnable             bool     `env:"CORS_ENABLE"`
