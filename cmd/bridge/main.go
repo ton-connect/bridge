@@ -26,6 +26,11 @@ func main() {
 	log.Info(fmt.Sprintf("Bridge %s is running", internal.BridgeVersionRevision))
 	config.LoadConfig()
 	app.InitMetrics()
+	if config.Config.PostgresURI == "" {
+		app.SetBridgeInfo("bridgev1", "memory")
+	} else {
+		app.SetBridgeInfo("bridgev1", "postgres")
+	}
 
 	dbConn, err := storage.NewStorage(config.Config.PostgresURI)
 	if err != nil {
