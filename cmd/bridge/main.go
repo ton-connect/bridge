@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"runtime/debug"
 	"time"
 
 	"github.com/labstack/echo-contrib/prometheus"
@@ -27,6 +28,18 @@ func main() {
 	config.LoadConfig()
 	app.InitMetrics()
 
+	// Global panic recovery function for goroutines
+	recoverPanic := func(operation string) {
+		if r := recover(); r != nil {
+			stack := debug.Stack()
+			log.WithFields(log.Fields{
+				"operation": operation,
+				"panic":     r,
+				"stack":     string(stack),
+			}).Error("Goroutine panic recovered")
+		}
+	}
+
 	dbConn, err := storage.NewStorage(config.Config.PostgresURI)
 	if err != nil {
 		log.Fatalf("db connection %v", err)
@@ -34,7 +47,10 @@ func main() {
 
 	healthManager := app.NewHealthManager()
 	healthManager.UpdateHealthStatus(dbConn)
-	go healthManager.StartHealthMonitoring(dbConn)
+	go func() {
+		defer recoverPanic("health-monitoring")
+		healthManager.StartHealthMonitoring(dbConn)
+	}()
 
 	extractor, err := utils.NewRealIPExtractor(config.Config.TrustedProxyRanges)
 	if err != nil {
@@ -51,14 +67,27 @@ func main() {
 		mux.HandleFunc("/debug/pprof/", pprof.Index)
 	}
 	go func() {
+		defer recoverPanic("metrics-server")
 		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Config.MetricsPort), mux))
 	}()
 
 	e := echo.New()
+	e.Use(middleware.Recover())
 	e.Use(middleware.RecoverWithConfig(middleware.RecoverConfig{
-		Skipper:           nil,
-		DisableStackAll:   true,
-		DisablePrintStack: false,
+		Skipper: nil,
+		LogErrorFunc: func(c echo.Context, err error, stack []byte) error {
+			log.WithFields(log.Fields{
+				"error":      err.Error(),
+				"method":     c.Request().Method,
+				"path":       c.Request().URL.Path,
+				"remote_ip":  c.RealIP(),
+				"user_agent": c.Request().UserAgent(),
+				"stack":      string(stack),
+			}).Error("Panic recovered")
+			return err
+		},
+		DisableStackAll:   false,
+		DisablePrintStack: true, // We handle logging ourselves
 	}))
 	e.Use(middleware.Logger())
 	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
