@@ -21,16 +21,24 @@ var (
 		Help: "Ready status of the bridge (1 = ready, 0 = not ready)",
 	})
 
-	VersionMetric = client_prometheus.NewGaugeVec(client_prometheus.GaugeOpts{
-		Name: "bridge_version_info",
-		Help: "Version information of the bridge",
-	}, []string{"version"})
+	BridgeInfoMetric = client_prometheus.NewGaugeVec(client_prometheus.GaugeOpts{
+		Name: "bridge_info",
+		Help: "Bridge information with engine type, version, and storage backend",
+	}, []string{"engine", "version", "storage"})
 )
 
 // InitMetrics registers all Prometheus metrics and sets version info
 func InitMetrics() {
 	client_prometheus.MustRegister(HealthMetric)
 	client_prometheus.MustRegister(ReadyMetric)
-	client_prometheus.MustRegister(VersionMetric)
-	VersionMetric.WithLabelValues(internal.BridgeVersionRevision).Set(1)
+	client_prometheus.MustRegister(BridgeInfoMetric)
+}
+
+// SetBridgeInfo sets the bridge_info metric with engine, version, and storage labels
+func SetBridgeInfo(engine, storage string) {
+	BridgeInfoMetric.With(client_prometheus.Labels{
+		"engine":  engine,
+		"version": internal.BridgeVersionRevision,
+		"storage": storage,
+	}).Set(1)
 }

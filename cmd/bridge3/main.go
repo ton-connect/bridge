@@ -52,10 +52,13 @@ func main() {
 	}
 	if _, ok := dbConn.(*storagev3.MemStorage); ok {
 		log.Info("Using in-memory storage")
+		app.SetBridgeInfo("bridgev3", "memory")
 	} else if _, ok := dbConn.(*storagev3.ValkeyStorage); ok {
 		log.Info("Using Valkey/Redis storage")
+		app.SetBridgeInfo("bridgev3", "valkey")
 	} else {
 		log.Info("Using PostgreSQL storage")
+		app.SetBridgeInfo("bridgev3", "postgres")
 	}
 	healthManager := app.NewHealthManager()
 	healthManager.UpdateHealthStatus(dbConn)
