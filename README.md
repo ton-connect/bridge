@@ -20,6 +20,13 @@ make build
 - PORT ##example"8081"
 - METRICS_PORT ##example"9103"
 - POSTGRES_URI ##example"postgres://user:pass@host/dbname"
+- POSTGRES_MAX_CONNS ##example"25" (maximum number of connections in the pool)
+- POSTGRES_MIN_CONNS ##example"0" (minimum number of connections in the pool)
+- POSTGRES_MAX_CONN_LIFETIME ##example"1h" (maximum lifetime of a connection)
+- POSTGRES_MAX_CONN_LIFETIME_JITTER ##example"10m" (jitter for connection lifetime)
+- POSTGRES_MAX_CONN_IDLE_TIME ##example"30m" (maximum idle time for connections)
+- POSTGRES_HEALTH_CHECK_PERIOD ##example"1m" (health check period for connections)
+- POSTGRES_LAZY_CONNECT ##example"false" (enable lazy connection initialization)
 - WEBHOOK_URL ##example"https://your-webhook-url.com"
 - COPY_TO_URL ##example"https://your-copy-url.com"
 - CORS_ENABLE ##example"true"
@@ -36,6 +43,7 @@ make build
 - PPROF_ENABLED ##examle"true"
 - ENABLE_TRANSFERED_CACHE ##examle"true"
 - ENABLE_EXPIRED_CACHE ##examle"true"
+- 
 
 ## how to profile
 
