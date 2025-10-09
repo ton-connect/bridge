@@ -12,30 +12,46 @@ export let delivery_latency = new Trend('delivery_latency');
 export let json_parse_errors = new Counter('json_parse_errors');
 export let missing_timestamps = new Counter('missing_timestamps');
 
+const PRE_ALLOCATED_VUS = 100
+const MAX_VUS = PRE_ALLOCATED_VUS * 25
+
 const BRIDGE_URL = __ENV.BRIDGE_URL || 'http://localhost:8081/bridge';
 const TEST_DURATION = __ENV.TEST_DURATION || '2m';
 const SSE_VUS = Number(__ENV.SSE_VUS || 1000);
 const SEND_RATE = Number(__ENV.SEND_RATE || 10000);
 
 // Generate valid hex client IDs that the bridge expects
-const POOL = new SharedArray('ids', () => Array.from({length: 100}, (_, i) => {
+const ID_POOL = new SharedArray('ids', () => Array.from({length: 100}, (_, i) => {
   return i.toString(16).padStart(64, '0'); // 64-char hex strings
 }));
 
 export const options = {
-  discardResponseBodies: true,
-  systemTags: ['status', 'method', 'name', 'scenario'], // Exclude 'url' to prevent metrics explosion
-  thresholds: {
-    http_req_failed: ['rate<0.01'],
-    delivery_latency: ['p(95)<2000'],
-    sse_errors: ['count<10'], // SSE should be very stable
-    json_parse_errors: ['count<5'], // Should rarely fail to parse
-    missing_timestamps: ['count<100'], // Most messages should have timestamps
-  },
-  scenarios: {
-    sse: { executor: 'constant-vus', vus: SSE_VUS, duration: TEST_DURATION, exec: 'sseWorker' },
-    senders: { executor: 'constant-arrival-rate', rate: SEND_RATE, timeUnit: '1s', duration: TEST_DURATION, preAllocatedVUs: 100, exec: 'messageSender' },
-  },
+    discardResponseBodies: true,
+    systemTags: ['status', 'method', 'name', 'scenario'], // Exclude 'url' to prevent metrics explosion
+    thresholds: {
+        http_req_failed: ['rate<0.01'],
+        delivery_latency: ['p(95)<2000'],
+        sse_errors: ['count<10'], // SSE should be very stable
+        json_parse_errors: ['count<5'], // Should rarely fail to parse
+        missing_timestamps: ['count<100'], // Most messages should have timestamps
+    },
+    scenarios: {
+        sse: {
+            executor: 'constant-vus',
+            vus: SSE_VUS,
+            duration: TEST_DURATION,
+            exec: 'sseWorker'
+        },
+        senders: {
+            executor: 'constant-arrival-rate',
+            rate: SEND_RATE,
+            timeUnit: '1s',
+            duration: TEST_DURATION,
+            preAllocatedVUs: PRE_ALLOCATED_VUS,
+            maxVUs: MAX_VUS,
+            exec: 'messageSender'
+        },
+    },
 };
 
 export function sseWorker() {
@@ -85,9 +101,9 @@ export function sseWorker() {
 
 export function messageSender() {
   // Use fixed client pairs to reduce URL variations
-  const vuIndex = exec.vu.idInTest % POOL.length;
-  const to = POOL[vuIndex];
-  const from = POOL[(vuIndex + 1) % POOL.length];
+  const vuIndex = exec.vu.idInTest % ID_POOL.length;
+  const to = ID_POOL[vuIndex];
+  const from = ID_POOL[(vuIndex + 1) % ID_POOL.length];
   const topic = Math.random() < 0.5 ? 'sendTransaction' : 'signData';
   const body = encoding.b64encode(JSON.stringify({ ts: Date.now(), data: 'test_message' }));
   const url = `${BRIDGE_URL}/message?client_id=${from}&to=${to}&ttl=300&topic=${topic}`;
@@ -99,4 +115,3 @@ export function messageSender() {
   });
   if (r.status !== 200) post_errors.add(1);
 }
-
