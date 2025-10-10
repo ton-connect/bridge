@@ -1,5 +1,6 @@
 services:
   valkey-shard1:
+    container_name: valkey-shard1
     image: valkey/valkey:7.2-alpine
     ports:
       - "6379:6379"
@@ -17,6 +18,7 @@ services:
     restart: unless-stopped
 
   valkey-shard2:
+    container_name: valkey-shard2
     image: valkey/valkey:7.2-alpine
     ports:
       - "6380:6380"
@@ -34,6 +36,7 @@ services:
     restart: unless-stopped
 
   valkey-shard3:
+    container_name: valkey-shard3
     image: valkey/valkey:7.2-alpine
     ports:
       - "6381:6381"
@@ -170,6 +173,120 @@ services:
         done
       "
     restart: unless-stopped
+
+
+  benchmark:
+    build:
+      context: .
+      dockerfile: benchmark/Dockerfile.benchmark
+    container_name: benchmark
+    working_dir: /scripts
+    environment:
+      BRIDGE_URL: "http://bridge:8081/bridge"
+      TEST_DURATION: "5m"
+      SSE_VUS: "500"
+      SEND_RATE: "10000"
+    depends_on:
+      bridge:
+        condition: service_started
+    networks:
+      - bridge_network
+    volumes:
+      - ./benchmark:/scripts:ro
+      - ./benchmark/results:/results
+    entrypoint: [ "/bin/sh", "-lc" ]
+    command:
+      - >
+        printf '\n\n======  pprof BEFORE  ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 http://bridge:9103/debug/pprof/allocs 2>/dev/null || true;
+        pprof -proto http://bridge:9103/debug/pprof/allocs > /tmp/allocs-before.pb.gz 2>/dev/null || true;
+        printf '\n\n====== starting BENCH ======\n\n';
+        printf 'Running load test for %s with:\n' "$$TEST_DURATION";
+        printf '  - SSE Virtual Users: %s\n' "$$SSE_VUS";
+        printf '  - Send Rate: %s msg/s\n' "$$SEND_RATE";
+        printf '  - Target: %s\n\n' "$$BRIDGE_URL";
+        printf '\n\nPlease wait...\n\n';
+        /usr/local/bin/k6 run /scripts/bridge_test.js;
+        printf '\n\n======  pprof AFTER   ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 http://bridge:9103/debug/pprof/allocs 2>/dev/null || true;
+        pprof -proto http://bridge:9103/debug/pprof/allocs > /tmp/allocs-after.pb.gz 2>/dev/null || true;
+        printf '\n\n======   pprof DIFF   ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 -base=/tmp/allocs-before.pb.gz /tmp/allocs-after.pb.gz || true;
+        rm -f /tmp/allocs-before.pb.gz /tmp/allocs-after.pb.gz 2>/dev/null || true;
+        printf '\n\n============================\n\n';
+
+  movedsimulator:
+    image: valkey/valkey:7.2-alpine
+    container_name: moved-simulator
+    environment:
+      VALKEY_HOST: "valkey-shard1"
+      VALKEY_PORT: "6379"
+      SIMULATION_MODE: "MOVED"
+      KEY_PATTERN: "client:*"
+      INTERVAL_SECONDS: "30"
+    depends_on:
+      valkey-shard1:
+        condition: service_healthy
+      valkey-shard2:
+        condition: service_healthy
+      valkey-shard3:
+        condition: service_healthy
+      bridge:
+        condition: service_started
+    networks:
+      - bridge_network
+    command: >
+      sh -c "
+        echo 'MOVED Error Simulator starting...' &&
+        sleep 10 &&
+        while true; do
+          echo '=== MOVED Simulation Cycle ===' &&
+          echo 'Connecting to Valkey cluster...' &&
+          
+          # Get cluster nodes
+          NODES=$$(valkey-cli -h $$VALKEY_HOST -p $$VALKEY_PORT CLUSTER NODES 2>/dev/null || echo '') &&
+          if [ -z \"$$NODES\" ]; then
+            echo 'Single node mode - no MOVED simulation possible' &&
+            sleep $$INTERVAL_SECONDS &&
+            continue
+          fi &&
+          
+          # Extract node IPs and ports
+          NODE1=$$(echo \"$$NODES\" | grep 'myself,master' | awk '{print $$2}' | head -1) &&
+          NODE2=$$(echo \"$$NODES\" | grep 'master' | grep -v 'myself' | awk '{print $$2}' | head -1) &&
+          
+          if [ -z \"$$NODE1\" ] || [ -z \"$$NODE2\" ]; then
+            echo 'Could not find cluster nodes for simulation' &&
+            sleep $$INTERVAL_SECONDS &&
+            continue
+          fi &&
+          
+          NODE1_IP=$$(echo $$NODE1 | cut -d: -f1) &&
+          NODE1_PORT=$$(echo $$NODE1 | cut -d: -f2) &&
+          NODE2_IP=$$(echo $$NODE2 | cut -d: -f1) &&
+          NODE2_PORT=$$(echo $$NODE2 | cut -d: -f2) &&
+          
+          echo \"Node1: $$NODE1_IP:$$NODE1_PORT\" &&
+          echo \"Node2: $$NODE2_IP:$$NODE2_PORT\" &&
+          
+          # Generate test keys that will trigger MOVED responses
+          for i in $$(seq 1 10); do
+            TEST_KEY=\"client:$$(printf '%064x' $$i)\" &&
+            echo \"Testing key: $$TEST_KEY\" &&
+            
+            # Try to write to wrong node (this should trigger MOVED)
+            valkey-cli -h $$NODE2_IP -p $$NODE2_PORT ZADD \"$$TEST_KEY\" $$(date +%s) \"test-message-$$i\" 2>&1 | grep -E 'MOVED|OK' || true &&
+            
+            # Try to read from wrong node
+            valkey-cli -h $$NODE2_IP -p $$NODE2_PORT ZRANGE \"$$TEST_KEY\" 0 -1 2>&1 | grep -E 'MOVED|test-message' || true
+          done &&
+          
+          echo 'MOVED simulation completed. Waiting for next cycle...' &&
+          sleep $$INTERVAL_SECONDS
+        done
+      "
+    restart: unless-stopped
+
 
 volumes:
   valkey_shard1_data:
