@@ -12,7 +12,8 @@ var Config = struct {
 	LogLevel    string `env:"LOG_LEVEL" envDefault:"info"`
 	Port        int    `env:"PORT" envDefault:"8081"`
 	MetricsPort int    `env:"METRICS_PORT" envDefault:"9103"`
-	Storage     string `env:"STORAGE" envDefault:"memory"` // For v3 only: memory or valkey
+	Storage     string `env:"STORAGE" envDefault:"memory"`    // For v3 only: memory or valkey
+	RequestLogs bool   `env:"REQUEST_LOGS" envDefault:"true"` // Echo access logs
 
 	// PostgreSQL related settings
 	PostgresURI                   string `env:"POSTGRES_URI"`
@@ -25,7 +26,15 @@ var Config = struct {
 	PostgresLazyConnect           bool   `env:"POSTGRES_LAZY_CONNECT" envDefault:"false"`
 
 	// Redis related settings
-	ValkeyURI string `env:"VALKEY_URI"`
+	ValkeyURI            string `env:"VALKEY_URI"`
+	ValkeyReadOnly       bool   `env:"VALKEY_READ_ONLY" envDefault:"false"`
+	ValkeyRouteByLatency bool   `env:"VALKEY_ROUTE_BY_LATENCY" envDefault:"true"`
+	ValkeyRouteRandomly  bool   `env:"VALKEY_ROUTE_RANDOMLY" envDefault:"false"`
+	ValkeyMaxRedirects   int    `env:"VALKEY_MAX_REDIRECTS" envDefault:"8"`
+	ValkeyReadTimeout    string `env:"VALKEY_READ_TIMEOUT" envDefault:"30s"`
+	ValkeyWriteTimeout   string `env:"VALKEY_WRITE_TIMEOUT" envDefault:"30s"`
+	ValkeyDialTimeout    string `env:"VALKEY_DIAL_TIMEOUT" envDefault:"10s"`
+	ValkeyPoolTimeout    string `env:"VALKEY_POOL_TIMEOUT" envDefault:"30s"`
 
 	// Other settings
 	WebhookURL             string   `env:"WEBHOOK_URL"`

@@ -4,17 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
+	"github.com/tonkeeper/bridge/internal/config"
 	"github.com/tonkeeper/bridge/internal/models"
 )
 
 type ValkeyStorage struct {
 	client      redis.UniversalClient
+	cluster     *redis.ClusterClient
+	isCluster   bool
 	pubSubConn  *redis.PubSub
 	subscribers map[string][]chan<- models.SseMessage
 	subMutex    sync.RWMutex
@@ -28,38 +32,88 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	uris := strings.Split(valkeyURI, ",")
 
 	var client redis.UniversalClient
+	var clusterClient *redis.ClusterClient
+	isCluster := false
+
+	// Determine cluster mode:
+	// - If multiple URIs provided -> cluster
+	// - If single URI but looks like AWS ElastiCache cluster endpoint (contains "clustercfg") -> cluster
 	if len(uris) > 1 {
-		addrs := make([]string, len(uris))
-		// TODO what if other options differ between nodes?
+		isCluster = true
+	} else if strings.Contains(strings.ToLower(valkeyURI), "clustercfg") {
+		isCluster = true
+	}
+
+	if isCluster {
+		var addrs []string
 		var firstOpts *redis.Options
-		for i, uri := range uris {
-			opts, err := redis.ParseURL(strings.TrimSpace(uri))
+		if len(uris) > 1 {
+			addrs = make([]string, len(uris))
+			for i, uri := range uris {
+				opts, err := redis.ParseURL(strings.TrimSpace(uri))
+				if err != nil {
+					return nil, fmt.Errorf("failed to parse URI %d: %w", i+1, err)
+				}
+				addrs[i] = opts.Addr
+				if i == 0 {
+					firstOpts = opts
+				}
+			}
+		} else {
+			raw := strings.TrimSpace(uris[0])
+			opts, err := redis.ParseURL(raw)
 			if err != nil {
-				return nil, fmt.Errorf("failed to parse URI %d: %w", i+1, err)
+				return nil, fmt.Errorf("failed to parse URI: %w", err)
 			}
-			addrs[i] = opts.Addr
-			if i == 0 {
-				firstOpts = opts
+			// For AWS clustercfg endpoints, seed with hostname only; go-redis will discover node addresses
+			u, _ := url.Parse(raw)
+			seed := opts.Addr
+			if u != nil && strings.Contains(strings.ToLower(u.Host), "clustercfg") {
+				seed = u.Host
 			}
+			addrs = []string{seed}
+			firstOpts = opts
 		}
-		log.Infof("Using cluster mode with %d nodes", len(uris))
-		client = redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:     addrs,
-			Password:  firstOpts.Password,
-			Username:  firstOpts.Username,
-			TLSConfig: firstOpts.TLSConfig,
-			// Enable automatic cluster redirection handling for AWS ElastiCache
-			ReadOnly:       false,
-			RouteByLatency: true,
-			RouteRandomly:  false,
-			// Set maximum redirects to handle MOVED responses
-			MaxRedirects: 3,
-			// Set appropriate timeouts for AWS ElastiCache
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			DialTimeout:  10 * time.Second,
-			PoolTimeout:  30 * time.Second,
+
+		log.Infof("Using cluster mode with %d node seed(s)", len(addrs))
+
+		// Parse timeout durations from config
+		readTimeout, err := time.ParseDuration(config.Config.ValkeyReadTimeout)
+		if err != nil {
+			log.Warnf("invalid VALKEY_READ_TIMEOUT '%s', using default 30s: %v", config.Config.ValkeyReadTimeout, err)
+			readTimeout = 30 * time.Second
+		}
+		writeTimeout, err := time.ParseDuration(config.Config.ValkeyWriteTimeout)
+		if err != nil {
+			log.Warnf("invalid VALKEY_WRITE_TIMEOUT '%s', using default 30s: %v", config.Config.ValkeyWriteTimeout, err)
+			writeTimeout = 30 * time.Second
+		}
+		dialTimeout, err := time.ParseDuration(config.Config.ValkeyDialTimeout)
+		if err != nil {
+			log.Warnf("invalid VALKEY_DIAL_TIMEOUT '%s', using default 10s: %v", config.Config.ValkeyDialTimeout, err)
+			dialTimeout = 10 * time.Second
+		}
+		poolTimeout, err := time.ParseDuration(config.Config.ValkeyPoolTimeout)
+		if err != nil {
+			log.Warnf("invalid VALKEY_POOL_TIMEOUT '%s', using default 30s: %v", config.Config.ValkeyPoolTimeout, err)
+			poolTimeout = 30 * time.Second
+		}
+
+		clusterClient = redis.NewClusterClient(&redis.ClusterOptions{
+			Addrs:          addrs,
+			Password:       firstOpts.Password,
+			Username:       firstOpts.Username,
+			TLSConfig:      firstOpts.TLSConfig,
+			ReadOnly:       config.Config.ValkeyReadOnly,
+			RouteByLatency: config.Config.ValkeyRouteByLatency,
+			RouteRandomly:  config.Config.ValkeyRouteRandomly,
+			MaxRedirects:   config.Config.ValkeyMaxRedirects,
+			ReadTimeout:    readTimeout,
+			WriteTimeout:   writeTimeout,
+			DialTimeout:    dialTimeout,
+			PoolTimeout:    poolTimeout,
 		})
+		client = clusterClient
 	} else {
 		opts, err := redis.ParseURL(strings.TrimSpace(uris[0]))
 		if err != nil {
@@ -79,6 +133,8 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	log.Info("Successfully connected to Valkey")
 	return &ValkeyStorage{
 		client:      client,
+		cluster:     clusterClient,
+		isCluster:   isCluster,
 		subscribers: make(map[string][]chan<- models.SseMessage),
 	}, nil
 }
@@ -87,21 +143,26 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl int64) error {
 	log := log.WithField("prefix", "ValkeyStorage.Pub")
 
-	// Publish to Redis channel
-	channel := fmt.Sprintf("client:%s", message.To)
+	// Publish to Redis channel (use hash-tag for slot affinity)
+	channel := clientKey(message.To)
 	messageData, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	err = s.client.Publish(ctx, channel, messageData).Err()
+	if s.isCluster && s.cluster != nil {
+		err = s.cluster.SPublish(ctx, channel, messageData).Err()
+	} else {
+		err = s.client.Publish(ctx, channel, messageData).Err()
+	}
 	if err != nil {
 		return fmt.Errorf("failed to publish message to channel %s: %w", channel, err)
 	}
 
 	// Store message with TTL as backup for offline clients
 	expireTime := time.Now().Add(time.Duration(ttl) * time.Second).Unix()
-	err = s.client.ZAdd(ctx, channel, redis.Z{
+	primaryKey := clientKey(message.To)
+	err = s.client.ZAdd(ctx, primaryKey, redis.Z{
 		Score:  float64(expireTime),
 		Member: messageData,
 	}).Err()
@@ -111,7 +172,7 @@ func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl 
 	}
 
 	// Set expiration on the key itself
-	s.client.Expire(ctx, channel, time.Duration(ttl+60)*time.Second) // TODO remove 60 seconds buffer?
+	s.client.Expire(ctx, primaryKey, time.Duration(ttl+60)*time.Second) // TODO remove 60 seconds buffer?
 
 	log.Debugf("published and stored message for client %s with TTL %d seconds", message.To, ttl)
 	return nil
@@ -135,7 +196,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	// Send historical messages for each key
 	now := time.Now().Unix()
 	for _, key := range keys {
-		clientKey := fmt.Sprintf("client:%s", key)
+		clientKey := clientKey(key)
 
 		// Remove expired messages first
 		// TODO support expired messages but not delivered log
@@ -145,9 +206,9 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		messages, err := s.client.ZRange(ctx, clientKey, 0, -1).Result()
 		if err != nil {
 			if err != redis.Nil {
-				log.Errorf("failed to get historical messages for client %s: %v", key, err)
+				log.Errorf("failed to get historical messages for %s: %v", clientKey, err)
 			}
-			continue // No messages for this client or error occurred
+			messages = []string{}
 		}
 
 		// Parse and send historical messages
@@ -173,16 +234,25 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	// Create channels list for subscription
 	channels := make([]string, len(keys))
 	for i, key := range keys {
-		channels[i] = fmt.Sprintf("client:%s", key)
+		channels[i] = clientKey(key)
 	}
 
 	// If this is the first subscription, start the pub-sub connection
 	if s.pubSubConn == nil {
-		s.pubSubConn = s.client.Subscribe(ctx, channels...)
+		if s.isCluster && s.cluster != nil {
+			s.pubSubConn = s.cluster.SSubscribe(ctx, channels...)
+		} else {
+			s.pubSubConn = s.client.Subscribe(ctx, channels...)
+		}
 		go s.handlePubSub()
 	} else {
 		// Subscribe to additional channels
-		err := s.pubSubConn.Subscribe(ctx, channels...)
+		var err error
+		if s.isCluster && s.cluster != nil {
+			err = s.pubSubConn.SSubscribe(ctx, channels...)
+		} else {
+			err = s.pubSubConn.Subscribe(ctx, channels...)
+		}
 		if err != nil {
 			log.Errorf("failed to subscribe to additional channels: %v", err)
 		}
@@ -201,13 +271,18 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string) error {
 
 	channels := make([]string, 0)
 	for _, key := range keys {
-		channel := fmt.Sprintf("client:%s", key)
+		channel := clientKey(key)
 		channels = append(channels, channel)
 		delete(s.subscribers, key)
 	}
 
 	if s.pubSubConn != nil {
-		err := s.pubSubConn.Unsubscribe(ctx, channels...)
+		var err error
+		if s.isCluster && s.cluster != nil {
+			err = s.pubSubConn.SUnsubscribe(ctx, channels...)
+		} else {
+			err = s.pubSubConn.Unsubscribe(ctx, channels...)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to unsubscribe from channels: %w", err)
 		}
@@ -223,9 +298,17 @@ func (s *ValkeyStorage) handlePubSub() {
 
 	for msg := range s.pubSubConn.Channel() {
 		// Parse channel name to get client key
+		// Extract original client id from channel name, which is formatted as client:{<id>}
+		// We need to remove the prefix and hash-tag braces
 		var key string
-		if len(msg.Channel) > 7 && msg.Channel[:7] == "client:" {
-			key = msg.Channel[7:]
+		if len(msg.Channel) > 7 && strings.HasPrefix(msg.Channel, "client:") {
+			ch := msg.Channel[7:]
+			// Remove surrounding braces if present
+			if len(ch) >= 2 && strings.HasPrefix(ch, "{") && strings.HasSuffix(ch, "}") {
+				key = ch[1 : len(ch)-1]
+			} else {
+				key = ch
+			}
 		} else {
 			continue
 		}
@@ -268,4 +351,8 @@ func (s *ValkeyStorage) HealthCheck() error {
 
 	log.Info("Valkey is healthy")
 	return nil
+}
+
+func clientKey(id string) string {
+	return fmt.Sprintf("client:{%s}", id)
 }
