@@ -21,52 +21,67 @@ type ValkeyStorage struct {
 }
 
 // NewValkeyStorage creates a new Valkey storage instance
-// Supports both single node and cluster modes based on URI format
+// Supports both single node and cluster modes
+// For cluster mode, discovers cluster topology using CLUSTER SLOTS command
 func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	log := log.WithField("prefix", "NewValkeyStorage")
 
-	uris := strings.Split(valkeyURI, ",")
-
 	var client redis.UniversalClient
-	if len(uris) > 1 {
-		addrs := make([]string, len(uris))
-		// TODO what if other options differ between nodes?
-		var firstOpts *redis.Options
-		for i, uri := range uris {
-			opts, err := redis.ParseURL(strings.TrimSpace(uri))
-			if err != nil {
-				return nil, fmt.Errorf("failed to parse URI %d: %w", i+1, err)
-			}
-			addrs[i] = opts.Addr
-			if i == 0 {
-				firstOpts = opts
+
+	// Parse the primary URI
+	opts, err := redis.ParseURL(strings.TrimSpace(valkeyURI))
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse URI: %w", err)
+	}
+
+	// First, connect to the single node to check if it's part of a cluster
+	tempClient := redis.NewClient(opts)
+	ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancelTemp()
+
+	// Try to get cluster info
+	clusterSlots, err := tempClient.ClusterSlots(ctxTemp).Result()
+	if err := tempClient.Close(); err != nil {
+		log.Warnf("failed to close temporary client: %v", err)
+	}
+
+	if err != nil || len(clusterSlots) == 0 {
+		// Not a cluster or cluster command failed, use single-node mode
+		log.Info("Using single-node mode")
+		client = redis.NewClient(opts)
+	} else {
+		// Extract all node addresses from cluster slots
+		nodeAddrs := make(map[string]bool)
+		for _, slot := range clusterSlots {
+			for _, node := range slot.Nodes {
+				nodeAddrs[node.Addr] = true
 			}
 		}
-		log.Infof("Using cluster mode with %d nodes", len(uris))
+
+		// Convert to slice
+		addrs := make([]string, 0, len(nodeAddrs))
+		for addr := range nodeAddrs {
+			addrs = append(addrs, addr)
+		}
+
+		log.Infof("Using cluster mode with %d nodes discovered from CLUSTER SLOTS", len(addrs))
 		client = redis.NewClusterClient(&redis.ClusterOptions{
 			Addrs:     addrs,
-			Password:  firstOpts.Password,
-			Username:  firstOpts.Username,
-			TLSConfig: firstOpts.TLSConfig,
-			// Enable automatic cluster redirection handling for AWS ElastiCache
+			Password:  opts.Password,
+			Username:  opts.Username,
+			TLSConfig: opts.TLSConfig,
+			// Enable automatic cluster redirection handling
 			ReadOnly:       false,
 			RouteByLatency: true,
 			RouteRandomly:  false,
 			// Set maximum redirects to handle MOVED responses
 			MaxRedirects: 3,
-			// Set appropriate timeouts for AWS ElastiCache
+			// Set appropriate timeouts for managed clusters like AWS ElastiCache
 			ReadTimeout:  30 * time.Second,
 			WriteTimeout: 30 * time.Second,
 			DialTimeout:  10 * time.Second,
 			PoolTimeout:  30 * time.Second,
 		})
-	} else {
-		opts, err := redis.ParseURL(strings.TrimSpace(uris[0]))
-		if err != nil {
-			return nil, fmt.Errorf("failed to parse URI: %w", err)
-		}
-		log.Info("Using single-node mode")
-		client = redis.NewClient(opts)
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
