@@ -41,13 +41,16 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 
 	// Try to get cluster info
 	clusterSlots, err := tempClient.ClusterSlots(ctxTemp).Result()
+	if err != nil {
+		log.Warnf("failed to get cluster slots: %v", err)
+	}
 	if err := tempClient.Close(); err != nil {
 		log.Warnf("failed to close temporary client: %v", err)
 	}
 
 	log.Infof("cluster slots result: %+v", clusterSlots)
 
-	if err != nil || len(clusterSlots) == 0 {
+	if len(clusterSlots) == 0 {
 		// Not a cluster or cluster command failed, use single-node mode
 		log.Info("Using single-node mode")
 		client = redis.NewClient(opts)
