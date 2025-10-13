@@ -25,6 +25,11 @@ var (
 		Name: "bridge_info",
 		Help: "Bridge information with engine type, version, and storage backend",
 	}, []string{"engine", "version", "storage"})
+
+	BridgeMessagesCountMetric = client_prometheus.NewGaugeVec(client_prometheus.GaugeOpts{
+		Name: "bridge_messages_count",
+		Help: "The total number of messages held by storage backend of the bridge",
+	}, []string{"expiry"})
 )
 
 // InitMetrics registers all Prometheus metrics and sets version info
@@ -32,6 +37,7 @@ func InitMetrics() {
 	client_prometheus.MustRegister(HealthMetric)
 	client_prometheus.MustRegister(ReadyMetric)
 	client_prometheus.MustRegister(BridgeInfoMetric)
+	client_prometheus.MustRegister(BridgeMessagesCountMetric)
 }
 
 // SetBridgeInfo sets the bridge_info metric with engine, version, and storage labels
@@ -41,4 +47,10 @@ func SetBridgeInfo(engine, storage string) {
 		"version": internal.BridgeVersionRevision,
 		"storage": storage,
 	}).Set(1)
+}
+
+func SetBridgeMessagesCount(count int, expiry string) {
+	BridgeMessagesCountMetric.With(client_prometheus.Labels{
+		"expiry": expiry,
+	}).Set(float64(count))
 }
