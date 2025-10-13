@@ -8,6 +8,6 @@ COPY . .
 RUN make build && cp bridge /tmp/bridge
 
 
-FROM scratch AS bridge
+FROM alpine:latest AS bridge
 COPY --from=gobuild /tmp/bridge /app/bridge
 CMD ["/app/bridge"]
