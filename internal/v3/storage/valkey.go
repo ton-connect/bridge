@@ -45,6 +45,8 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		log.Warnf("failed to close temporary client: %v", err)
 	}
 
+	log.Infof("cluster slots result: %+v", clusterSlots)
+
 	if err != nil || len(clusterSlots) == 0 {
 		// Not a cluster or cluster command failed, use single-node mode
 		log.Info("Using single-node mode")
