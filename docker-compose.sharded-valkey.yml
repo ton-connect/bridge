@@ -88,7 +88,7 @@ services:
     environment:
       PORT: 8081
       STORAGE: "valkey"
-      VALKEY_URI: "redis://valkey-shard1:6379,redis://valkey-shard2:6380,redis://valkey-shard3:6381"
+      VALKEY_URI: "redis://valkey-shard1:6379"
       CORS_ENABLE: "true"
       HEARTBEAT_INTERVAL: 10
       RPS_LIMIT: 1000
