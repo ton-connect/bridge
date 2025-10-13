@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"strings"
 	"sync"
 	"time"
@@ -36,15 +37,14 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 
 	// First, connect to the single node to check if it's part of a cluster
 	tempClient := redis.NewClient(opts)
-	ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 5*time.Second)
+	ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelTemp()
 
-	// Try to get cluster info
-	clusterSlots, err := tempClient.ClusterSlots(ctxTemp).Result()
-	if err := tempClient.Close(); err != nil {
-		log.Warnf("failed to close temporary client: %v", err)
+	// Try to get cluster info with exponential backoff retry (max 3 retries)
+	clusterSlots, err := clusterSlotsWithRetry(tempClient, ctxTemp, 3)
+	if err != nil {
+		log.Warnf("failed to get cluster slots after retries: %v", err)
 	}
-
 	log.Infof("cluster slots result: %+v", clusterSlots)
 
 	if err != nil || len(clusterSlots) == 0 {
@@ -285,4 +285,39 @@ func (s *ValkeyStorage) HealthCheck() error {
 
 	log.Info("Valkey is healthy")
 	return nil
+}
+
+// clusterSlotsWithRetry attempts to get cluster slots with exponential backoff
+func clusterSlotsWithRetry(client *redis.Client, ctx context.Context, maxRetries int) ([]redis.ClusterSlot, error) {
+	log := log.WithField("prefix", "clusterSlotsWithRetry")
+
+	for attempt := 0; attempt <= maxRetries; attempt++ {
+		slots, err := client.ClusterSlots(ctx).Result()
+		if err == nil {
+			return slots, nil
+		}
+
+		if attempt == maxRetries {
+			log.Warnf("failed to get cluster slots after %d attempts: %v", maxRetries+1, err)
+			return nil, err
+		}
+
+		// Calculate exponential backoff delay: 100ms * 2^attempt (max 5s)
+		backoffDelay := time.Duration(100*math.Pow(2, float64(attempt))) * time.Millisecond
+		if backoffDelay > 5*time.Second {
+			backoffDelay = 5 * time.Second
+		}
+
+		log.Warnf("cluster slots attempt %d failed: %v, retrying in %v", attempt+1, err, backoffDelay)
+
+		// Sleep with context cancellation support
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoffDelay):
+			// Continue to next attempt
+		}
+	}
+
+	return nil, fmt.Errorf("max retries exceeded")
 }
