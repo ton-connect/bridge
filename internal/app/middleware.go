@@ -58,13 +58,10 @@ func LogrusLoggerMiddleware() echo.MiddlewareFunc {
 			req := c.Request()
 			res := c.Response()
 
-			// Process request
 			err := next(c)
 
-			// Log after request is processed
 			stop := time.Now()
 
-			// Prepare log fields
 			fields := logrus.Fields{
 				"remote_ip":  c.RealIP(),
 				"host":       req.Host,
@@ -77,32 +74,19 @@ func LogrusLoggerMiddleware() echo.MiddlewareFunc {
 				"bytes_out":  res.Size,
 			}
 
-			// Add user agent if present
 			if ua := req.UserAgent(); ua != "" {
 				fields["user_agent"] = ua
 			}
 
-			// Add referer if present
 			if referer := req.Referer(); referer != "" {
 				fields["referer"] = referer
 			}
 
-			// Add request ID if present
 			if id := req.Header.Get(echo.HeaderXRequestID); id != "" {
 				fields["request_id"] = id
 			}
 
-			// Log level based on status code
-			switch {
-			case res.Status >= 500:
-				logrus.WithFields(fields).Error("HTTP request completed with server error")
-			case res.Status >= 400:
-				logrus.WithFields(fields).Warn("HTTP request completed with client error")
-			case res.Status >= 300:
-				logrus.WithFields(fields).Info("HTTP request completed with redirect")
-			default:
-				logrus.WithFields(fields).Info("HTTP request completed")
-			}
+			logrus.WithFields(fields).Info()
 
 			return err
 		}
