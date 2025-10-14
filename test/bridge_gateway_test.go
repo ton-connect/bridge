@@ -18,8 +18,6 @@ import (
 	"sync"
 	"testing"
 	"time"
-
-	"github.com/tonkeeper/bridge/internal/utils"
 )
 
 // ===== Test config =====
@@ -108,7 +106,7 @@ func OpenBridge(ctx context.Context, opts OpenOpts) (*BridgeGateway, error) {
 	gw.setReady(true)
 
 	// Reader goroutine
-	utils.RunWithRecovery(func() {
+	go func() {
 		defer close(gw.msgs)
 		defer close(gw.errs)
 		// explicitly ignore Close() error to satisfy errcheck
@@ -165,7 +163,7 @@ func OpenBridge(ctx context.Context, opts OpenOpts) (*BridgeGateway, error) {
 			default:
 			}
 		}
-	})
+	}()
 
 	return gw, nil
 }
