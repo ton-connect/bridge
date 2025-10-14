@@ -16,7 +16,7 @@ const PRE_ALLOCATED_VUS = 100
 const MAX_VUS = PRE_ALLOCATED_VUS * 25
 
 const BRIDGE_URL = __ENV.BRIDGE_URL || 'http://localhost:8081/bridge';
-const TEST_DURATION = __ENV.TEST_DURATION || '2m';
+const TEST_DURATION = __ENV.TEST_DURATION || '15m';
 const SSE_VUS = Number(__ENV.SSE_VUS || 1000);
 const SEND_RATE = Number(__ENV.SEND_RATE || 10000);
 
@@ -24,6 +24,11 @@ const SEND_RATE = Number(__ENV.SEND_RATE || 10000);
 const ID_POOL = new SharedArray('ids', () => Array.from({length: 100}, (_, i) => {
   return i.toString(16).padStart(64, '0'); // 64-char hex strings
 }));
+
+// 5-minute test: slow warm-up, steady state, then ramp down
+const RAMP_UP = '5m';
+const HOLD = '7m';
+const RAMP_DOWN = '3m';
 
 export const options = {
     discardResponseBodies: true,
@@ -37,18 +42,28 @@ export const options = {
     },
     scenarios: {
         sse: {
-            executor: 'constant-vus',
-            vus: SSE_VUS,
-            duration: TEST_DURATION,
+            executor: 'ramping-vus',
+            startVUs: 0,
+            stages: [
+                { duration: RAMP_UP, target: SSE_VUS },   // warm-up
+                { duration: HOLD, target: SSE_VUS },      // steady
+                { duration: RAMP_DOWN, target: 0 },       // cool-down
+            ],
+            gracefulRampDown: '30s',
             exec: 'sseWorker'
         },
         senders: {
-            executor: 'constant-arrival-rate',
-            rate: SEND_RATE,
+            executor: 'ramping-arrival-rate',
+            startRate: 0,
             timeUnit: '1s',
-            duration: TEST_DURATION,
             preAllocatedVUs: PRE_ALLOCATED_VUS,
             maxVUs: MAX_VUS,
+            stages: [
+                { duration: RAMP_UP, target: SEND_RATE }, // warm-up
+                { duration: HOLD, target: SEND_RATE },    // steady
+                { duration: RAMP_DOWN, target: 0 },       // cool-down
+            ],
+            gracefulStop: '30s',
             exec: 'messageSender'
         },
     },
