@@ -17,6 +17,7 @@ make build
 
 ## environments
 - LOG_LEVEL ##example"info"
+- LOG_HTTP_REQUESTS ##example"true"
 - PORT ##example"8081"
 - METRICS_PORT ##example"9103"
 - POSTGRES_URI ##example"postgres://user:pass@host/dbname"

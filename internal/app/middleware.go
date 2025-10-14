@@ -3,8 +3,10 @@ package app
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/internal/config"
 	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
 	"github.com/tonkeeper/bridge/internal/utils"
@@ -42,6 +44,67 @@ func ConnectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, s
 			}
 			defer release()
 			return next(c)
+		}
+	}
+}
+
+// LogrusLoggerMiddleware creates a middleware that logs HTTP requests using logrus
+// This ensures the Echo framework logs match the same format as the bridge logger
+func LogrusLoggerMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			start := time.Now()
+
+			req := c.Request()
+			res := c.Response()
+
+			// Process request
+			err := next(c)
+
+			// Log after request is processed
+			stop := time.Now()
+
+			// Prepare log fields
+			fields := logrus.Fields{
+				"remote_ip":  c.RealIP(),
+				"host":       req.Host,
+				"method":     req.Method,
+				"uri":        req.RequestURI,
+				"status":     res.Status,
+				"latency":    stop.Sub(start).String(),
+				"latency_ms": stop.Sub(start).Milliseconds(),
+				"bytes_in":   req.Header.Get("Content-Length"),
+				"bytes_out":  res.Size,
+			}
+
+			// Add user agent if present
+			if ua := req.UserAgent(); ua != "" {
+				fields["user_agent"] = ua
+			}
+
+			// Add referer if present
+			if referer := req.Referer(); referer != "" {
+				fields["referer"] = referer
+			}
+
+			// Add request ID if present
+			if id := req.Header.Get(echo.HeaderXRequestID); id != "" {
+				fields["request_id"] = id
+			}
+
+			// Log level based on status code
+			switch {
+			case res.Status >= 500:
+				logrus.WithFields(fields).Error("HTTP request completed with server error")
+			case res.Status >= 400:
+				logrus.WithFields(fields).Warn("HTTP request completed with client error")
+			case res.Status >= 300:
+				logrus.WithFields(fields).Info("HTTP request completed with redirect")
+			default:
+				logrus.WithFields(fields).Info("HTTP request completed")
+			}
+
+			return err
 		}
 	}
 }
