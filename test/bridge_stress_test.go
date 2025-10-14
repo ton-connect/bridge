@@ -6,6 +6,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/tonkeeper/bridge/internal/utils"
 )
 
 // A tiny threadsafe buffer for received wallet messages.
@@ -114,7 +116,7 @@ func TestBridgeStress_10x100(t *testing.T) {
 		c := clients[ci]
 		for mi := 0; mi < MESSAGES_PER_CLIENT; mi++ {
 			ci, mi := ci, mi // capture
-			go func() {
+			utils.RunWithRecovery(func() {
 				defer wg.Done()
 				msg := JSONRPC{
 					Method: "sendTransaction",
@@ -125,7 +127,7 @@ func TestBridgeStress_10x100(t *testing.T) {
 					// Don’t fail the whole test immediately; record it and let the final checks catch any gaps.
 					t.Errorf("send fail client=%d msg=%d: %v", ci, mi, err)
 				}
-			}()
+			})
 		}
 	}
 

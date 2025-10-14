@@ -7,6 +7,7 @@ import (
 
 	"github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/internal/models"
+	"github.com/tonkeeper/bridge/internal/utils"
 	"github.com/tonkeeper/bridge/internal/v1/storage"
 )
 
@@ -50,7 +51,7 @@ func (s *Session) worker(heartbeatMessage string, enableQueueDoneEvent bool, hea
 
 func (s *Session) runHeartbeat(wg *sync.WaitGroup, log *logrus.Entry, heartbeatMessage string, heartbeatInterval time.Duration) {
 	wg.Add(1)
-	go func() {
+	utils.RunWithRecovery(func() {
 		defer wg.Done()
 
 		ticker := time.NewTicker(heartbeatInterval)
@@ -64,7 +65,7 @@ func (s *Session) runHeartbeat(wg *sync.WaitGroup, log *logrus.Entry, heartbeatM
 				s.MessageCh <- models.SseMessage{EventId: -1, Message: []byte(heartbeatMessage)}
 			}
 		}
-	}()
+	})
 }
 
 func (s *Session) retrieveHistoricMessages(wg *sync.WaitGroup, log *logrus.Entry, doneEvent bool) {

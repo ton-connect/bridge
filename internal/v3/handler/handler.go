@@ -155,12 +155,12 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
-	go func() {
+	utils.RunWithRecovery(func() {
 		<-notify
 		session.Close()
 		h.removeConnection(session)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
-	}()
+	})
 	ticker := time.NewTicker(h.heartbeatInterval)
 	defer ticker.Stop()
 	session.Start()
@@ -262,7 +262,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 	if config.Config.CopyToURL != "" {
-		go func() {
+		utils.RunWithRecovery(func() {
 			u, err := url.Parse(config.Config.CopyToURL)
 			if err != nil {
 				return
@@ -273,7 +273,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 				return
 			}
 			http.DefaultClient.Do(req) //nolint:errcheck// TODO review golangci-lint issue
-		}()
+		})
 	}
 	topic, ok := params["topic"]
 	if ok {
@@ -322,14 +322,14 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}
 
 	// Send message only to storage - pub-sub will handle distribution
-	go func() {
+	utils.RunWithRecovery(func() {
 		log := log.WithField("prefix", "SendMessageHandler.storage.Pub")
 		err = h.storage.Pub(context.Background(), sseMessage, ttl)
 		if err != nil {
 			// TODO ooops
 			log.Errorf("db error: %v", err)
 		}
-	}()
+	})
 
 	var bridgeMsg models.BridgeMessage
 	fromId := "unknown"

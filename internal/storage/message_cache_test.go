@@ -6,6 +6,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/tonkeeper/bridge/internal/utils"
 )
 
 func TestMarkAndIsMarkedBasic(t *testing.T) {
@@ -43,7 +45,7 @@ func TestConcurrentMarkAndIsMarked(t *testing.T) {
 	var wg sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		wg.Add(1)
-		go func() {
+		utils.RunWithRecovery(func() {
 			defer wg.Done()
 			for id := range jobs {
 				if mc.MarkIfNotExists(id) {
@@ -55,7 +57,7 @@ func TestConcurrentMarkAndIsMarked(t *testing.T) {
 					atomic.AddInt64(&badFirst, 1)
 				}
 			}
-		}()
+		})
 	}
 
 	for i := 0; i < total; i++ {
@@ -77,7 +79,7 @@ func TestConcurrentMarkAndIsMarked(t *testing.T) {
 	var wg2 sync.WaitGroup
 	for i := 0; i < workers; i++ {
 		wg2.Add(1)
-		go func() {
+		utils.RunWithRecovery(func() {
 			defer wg2.Done()
 			for id := range jobs2 {
 				if mc.MarkIfNotExists(id) {
@@ -89,7 +91,7 @@ func TestConcurrentMarkAndIsMarked(t *testing.T) {
 					atomic.AddInt64(&duplicatesReported, 1)
 				}
 			}
-		}()
+		})
 	}
 
 	for i := 0; i < total; i++ {
@@ -151,13 +153,13 @@ func BenchmarkConcurrentMarkIsMarked(b *testing.B) {
 
 		for i := 0; i < workers; i++ {
 			wg.Add(1)
-			go func() {
+			utils.RunWithRecovery(func() {
 				defer wg.Done()
 				for id := range jobs {
 					_ = mc.MarkIfNotExists(id)
 					_ = mc.IsMarked(id)
 				}
-			}()
+			})
 		}
 
 		for i := 0; i < total; i++ {
@@ -184,13 +186,13 @@ func BenchmarkConcurrentCleaning(b *testing.B) {
 
 		for i := 0; i < workers; i++ {
 			wg.Add(1)
-			go func() {
+			utils.RunWithRecovery(func() {
 				defer wg.Done()
 				for id := range jobs {
 					_ = mc.MarkIfNotExists(id)
 					_ = mc.IsMarked(id)
 				}
-			}()
+			})
 		}
 
 		for i := 0; i < total; i++ {

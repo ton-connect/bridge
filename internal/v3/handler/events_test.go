@@ -3,6 +3,8 @@ package handlerv3
 import (
 	"sync"
 	"testing"
+
+	"github.com/tonkeeper/bridge/internal/utils"
 )
 
 func TestEventIDGenerator_NextID(t *testing.T) {
@@ -46,18 +48,18 @@ func TestEventIDGenerator_SingleGenerators_Ordering(t *testing.T) {
 
 	for i := 0; i < numIDs; i++ {
 		wg.Add(1)
-		go func() {
+		utils.RunWithRecovery(func() {
 			defer wg.Done()
 			id := gen.NextID()
 			idsChan <- id
-		}()
+		})
 	}
 
 	// Close channel when all goroutines are done
-	go func() {
+	utils.RunWithRecovery(func() {
 		wg.Wait()
 		close(idsChan)
-	}()
+	})
 
 	// Collect all IDs from channel
 	var allIDs []int64
@@ -105,25 +107,25 @@ func TestEventIDGenerator_MultipleGenerators_Ordering(t *testing.T) {
 	var wg sync.WaitGroup
 
 	// Generate IDs from multiple generators with high concurrency
-	for i, gen := range generators {
+	for _, gen := range generators {
 		for c := 0; c < concurrency; c++ {
 			wg.Add(1)
-			go func(g *EventIDGenerator, genIndex, concIndex int) {
+			utils.RunWithRecovery(func() {
 				defer wg.Done()
 				idsPerRoutine := idsPerGenerator / concurrency
 				for j := 0; j < idsPerRoutine; j++ {
-					id := g.NextID()
+					id := gen.NextID()
 					idsChan <- id
 				}
-			}(gen, i, c)
+			})
 		}
 	}
 
 	// Close channel when all goroutines are done
-	go func() {
+	utils.RunWithRecovery(func() {
 		wg.Wait()
 		close(idsChan)
-	}()
+	})
 
 	// Collect all IDs from channel
 	var allIDs []int64

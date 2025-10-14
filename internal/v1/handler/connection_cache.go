@@ -6,6 +6,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+
+	"github.com/tonkeeper/bridge/internal/utils"
 )
 
 // ConnectionKey represents a unique connection identifier
@@ -49,13 +51,13 @@ func (c *ConnectionCache) StartBackgroundCleanup(customCleanupInterval *time.Dur
 	if customCleanupInterval != nil {
 		tickerDuration = *customCleanupInterval
 	}
-	go func() {
+	utils.RunWithRecovery(func() {
 		ticker := time.NewTicker(tickerDuration)
 		defer ticker.Stop()
 		for range ticker.C {
 			c.CleanExpired()
 		}
-	}()
+	})
 }
 
 // Add adds a connection to the cache

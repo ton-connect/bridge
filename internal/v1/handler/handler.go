@@ -186,12 +186,12 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 
 	ctx := c.Request().Context()
 	notify := ctx.Done()
-	go func() {
+	utils.RunWithRecovery(func() {
 		<-notify
 		close(session.Closer)
 		h.removeConnection(session)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
-	}()
+	})
 
 	session.Start(heartbeatMsg, enableQueueDoneEvent, h.heartbeatInterval)
 
@@ -308,7 +308,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}
 
 	if config.Config.CopyToURL != "" {
-		go func() {
+		utils.RunWithRecovery(func() {
 			u, err := url.Parse(config.Config.CopyToURL)
 			if err != nil {
 				return
@@ -319,7 +319,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 				return
 			}
 			http.DefaultClient.Do(req) //nolint:errcheck// TODO review golangci-lint issue
-		}()
+		})
 	}
 	topicParam, ok := params["topic"]
 	topic := ""
@@ -409,14 +409,14 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}
 		s.mux.Unlock()
 	}
-	go func() {
+	utils.RunWithRecovery(func() {
 		log := log.WithField("prefix", "SendMessageHandler.storge.Add")
 		err = h.storage.Add(context.Background(), sseMessage, ttl)
 		if err != nil {
 			// TODO ooops
 			log.Errorf("db error: %v", err)
 		}
-	}()
+	})
 
 	var bridgeMsg models.BridgeMessage
 	fromId := "unknown"
