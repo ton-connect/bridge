@@ -326,7 +326,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log := log.WithField("prefix", "SendMessageHandler.storage.Pub")
 		err = h.storage.Pub(context.Background(), sseMessage, ttl)
 		if err != nil {
-			// TODO ooops
 			log.Errorf("db error: %v", err)
 		}
 	})

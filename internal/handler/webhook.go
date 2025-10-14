@@ -23,11 +23,6 @@ func SendWebhook(clientID string, body WebhookData) {
 	webhooks := strings.Split(config.Config.WebhookURL, ",")
 	for _, webhook := range webhooks {
 		go func(webhook string) {
-			defer func() {
-				if r := recover(); r != nil {
-					log.Errorf("RECOVERED FROM PANIC: %v", r)
-				}
-			}()
 			err := sendWebhook(clientID, body, webhook)
 			if err != nil {
 				log.Errorf("failed to trigger webhook '%s': %v", webhook, err)
