@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"github.com/sethvargo/go-retry"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/internal/models"
 )
@@ -36,14 +37,26 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 
 	// First, connect to the single node to check if it's part of a cluster
 	tempClient := redis.NewClient(opts)
-	ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 5*time.Second)
+	ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelTemp()
 
-	// Try to get cluster info
-	clusterSlots, err := tempClient.ClusterSlots(ctxTemp).Result()
+	// Try to get cluster info with retry logic
+	clusterSlots, err := retry.DoValue(ctxTemp, retry.WithMaxRetries(7, retry.NewFibonacci(500*time.Millisecond)),
+		func(ctx context.Context) ([]redis.ClusterSlot, error) {
+			slots, err := tempClient.ClusterSlots(ctx).Result()
+			if err != nil {
+				// TODO which errors should we filter?
+				log.Debugf("retrying cluster slots query due to: %v", err)
+				return nil, retry.RetryableError(err)
+			}
+			return slots, nil
+		})
+
 	if err != nil {
-		log.Warnf("failed to get cluster slots: %v", err)
+		log.Warnf("failed to get cluster slots after retries: %v", err)
+		clusterSlots = []redis.ClusterSlot{} // Fallback to single-node mode
 	}
+
 	if err := tempClient.Close(); err != nil {
 		log.Warnf("failed to close temporary client: %v", err)
 	}
