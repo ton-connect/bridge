@@ -37,17 +37,17 @@ func (s *Session) GetMessages() <-chan models.SseMessage {
 
 // Close stops the session and cleans up resources
 func (s *Session) Close() {
-	log := log.WithField("prefix", "Session.Close")
-	s.mux.Lock()
-	defer s.mux.Unlock()
+    log := log.WithField("prefix", "Session.Close")
+    s.mux.Lock()
+    defer s.mux.Unlock()
 
-	err := s.storage.Unsub(context.Background(), s.ClientIds)
-	if err != nil {
-		log.Errorf("failed to unsubscribe from storage: %v", err)
-	}
+    err := s.storage.Unsub(context.Background(), s.ClientIds, s.messageCh)
+    if err != nil {
+        log.Errorf("failed to unsubscribe from storage: %v", err)
+    }
 
-	close(s.Closer)
-	close(s.messageCh)
+    close(s.Closer)
+    close(s.messageCh)
 }
 
 // Start begins the session by subscribing to storage
