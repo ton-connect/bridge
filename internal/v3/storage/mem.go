@@ -154,31 +154,31 @@ func (s *MemStorage) Sub(ctx context.Context, keys []string, lastEventId int64, 
 
 // Unsub unsubscribes from messages for the given keys
 func (s *MemStorage) Unsub(ctx context.Context, keys []string, messageCh chan<- models.SseMessage) error {
-    s.lock.Lock()
-    defer s.lock.Unlock()
+	s.lock.Lock()
+	defer s.lock.Unlock()
 
-    for _, key := range keys {
-        subscribers, exists := s.subscribers[key]
-        if !exists {
-            continue
-        }
+	for _, key := range keys {
+		subscribers, exists := s.subscribers[key]
+		if !exists {
+			continue
+		}
 
-        // Remove only the specific messageCh
-        newSubscribers := make([]chan<- models.SseMessage, 0, len(subscribers))
-        for _, ch := range subscribers {
-            if ch != messageCh {
-                newSubscribers = append(newSubscribers, ch)
-            }
-        }
+		// Remove only the specific messageCh
+		newSubscribers := make([]chan<- models.SseMessage, 0, len(subscribers))
+		for _, ch := range subscribers {
+			if ch != messageCh {
+				newSubscribers = append(newSubscribers, ch)
+			}
+		}
 
-        if len(newSubscribers) == 0 {
-            delete(s.subscribers, key)
-        } else {
-            s.subscribers[key] = newSubscribers
-        }
-    }
+		if len(newSubscribers) == 0 {
+			delete(s.subscribers, key)
+		} else {
+			s.subscribers[key] = newSubscribers
+		}
+	}
 
-    return nil
+	return nil
 }
 
 // HealthCheck should be implemented

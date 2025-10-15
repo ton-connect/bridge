@@ -176,7 +176,7 @@ func TestMemStorage_PubSub(t *testing.T) {
 	}
 
 	// Test unsubscribe
-	err = s.Unsub(context.Background(), []string{"1"})
+	err = s.Unsub(context.Background(), []string{"1"}, ch1)
 	if err != nil {
 		t.Errorf("Unsub() error = %v", err)
 	}

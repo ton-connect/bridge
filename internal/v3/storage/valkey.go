@@ -227,48 +227,48 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 
 // Unsub unsubscribes from Redis channels for the given keys
 func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan<- models.SseMessage) error {
-    log := log.WithField("prefix", "ValkeyStorage.Unsub")
+	log := log.WithField("prefix", "ValkeyStorage.Unsub")
 
-    s.subMutex.Lock()
-    defer s.subMutex.Unlock()
+	s.subMutex.Lock()
+	defer s.subMutex.Unlock()
 
-    channelsToUnsub := make([]string, 0)
-    
-    for _, key := range keys {
-        subscribers, exists := s.subscribers[key]
-        if !exists {
-            continue
-        }
+	channelsToUnsub := make([]string, 0)
 
-        // Remove only the specific messageCh from subscribers
-        newSubscribers := make([]chan<- models.SseMessage, 0, len(subscribers))
-        for _, ch := range subscribers {
-            if ch != messageCh {
-                newSubscribers = append(newSubscribers, ch)
-            }
-        }
+	for _, key := range keys {
+		subscribers, exists := s.subscribers[key]
+		if !exists {
+			continue
+		}
 
-        if len(newSubscribers) == 0 {
-            // No more subscribers for this key, clean up
-            delete(s.subscribers, key)
-            channel := fmt.Sprintf("client:%s", key)
-            channelsToUnsub = append(channelsToUnsub, channel)
-        } else {
-            // Still have subscribers, just update the list
-            s.subscribers[key] = newSubscribers
-        }
-    }
+		// Remove only the specific messageCh from subscribers
+		newSubscribers := make([]chan<- models.SseMessage, 0, len(subscribers))
+		for _, ch := range subscribers {
+			if ch != messageCh {
+				newSubscribers = append(newSubscribers, ch)
+			}
+		}
 
-    // Only unsubscribe from Redis channels that have NO subscribers left
-    if s.pubSubConn != nil && len(channelsToUnsub) > 0 {
-        err := s.pubSubConn.Unsubscribe(ctx, channelsToUnsub...)
-        if err != nil {
-            return fmt.Errorf("failed to unsubscribe from channels: %w", err)
-        }
-    }
+		if len(newSubscribers) == 0 {
+			// No more subscribers for this key, clean up
+			delete(s.subscribers, key)
+			channel := fmt.Sprintf("client:%s", key)
+			channelsToUnsub = append(channelsToUnsub, channel)
+		} else {
+			// Still have subscribers, just update the list
+			s.subscribers[key] = newSubscribers
+		}
+	}
 
-    log.Debugf("unsubscribed messageCh from keys: %v (redis channels unsubbed: %v)", keys, channelsToUnsub)
-    return nil
+	// Only unsubscribe from Redis channels that have NO subscribers left
+	if s.pubSubConn != nil && len(channelsToUnsub) > 0 {
+		err := s.pubSubConn.Unsubscribe(ctx, channelsToUnsub...)
+		if err != nil {
+			return fmt.Errorf("failed to unsubscribe from channels: %w", err)
+		}
+	}
+
+	log.Debugf("unsubscribed messageCh from keys: %v (redis channels unsubbed: %v)", keys, channelsToUnsub)
+	return nil
 }
 
 // handlePubSub processes incoming Redis pub-sub messages
