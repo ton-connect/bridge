@@ -39,7 +39,7 @@ func NewEventIDGenerator() *EventIDGenerator {
 // - Unique IDs even with high event rates (65K events/ms per instance)
 // - Works well with SSE last_event_id for client reconnection
 func (g *EventIDGenerator) NextID() int64 {
-	timestamp := time.Now().UnixNano()
+	timestamp := time.Now().UnixMilli()
 	counter := atomic.AddInt64(&g.counter, 1)
 	return (timestamp << 16) | ((counter + g.offset) & 0xFFFF)
 }
