@@ -161,6 +161,46 @@ services:
     command: ["/bin/bash", "-c", "make test-gointegration"]
     # command: ["/bin/bash", "-c", "tail -f /dev/null"]
 
+  benchmark:
+    build:
+      context: .
+      dockerfile: Dockerfile.benchmark
+    container_name: benchmark
+    working_dir: /scripts
+    environment:
+      BRIDGE_URL: "http://bridge:8081/bridge"
+      TEST_DURATION: "5m"
+      SSE_VUS: "500"
+      SEND_RATE: "10000"
+    depends_on:
+      bridge:
+        condition: service_started
+    networks:
+      - bridge_network
+    volumes:
+      - ./benchmark:/scripts:ro
+      - ./benchmark/results:/results
+    entrypoint: [ "/bin/sh", "-lc" ]
+    command:
+      - >
+        printf '\n\n======  pprof BEFORE  ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 http://bridge:9103/debug/pprof/allocs 2>/dev/null || true;
+        pprof -proto http://bridge:9103/debug/pprof/allocs > /tmp/allocs-before.pb.gz 2>/dev/null || true;
+        printf '\n\n====== starting BENCH ======\n\n';
+        printf 'Running load test for %s with:\n' "$$TEST_DURATION";
+        printf '  - SSE Virtual Users: %s\n' "$$SSE_VUS";
+        printf '  - Send Rate: %s msg/s\n' "$$SEND_RATE";
+        printf '  - Target: %s\n\n' "$$BRIDGE_URL";
+        printf '\n\nPlease wait...\n\n';
+        /usr/local/bin/k6 run --quiet --summary-export=/results/summary.json /scripts/bridge_test.js;
+        printf '\n\n======  pprof AFTER   ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 http://bridge:9103/debug/pprof/allocs 2>/dev/null || true;
+        pprof -proto http://bridge:9103/debug/pprof/allocs > /tmp/allocs-after.pb.gz 2>/dev/null || true;
+        printf '\n\n======   pprof DIFF   ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 -base=/tmp/allocs-before.pb.gz /tmp/allocs-after.pb.gz || true;
+        rm -f /tmp/allocs-before.pb.gz /tmp/allocs-after.pb.gz 2>/dev/null || true;
+        printf '\n\n============================\n\n';
+
 volumes:
   valkey_data:
 
