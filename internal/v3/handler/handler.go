@@ -325,10 +325,12 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	go func() {
 		log := log.WithField("prefix", "SendMessageHandler.storage.Pub")
 		err = h.storage.Pub(context.Background(), sseMessage, ttl)
+		log.Debugf("try publish message %d...", sseMessage.EventId)
 		if err != nil {
 			// TODO ooops
 			log.Errorf("db error: %v", err)
 		}
+		log.Debugf("message %d published to storage", sseMessage.EventId)
 	}()
 
 	var bridgeMsg models.BridgeMessage

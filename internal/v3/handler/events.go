@@ -4,6 +4,8 @@ import (
 	"math/rand"
 	"sync/atomic"
 	"time"
+
+	"github.com/sirupsen/logrus"
 )
 
 // EventIDGenerator generates monotonically increasing event IDs across multiple bridge instances.
@@ -39,7 +41,9 @@ func NewEventIDGenerator() *EventIDGenerator {
 // - Unique IDs even with high event rates (65K events/ms per instance)
 // - Works well with SSE last_event_id for client reconnection
 func (g *EventIDGenerator) NextID() int64 {
-	timestamp := time.Now().UnixNano()
+	timestamp := time.Now().UnixMilli()
 	counter := atomic.AddInt64(&g.counter, 1)
-	return (timestamp << 16) | ((counter + g.offset) & 0xFFFF)
+	value := (timestamp << 16) | ((counter + g.offset) & 0xFFFF)
+	logrus.Debugf("next event_id: %d", value)
+	return value
 }
