@@ -72,10 +72,9 @@ export const options = {
 export function sseWorker() {
   // Use round-robin assignment for more predictable URLs
   const vuIndex = exec.vu.idInTest - 1;
-  const groupId = Math.floor(vuIndex / 10); // 10 VUs per group
-  const ids = [`client_${groupId * 3}`, `client_${groupId * 3 + 1}`, `client_${groupId * 3 + 2}`];
-  const url = `${BRIDGE_URL}/events?client_id=${ids.join(',')}`;
-  
+  const clientId = `client_${vuIndex}`;
+  const url = `${BRIDGE_URL}/events?client_id=${clientId}`;
+
   // Keep reconnecting for the test duration
   for (;;) {
     try {
