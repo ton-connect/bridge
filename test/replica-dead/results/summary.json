@@ -1,0 +1,159 @@
+{
+    "root_group": {
+        "name": "",
+        "path": "",
+        "id": "d41d8cd98f00b204e9800998ecf8427e",
+        "groups": {},
+        "checks": {}
+    },
+    "metrics": {
+        "missing_timestamps": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count<100": false
+            }
+        },
+        "http_req_blocked": {
+            "p(90)": 0.002375,
+            "p(95)": 0.003333,
+            "avg": 0.0019332226625001574,
+            "min": 0.000458,
+            "med": 0.001291,
+            "max": 5.344538
+        },
+        "delivery_latency": {
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0,
+            "avg": 0,
+            "min": 0,
+            "thresholds": {
+                "p(95)<2000": false
+            }
+        },
+        "sse_errors": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count<10": false
+            }
+        },
+        "http_req_tls_handshaking": {
+            "avg": 0,
+            "min": 0,
+            "med": 0,
+            "max": 0,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_receiving": {
+            "avg": 0.024821316608333675,
+            "min": 0.002958,
+            "med": 0.018542,
+            "max": 3.123022,
+            "p(90)": 0.045708,
+            "p(95)": 0.062084
+        },
+        "data_sent": {
+            "count": 84858575,
+            "rate": 257145.0455703486
+        },
+        "http_req_duration": {
+            "med": 0.168084,
+            "max": 28.50497,
+            "p(90)": 0.29071,
+            "p(95)": 0.368419,
+            "avg": 0.2012930483541622,
+            "min": 0.052458
+        },
+        "http_req_connecting": {
+            "avg": 0.00017147688750000008,
+            "min": 0,
+            "med": 0,
+            "max": 5.221078,
+            "p(90)": 0,
+            "p(95)": 0
+        },
+        "http_req_sending": {
+            "avg": 0.013617725568512882,
+            "min": 0.001958,
+            "med": 0.010876,
+            "max": 10.203072,
+            "p(90)": 0.020041,
+            "p(95)": 0.027292
+        },
+        "vus": {
+            "value": 1,
+            "min": 1,
+            "max": 102
+        },
+        "http_req_failed": {
+            "passes": 0,
+            "fails": 240000,
+            "thresholds": {
+                "rate<0.01": false
+            },
+            "value": 0
+        },
+        "http_req_waiting": {
+            "p(95)": 0.301168,
+            "avg": 0.16319251386250008,
+            "min": 0.043333,
+            "med": 0.134126,
+            "max": 27.867215,
+            "p(90)": 0.237543
+        },
+        "json_parse_errors": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count<5": false
+            }
+        },
+        "sse_message_sent": {
+            "rate": 727.2666426095849,
+            "count": 240000,
+            "thresholds": {
+                "count>5": false
+            }
+        },
+        "http_reqs": {
+            "rate": 727.2666426095849,
+            "count": 240000
+        },
+        "sse_message_received": {
+            "count": 0,
+            "rate": 0,
+            "thresholds": {
+                "count>5": true
+            }
+        },
+        "iteration_duration": {
+            "med": 0.247877,
+            "max": 28.942139,
+            "p(90)": 0.412086,
+            "p(95)": 0.519712,
+            "avg": 0.2927933365041578,
+            "min": 0.09325
+        },
+        "iterations": {
+            "count": 240000,
+            "rate": 727.2666426095849
+        },
+        "sse_event": {
+            "count": 2750,
+            "rate": 8.333263613234827
+        },
+        "vus_max": {
+            "value": 200,
+            "min": 200,
+            "max": 200
+        },
+        "data_received": {
+            "count": 37526800,
+            "rate": 113716.62434950571
+        }
+    }
+}

@@ -1,0 +1,75 @@
+services:
+  valkey-primary:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6379:6379"
+    command: valkey-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - failover_network
+
+  valkey-replica:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6380:6379"
+    command: valkey-server --appendonly yes --replicaof valkey-primary 6379
+    depends_on:
+      valkey-primary:
+        condition: service_healthy
+    networks:
+      - failover_network
+
+  bridge:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.bridge3
+    environment:
+      PORT: 8081
+      STORAGE: "valkey"
+      VALKEY_URI: "redis://valkey-primary:6379"
+      CORS_ENABLE: "true"
+      RPS_LIMIT: 100000
+      CONNECTIONS_LIMIT: 20000
+    depends_on:
+      valkey-primary:
+        condition: service_healthy
+    networks:
+      - failover_network
+
+  benchmark:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.benchmark
+    working_dir: /scripts
+    environment:
+      BRIDGE_URL: "http://bridge:8081/bridge"
+      TEST_DURATION: "5m"
+      SSE_VUS: "100"
+      SEND_RATE: "1000"
+    depends_on:
+      bridge:
+        condition: service_started
+    networks:
+      - failover_network
+    volumes:
+      - ../../benchmark:/scripts:ro
+      - ./results:/results
+    entrypoint: [ "/bin/sh", "-lc" ]
+    command:
+      - >
+        printf '\n\n====== Waiting for bridge to start ======\n\n';
+        sleep 30;
+        printf 'Running load test for %s with:\n' "$$TEST_DURATION";
+        printf '  - SSE Virtual Users: %s\n' "$$SSE_VUS";
+        printf '  - Send Rate: %s msg/s\n' "$$SEND_RATE";
+        printf '  - Target: %s\n\n' "$$BRIDGE_URL";
+        printf '\n\nPlease wait...\n\n';
+        /usr/local/bin/k6 run --quiet --summary-export=/results/summary.json /scripts/bridge_test.js;
+        printf '\n\n============================\n\n';
+
+networks:
+  failover_network:

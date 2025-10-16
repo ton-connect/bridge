@@ -5,7 +5,8 @@ import exec from 'k6/execution';
 import sse from 'k6/x/sse';
 import encoding from 'k6/encoding';
 
-export let sse_messages = new Counter('sse_messages');
+export let sse_message_received = new Counter('sse_message_received');
+export let sse_message_sent = new Counter('sse_message_sent');
 export let sse_errors = new Counter('sse_errors');
 export let post_errors = new Counter('post_errors');
 export let delivery_latency = new Trend('delivery_latency');
@@ -26,9 +27,9 @@ const ID_POOL = new SharedArray('ids', () => Array.from({length: 100}, (_, i) =>
 }));
 
 // 5-minute test: slow warm-up, steady state, then ramp down
-const RAMP_UP = '5m';
-const HOLD = '7m';
-const RAMP_DOWN = '3m';
+const RAMP_UP = '1m';
+const HOLD = '3m';
+const RAMP_DOWN = '1m';
 
 export const options = {
     discardResponseBodies: true,
@@ -39,6 +40,9 @@ export const options = {
         sse_errors: ['count<10'], // SSE should be very stable
         json_parse_errors: ['count<5'], // Should rarely fail to parse
         missing_timestamps: ['count<100'], // Most messages should have timestamps
+        sse_message_sent: ['count>5'],
+        sse_message_received: ['count>5'],
+
     },
     scenarios: {
         sse: {
@@ -100,7 +104,7 @@ export function sseWorker() {
             json_parse_errors.add(1);
             console.log('JSON parse error:', e, 'data:', ev.data);
           }
-          sse_messages.add(1);
+          sse_message_received.add(1);
         });
         c.on('error', (err) => {
           console.log('SSE error:', err);
@@ -128,5 +132,9 @@ export function messageSender() {
     timeout: '10s',
     tags: { name: 'POST /message' }, // Group all message requests
   });
-  if (r.status !== 200) post_errors.add(1);
+  if (r.status !== 200) {
+    post_errors.add(1);
+  } else {
+    sse_message_sent.add(1);
+  }
 }
