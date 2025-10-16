@@ -17,6 +17,11 @@ services:
     ports:
       - "6380:6379"
     command: valkey-server --appendonly yes --replicaof valkey-primary 6379
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
     depends_on:
       valkey-primary:
         condition: service_healthy
@@ -37,6 +42,8 @@ services:
     depends_on:
       valkey-primary:
         condition: service_healthy
+      valkey-replica:
+        condition: service_healthy
     networks:
       - failover_network
 
@@ -47,7 +54,9 @@ services:
     working_dir: /scripts
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"
-      TEST_DURATION: "5m"
+      RAMP_UP: "1m"
+      HOLD: "3m"
+      RAMP_DOWN: "1m"
       SSE_VUS: "100"
       SEND_RATE: "1000"
     depends_on:
