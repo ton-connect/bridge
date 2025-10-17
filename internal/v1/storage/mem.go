@@ -9,6 +9,8 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/tonkeeper/bridge/internal/app"
+	"github.com/tonkeeper/bridge/internal/config"
 	"github.com/tonkeeper/bridge/internal/models"
 )
 
@@ -31,6 +33,9 @@ func NewMemStorage() *MemStorage {
 		db: map[string][]message{},
 	}
 	go s.watcher()
+	if config.Config.EnableMessagesMetrics {
+		go s.metricsCollector()
+	}
 	return &s
 }
 
@@ -78,6 +83,35 @@ func (s *MemStorage) watcher() {
 		_ = TransferedCache.Cleanup()
 
 		time.Sleep(time.Second)
+	}
+}
+
+func (s *MemStorage) metricsCollector() {
+	ticker := time.NewTicker(time.Duration(config.Config.MessagesMetricsInterval) * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		s.lock.Lock()
+		now := time.Now()
+		threshold := now.Add(300 * time.Second)
+
+		totalCount := 0
+		expiringCount := 0
+
+		for _, msgs := range s.db {
+			for _, m := range msgs {
+				if !m.IsExpired(now) {
+					totalCount++
+					if m.expireAt.Before(threshold) {
+						expiringCount++
+					}
+				}
+			}
+		}
+		s.lock.Unlock()
+
+		app.SetBridgeMessagesCount(expiringCount, "<300seconds")
+		app.SetBridgeMessagesCount(totalCount, "total")
 	}
 }
 

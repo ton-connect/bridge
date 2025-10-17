@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	"github.com/tonkeeper/bridge/internal/app"
 	"github.com/tonkeeper/bridge/internal/config"
 	"github.com/tonkeeper/bridge/internal/models"
 )
@@ -138,6 +139,9 @@ func NewPgStorage(postgresURI string) (*PgStorage, error) {
 		postgres: c,
 	}
 	go s.worker()
+	if config.Config.EnableMessagesMetrics {
+		go s.metricsCollector()
+	}
 	return &s, nil
 }
 
@@ -217,6 +221,43 @@ func (s *PgStorage) worker() {
 				log.Infof("remove expired messages error: %v", err)
 			}
 		}
+	}
+}
+
+func (s *PgStorage) metricsCollector() {
+	log := logrus.WithField("prefix", "PgStorage.metricsCollector")
+	ticker := time.NewTicker(time.Duration(config.Config.MessagesMetricsInterval) * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		now := time.Now()
+		threshold := now.Add(300 * time.Second)
+
+		// Count total messages
+		var totalCount int
+		err := s.postgres.QueryRow(context.TODO(),
+			`SELECT COUNT(*) 
+			 FROM bridge.messages 
+			 WHERE current_timestamp < end_time`).Scan(&totalCount)
+		if err != nil {
+			log.Errorf("failed to count total messages: %v", err)
+			continue
+		}
+
+		// Count messages expiring within 300 seconds
+		var expiringCount int
+		err = s.postgres.QueryRow(context.TODO(),
+			`SELECT COUNT(*) 
+			 FROM bridge.messages 
+			 WHERE current_timestamp < end_time 
+			 AND end_time < $1`, threshold).Scan(&expiringCount)
+		if err != nil {
+			log.Errorf("failed to count expiring messages: %v", err)
+			continue
+		}
+
+		app.SetBridgeMessagesCount(expiringCount, "<300seconds")
+		app.SetBridgeMessagesCount(totalCount, "total")
 	}
 }
 
