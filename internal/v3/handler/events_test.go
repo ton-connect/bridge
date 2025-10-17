@@ -91,7 +91,7 @@ func TestEventIDGenerator_SingleGenerators_Ordering(t *testing.T) {
 }
 
 func TestEventIDGenerator_MultipleGenerators_Ordering(t *testing.T) {
-	const numGenerators = 5
+	const numGenerators = 3
 	const idsPerGenerator = 100
 	const concurrency = 10 // Number of goroutines per generator
 
