@@ -1,0 +1,45 @@
+services:
+  valkey:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "16379:6379"
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - test_network
+    restart: unless-stopped
+
+  bridge:
+    container_name: bridge-unsub-test
+    build:
+      context: ../..
+      dockerfile: Dockerfile.bridge3
+    ports:
+      - "8081:8081"
+    environment:
+      PORT: 8081
+      STORAGE: "valkey"
+      VALKEY_URI: "redis://valkey:6379"
+      CORS_ENABLE: "true"
+      HEARTBEAT_INTERVAL: 10
+      RPS_LIMIT: 1000
+      CONNECTIONS_LIMIT: 200
+    depends_on:
+      valkey:
+        condition: service_healthy
+    networks:
+      - test_network
+    restart: unless-stopped
+
+
+volumes:
+  valkey_data:
+
+networks:
+  test_network:
+    driver: bridge

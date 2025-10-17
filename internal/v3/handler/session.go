@@ -41,7 +41,7 @@ func (s *Session) Close() {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	err := s.storage.Unsub(context.Background(), s.ClientIds)
+	err := s.storage.Unsub(context.Background(), s.ClientIds, s.messageCh)
 	if err != nil {
 		log.Errorf("failed to unsubscribe from storage: %v", err)
 	}
