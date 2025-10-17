@@ -5,7 +5,8 @@ import exec from 'k6/execution';
 import sse from 'k6/x/sse';
 import encoding from 'k6/encoding';
 
-export let sse_messages = new Counter('sse_messages');
+export let sse_message_received = new Counter('sse_message_received');
+export let sse_message_sent = new Counter('sse_message_sent');
 export let sse_errors = new Counter('sse_errors');
 export let post_errors = new Counter('post_errors');
 export let delivery_latency = new Trend('delivery_latency');
@@ -16,19 +17,21 @@ const PRE_ALLOCATED_VUS = 100
 const MAX_VUS = PRE_ALLOCATED_VUS * 25
 
 const BRIDGE_URL = __ENV.BRIDGE_URL || 'http://localhost:8081/bridge';
-const TEST_DURATION = __ENV.TEST_DURATION || '15m';
-const SSE_VUS = Number(__ENV.SSE_VUS || 1000);
-const SEND_RATE = Number(__ENV.SEND_RATE || 10000);
+
+// 1 minutes ramp-up, 1 minutes steady, 1 minutes ramp-down
+const RAMP_UP = __ENV.RAMP_UP || '10s';
+const HOLD = __ENV.HOLD || '10s';
+const RAMP_DOWN = __ENV.RAMP_DOWN || '10s';
+
+const SSE_VUS = Number(__ENV.SSE_VUS || 100);
+const SEND_RATE = Number(__ENV.SEND_RATE || 1000);
 
 // Generate valid hex client IDs that the bridge expects
 const ID_POOL = new SharedArray('ids', () => Array.from({length: 100}, (_, i) => {
   return i.toString(16).padStart(64, '0'); // 64-char hex strings
 }));
 
-// 5-minute test: slow warm-up, steady state, then ramp down
-const RAMP_UP = '5m';
-const HOLD = '7m';
-const RAMP_DOWN = '3m';
+
 
 export const options = {
     discardResponseBodies: true,
@@ -39,6 +42,9 @@ export const options = {
         sse_errors: ['count<10'], // SSE should be very stable
         json_parse_errors: ['count<5'], // Should rarely fail to parse
         missing_timestamps: ['count<100'], // Most messages should have timestamps
+        sse_message_sent: ['count>5'],
+        sse_message_received: ['count>5'],
+
     },
     scenarios: {
         sse: {
@@ -73,7 +79,12 @@ export function sseWorker() {
   // Use round-robin assignment for more predictable URLs
   const vuIndex = exec.vu.idInTest - 1;
   const groupId = Math.floor(vuIndex / 10); // 10 VUs per group
-  const ids = [`client_${groupId * 3}`, `client_${groupId * 3 + 1}`, `client_${groupId * 3 + 2}`];
+  // Use same IDs as sender
+  const ids = [
+    ID_POOL[groupId * 3 % ID_POOL.length], 
+    ID_POOL[(groupId * 3 + 1) % ID_POOL.length], 
+    ID_POOL[(groupId * 3 + 2) % ID_POOL.length]
+  ];
   const url = `${BRIDGE_URL}/events?client_id=${ids.join(',')}`;
   
   // Keep reconnecting for the test duration
@@ -88,19 +99,23 @@ export function sseWorker() {
             return; // Skip heartbeats and empty events
           }
           try {
-            const m = JSON.parse(ev.data);
+            // Parse the SSE event data first
+            const eventData = JSON.parse(ev.data);
+            // Then decode the base64 message field
+            const decoded = encoding.b64decode(eventData.message, 'std', 's');
+            const m = JSON.parse(decoded);
             if (m.ts) {
               const latency = Date.now() - m.ts;
               delivery_latency.add(latency);
+              sse_message_received.add(1);
             } else {
               missing_timestamps.add(1);
-              console.log('Message missing timestamp:', ev.data);
+              console.log('Message missing timestamp:', decoded);
             }
           } catch(e) {
             json_parse_errors.add(1);
             console.log('JSON parse error:', e, 'data:', ev.data);
           }
-          sse_messages.add(1);
         });
         c.on('error', (err) => {
           console.log('SSE error:', err);
@@ -128,5 +143,9 @@ export function messageSender() {
     timeout: '10s',
     tags: { name: 'POST /message' }, // Group all message requests
   });
-  if (r.status !== 200) post_errors.add(1);
+  if (r.status !== 200) {
+    post_errors.add(1);
+  } else {
+    sse_message_sent.add(1);
+  }
 }

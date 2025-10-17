@@ -169,7 +169,9 @@ services:
     working_dir: /scripts
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"
-      TEST_DURATION: "5m"
+      RAMP_UP: "1m"
+      HOLD: "3m"
+      RAMP_DOWN: "1m"
       SSE_VUS: "500"
       SEND_RATE: "10000"
     depends_on:
