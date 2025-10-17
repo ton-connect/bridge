@@ -1,0 +1,302 @@
+services:
+  valkey-shard1:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_shard1_data:/data
+    command: valkey-server --port 6379 --cluster-enabled yes --cluster-config-file nodes-6379.conf --cluster-node-timeout 5000 --appendonly yes
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.22.0.20
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'      # Constrained CPU to create bottleneck
+          memory: '256M'    # Enough to avoid OOM
+
+  valkey-shard2:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6380:6380"
+    volumes:
+      - valkey_shard2_data:/data
+    command: valkey-server --port 6380 --cluster-enabled yes --cluster-config-file nodes-6380.conf --cluster-node-timeout 5000 --appendonly yes
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-p", "6380", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.22.0.21
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'      # Constrained CPU to create bottleneck
+          memory: '256M'    # Enough to avoid OOM
+
+  valkey-shard3:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6381:6381"
+    volumes:
+      - valkey_shard3_data:/data
+    command: valkey-server --port 6381 --cluster-enabled yes --cluster-config-file nodes-6381.conf --cluster-node-timeout 5000 --appendonly yes
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-p", "6381", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.22.0.22
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'      # Constrained CPU to create bottleneck
+          memory: '256M'    # Enough to avoid OOM
+
+  valkey-shard4:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6382:6382"
+    volumes:
+      - valkey_shard4_data:/data
+    command: valkey-server --port 6382 --cluster-enabled yes --cluster-config-file nodes-6382.conf --cluster-node-timeout 5000 --appendonly yes
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-p", "6382", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.22.0.23
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'      # Constrained CPU to create bottleneck
+          memory: '256M'    # Enough to avoid OOM
+
+  valkey-shard5:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6383:6383"
+    volumes:
+      - valkey_shard5_data:/data
+    command: valkey-server --port 6383 --cluster-enabled yes --cluster-config-file nodes-6383.conf --cluster-node-timeout 5000 --appendonly yes
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-p", "6383", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.22.0.24
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'      # Constrained CPU to create bottleneck
+          memory: '256M'    # Enough to avoid OOM
+
+  valkey-shard6:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6384:6384"
+    volumes:
+      - valkey_shard6_data:/data
+    command: valkey-server --port 6384 --cluster-enabled yes --cluster-config-file nodes-6384.conf --cluster-node-timeout 5000 --appendonly yes
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-p", "6384", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.22.0.25
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '0.05'      # Constrained CPU to create bottleneck
+          memory: '256M'    # Enough to avoid OOM
+
+  valkey-cluster-init:
+    image: valkey/valkey:7.2-alpine
+    depends_on:
+      valkey-shard1:
+        condition: service_healthy
+      valkey-shard2:
+        condition: service_healthy
+      valkey-shard3:
+        condition: service_healthy
+      valkey-shard4:
+        condition: service_healthy
+      valkey-shard5:
+        condition: service_healthy
+      valkey-shard6:
+        condition: service_healthy
+    networks:
+      bridge_network:
+        ipv4_address: 172.22.0.26
+    command: >
+      sh -c "
+        sleep 10 &&
+        echo 'Resetting cluster state on all nodes...' &&
+        valkey-cli -h 172.22.0.20 -p 6379 FLUSHALL &&
+        valkey-cli -h 172.22.0.21 -p 6380 FLUSHALL &&
+        valkey-cli -h 172.22.0.22 -p 6381 FLUSHALL &&
+        valkey-cli -h 172.22.0.23 -p 6382 FLUSHALL &&
+        valkey-cli -h 172.22.0.24 -p 6383 FLUSHALL &&
+        valkey-cli -h 172.22.0.25 -p 6384 FLUSHALL &&
+        valkey-cli -h 172.22.0.20 -p 6379 CLUSTER RESET HARD &&
+        valkey-cli -h 172.22.0.21 -p 6380 CLUSTER RESET HARD &&
+        valkey-cli -h 172.22.0.22 -p 6381 CLUSTER RESET HARD &&
+        valkey-cli -h 172.22.0.23 -p 6382 CLUSTER RESET HARD &&
+        valkey-cli -h 172.22.0.24 -p 6383 CLUSTER RESET HARD &&
+        valkey-cli -h 172.22.0.25 -p 6384 CLUSTER RESET HARD &&
+        echo 'Creating new 6-node cluster...' &&
+        valkey-cli --cluster create 172.22.0.20:6379 172.22.0.21:6380 172.22.0.22:6381 172.22.0.23:6382 172.22.0.24:6383 172.22.0.25:6384 --cluster-replicas 0 --cluster-yes &&
+        echo 'Cluster created successfully' &&
+        valkey-cli -c -h 172.22.0.20 -p 6379 cluster nodes &&
+        valkey-cli -c -h 172.22.0.20 -p 6379 cluster info
+      "
+    restart: "no"
+
+  bridge:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.bridge3
+    container_name: bridge-6node
+    ports:
+      - "8082:8081"
+    environment:
+      LOG_LEVEL: "info"
+      PORT: 8081
+      STORAGE: "valkey"
+      VALKEY_URI: "redis://valkey-shard1:6379"
+      CORS_ENABLE: "true"
+      HEARTBEAT_INTERVAL: 10
+      RPS_LIMIT: 100000        # High limit to avoid bridge bottleneck
+      CONNECTIONS_LIMIT: 50000 # High limit to avoid bridge bottleneck
+    depends_on:
+      valkey-shard1:
+        condition: service_healthy
+      valkey-shard2:
+        condition: service_healthy
+      valkey-shard3:
+        condition: service_healthy
+      valkey-shard4:
+        condition: service_healthy
+      valkey-shard5:
+        condition: service_healthy
+      valkey-shard6:
+        condition: service_healthy
+      valkey-cluster-init:
+        condition: service_completed_successfully
+    networks:
+      bridge_network:
+        ipv4_address: 172.22.0.30
+    restart: unless-stopped
+    deploy:
+      resources:
+        limits:
+          cpus: '4.0'       # Abundant resources - bridge should NOT be bottleneck
+          memory: '2G'
+
+  data-monitor:
+    image: valkey/valkey:7.2-alpine
+    container_name: shard-data-monitor-6node
+    depends_on:
+      bridge:
+        condition: service_started
+    networks:
+      bridge_network:
+        ipv4_address: 172.22.0.60
+    command: >
+      sh -c "
+        echo 'Monitoring data distribution across 6 shards...' &&
+        sleep 30 &&
+        while true; do
+          echo '=== 6-Node Data Distribution Report ===' &&
+          echo 'Shard 1 (172.22.0.20:6379):' &&
+          valkey-cli -h 172.22.0.20 -p 6379 info keyspace &&
+          valkey-cli -h 172.22.0.20 -p 6379 dbsize &&
+          echo 'Shard 2 (172.22.0.21:6380):' &&
+          valkey-cli -h 172.22.0.21 -p 6380 info keyspace &&
+          valkey-cli -h 172.22.0.21 -p 6380 dbsize &&
+          echo 'Shard 3 (172.22.0.22:6381):' &&
+          valkey-cli -h 172.22.0.22 -p 6381 info keyspace &&
+          valkey-cli -h 172.22.0.22 -p 6381 dbsize &&
+          echo 'Shard 4 (172.22.0.23:6382):' &&
+          valkey-cli -h 172.22.0.23 -p 6382 info keyspace &&
+          valkey-cli -h 172.22.0.23 -p 6382 dbsize &&
+          echo 'Shard 5 (172.22.0.24:6383):' &&
+          valkey-cli -h 172.22.0.24 -p 6383 info keyspace &&
+          valkey-cli -h 172.22.0.24 -p 6383 dbsize &&
+          echo 'Shard 6 (172.22.0.25:6384):' &&
+          valkey-cli -h 172.22.0.25 -p 6384 info keyspace &&
+          valkey-cli -h 172.22.0.25 -p 6384 dbsize &&
+          echo 'Cluster Info:' &&
+          valkey-cli -c -h 172.22.0.20 -p 6379 cluster info &&
+          echo '==============================' &&
+          sleep 60
+        done
+      "
+    restart: unless-stopped
+
+  benchmark:
+    build:
+      context: ../..
+      dockerfile: Dockerfile.benchmark
+    container_name: benchmark-6node
+    working_dir: /scripts
+    environment:
+      BRIDGE_URL: "http://bridge-6node:8081/bridge"
+      TEST_DURATION: "${TEST_DURATION:-2m}"
+      SSE_VUS: "${SSE_VUS:-500}"
+      SEND_RATE: "${SEND_RATE:-5000}"
+    depends_on:
+      bridge:
+        condition: service_started
+    networks:
+      - bridge_network
+    volumes:
+      - ./k6:/scripts:ro
+      - ./results/cluster-6-nodes:/results
+    entrypoint: [ "/bin/sh", "-lc" ]
+    command:
+      - >
+        printf '\n\n====== 6-NODE CLUSTER BENCHMARK ======\n\n';
+        printf 'Running load test for %s with:\n' "$$TEST_DURATION";
+        printf '  - SSE Virtual Users: %s\n' "$$SSE_VUS";
+        printf '  - Send Rate: %s msg/s\n' "$$SEND_RATE";
+        printf '  - Target: %s\n\n' "$$BRIDGE_URL";
+        printf '\n\nPlease wait...\n\n';
+        /usr/local/bin/k6 run --quiet --summary-export=/results/summary.json /scripts/bridge_test.js;
+        printf '\n\n============================\n\n';
+
+volumes:
+  valkey_shard1_data:
+  valkey_shard2_data:
+  valkey_shard3_data:
+  valkey_shard4_data:
+  valkey_shard5_data:
+  valkey_shard6_data:
+
+networks:
+  bridge_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.22.0.0/16

@@ -1,0 +1,6 @@
+Test Scenario: write-heavy
+Date: Fri Oct 17 11:33:08 CEST 2025
+SSE_VUS: 250
+SEND_RATE: 7500
+TEST_DURATION: 2m
+Cluster: 3-node (0.45 CPU total)
