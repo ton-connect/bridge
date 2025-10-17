@@ -3,8 +3,10 @@ package app
 import (
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/internal/config"
 	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
 	"github.com/tonkeeper/bridge/internal/utils"
@@ -42,6 +44,51 @@ func ConnectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, s
 			}
 			defer release()
 			return next(c)
+		}
+	}
+}
+
+// LogrusLoggerMiddleware creates a middleware that logs HTTP requests using logrus
+// This ensures the Echo framework logs match the same format as the bridge logger
+func LogrusLoggerMiddleware() echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			start := time.Now()
+
+			req := c.Request()
+			res := c.Response()
+
+			err := next(c)
+
+			stop := time.Now()
+
+			fields := logrus.Fields{
+				"remote_ip":  c.RealIP(),
+				"host":       req.Host,
+				"method":     req.Method,
+				"uri":        req.RequestURI,
+				"status":     res.Status,
+				"latency":    stop.Sub(start).String(),
+				"latency_ms": stop.Sub(start).Milliseconds(),
+				"bytes_in":   req.Header.Get("Content-Length"),
+				"bytes_out":  res.Size,
+			}
+
+			if ua := req.UserAgent(); ua != "" {
+				fields["user_agent"] = ua
+			}
+
+			if referer := req.Referer(); referer != "" {
+				fields["referer"] = referer
+			}
+
+			if id := req.Header.Get(echo.HeaderXRequestID); id != "" {
+				fields["request_id"] = id
+			}
+
+			logrus.WithFields(fields).Info()
+
+			return err
 		}
 	}
 }

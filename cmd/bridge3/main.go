@@ -88,7 +88,9 @@ func main() {
 		DisableStackAll:   true,
 		DisablePrintStack: false,
 	}))
-	e.Use(middleware.Logger())
+	if config.Config.LogHTTPRequests {
+		e.Use(app.LogrusLoggerMiddleware())
+	}
 	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
 		Skipper: func(c echo.Context) bool {
 			if app.SkipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/message" {

@@ -43,6 +43,7 @@ var Config = struct {
 	TrustedProxyRanges     []string `env:"TRUSTED_PROXY_RANGES" envDefault:"0.0.0.0/0"`
 	MaxBodySize            int64    `env:"MAX_BODY_SIZE" envDefault:"10485760"` // 10 MB
 	PprofEnabled           bool     `env:"PPROF_ENABLED" envDefault:"true"`
+	LogHTTPRequests        bool     `env:"LOG_HTTP_REQUESTS" envDefault:"true"`
 	TFAnalyticsEnabled     bool     `env:"TF_ANALYTICS_ENABLED" envDefault:"false"`
 	BridgeName             string   `env:"BRIDGE_NAME" envDefault:"ton-connect-bridge"`
 	BridgeVersion          string   `env:"BRIDGE_VERSION" envDefault:"1.0.0"` // TODO start using build version
