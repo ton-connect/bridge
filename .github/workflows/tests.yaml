@@ -33,12 +33,12 @@ jobs:
       uses: docker/setup-buildx-action@v3
 
     - name: Start bridge
-      run: docker compose -f docker-compose.${{ matrix.storage }}.yml up --build -d bridge
+      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml up --build -d bridge
 
     - name: Run bridge-sdk tests
       id: bridge_sdk_tests
       run: |
-        docker compose -f docker-compose.${{ matrix.storage }}.yml run --rm integration || rc=$?
+        docker compose -f docker/docker-compose.${{ matrix.storage }}.yml run --rm integration || rc=$?
         rc=${rc:-0}
         echo "sdk_rc=$rc" >> $GITHUB_OUTPUT
         if [ $rc -ne 0 ]; then
@@ -48,7 +48,7 @@ jobs:
     - name: Run go-integration tests
       id: go_integration_tests
       run: |
-        docker compose -f docker-compose.${{ matrix.storage }}.yml run --rm gointegration || rc=$?
+        docker compose -f docker/docker-compose.${{ matrix.storage }}.yml run --rm gointegration || rc=$?
         rc=${rc:-0}
         echo "go_rc=$rc" >> $GITHUB_OUTPUT
         if [ $rc -ne 0 ]; then
@@ -71,7 +71,7 @@ jobs:
 
     - name: Clean up containers
       if: always()
-      run: docker compose -f docker-compose.${{ matrix.storage }}.yml down -v
+      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml down -v
 
     - name: Fail job if any tests failed
       if: ${{ fromJSON(steps.bridge_sdk_tests.outputs.sdk_rc) != 0 || fromJSON(steps.go_integration_tests.outputs.go_rc) != 0 }}
