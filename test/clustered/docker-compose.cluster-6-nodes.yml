@@ -176,7 +176,7 @@ services:
   bridge:
     build:
       context: ../..
-      dockerfile: Dockerfile.bridge3
+      dockerfile: docker/Dockerfile.bridge3
     container_name: bridge-6node
     ports:
       - "8082:8081"
@@ -258,7 +258,7 @@ services:
   benchmark:
     build:
       context: ../..
-      dockerfile: Dockerfile.benchmark
+      dockerfile: docker/Dockerfile.benchmark
     container_name: benchmark-6node
     working_dir: /scripts
     environment:

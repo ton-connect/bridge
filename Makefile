@@ -6,13 +6,13 @@ GOFMT_FILES?=$$(find . -name '*.go' | grep -v vendor | grep -v yacc | grep -v .g
 .PHONY: all imports fmt test test-unit test-bench test-bridge-sdk run stop clean logs status help
 
 STORAGE ?= memory
-DOCKER_COMPOSE_FILE = docker-compose.memory.yml
+DOCKER_COMPOSE_FILE = docker/docker-compose.memory.yml
 
 # Set compose file based on storage type
 ifeq ($(STORAGE),memory)
-    DOCKER_COMPOSE_FILE = docker-compose.memory.yml
+    DOCKER_COMPOSE_FILE = docker/docker-compose.memory.yml
 else ifeq ($(STORAGE),postgres)
-    DOCKER_COMPOSE_FILE = docker-compose.postgres.yml
+    DOCKER_COMPOSE_FILE = docker/docker-compose.postgres.yml
 endif
 
 all: imports fmt test

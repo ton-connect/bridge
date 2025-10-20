@@ -1,7 +1,7 @@
 services:
   bridge:
     container_name: bridge
-    build: .
+    build: ..
     environment:
       PORT: 8081
       CORS_ENABLE: "true"
@@ -17,8 +17,8 @@ services:
 
   integration:
     build:
-      context: .
-      dockerfile: Dockerfile.integration
+      context: ..
+      dockerfile: docker/Dockerfile.integration
     container_name: bridge-integration
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"
@@ -32,8 +32,8 @@ services:
 
   gointegration:
     build:
-      context: .
-      dockerfile: Dockerfile.gointegration
+      context: ..
+      dockerfile: docker/Dockerfile.gointegration
     container_name: bridge-gointegration
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"

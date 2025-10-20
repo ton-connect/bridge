@@ -20,7 +20,7 @@ services:
       - bridge_network
 
   bridge:
-    build: .
+    build: ..
     environment:
       PORT: 8081
       POSTGRES_URI: "postgres://bridge_user:bridge_password@postgres:5432/bridge?sslmode=disable"
@@ -40,8 +40,8 @@ services:
 
   integration:
     build:
-      context: .
-      dockerfile: Dockerfile.integration
+      context: ..
+      dockerfile: docker/Dockerfile.integration
     container_name: bridge-integration
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"
@@ -55,8 +55,8 @@ services:
 
   gointegration:
     build:
-      context: .
-      dockerfile: Dockerfile.gointegration
+      context: ..
+      dockerfile: docker/Dockerfile.gointegration
     container_name: bridge-gointegration
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"
@@ -70,8 +70,8 @@ services:
 
   benchmark:
     build:
-      context: .
-      dockerfile: Dockerfile.benchmark
+      context: ..
+      dockerfile: docker/Dockerfile.benchmark
     container_name: benchmark
     working_dir: /scripts
     environment:
