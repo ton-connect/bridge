@@ -2,6 +2,8 @@
 
 Test Bridge behavior when Valkey primary/replica fail.
 
+> **Note**: These tests are not running in CI.
+
 ## Start
 
 ```bash

@@ -2,6 +2,8 @@
 
 Find the breaking point where the 3-node cluster experiences performance degradation (high latency, errors, or dropped messages) while the 6-node cluster continues to handle the same workload successfully. This demonstrates the practical value of horizontal scaling.
 
+> **Note**: These tests are not running in CI.
+
 ## Architecture
 
 Both clusters use Valkey 7.2 in cluster mode:
