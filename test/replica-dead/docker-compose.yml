@@ -31,7 +31,7 @@ services:
   bridge:
     build:
       context: ../..
-      dockerfile: Dockerfile.bridge3
+      dockerfile: docker/Dockerfile.bridge3
     environment:
       PORT: 8081
       STORAGE: "valkey"
@@ -50,7 +50,7 @@ services:
   benchmark:
     build:
       context: ../..
-      dockerfile: Dockerfile.benchmark
+      dockerfile: docker/Dockerfile.benchmark
     working_dir: /scripts
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"

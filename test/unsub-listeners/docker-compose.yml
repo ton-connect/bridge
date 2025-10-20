@@ -18,7 +18,7 @@ services:
     container_name: bridge-unsub-test
     build:
       context: ../..
-      dockerfile: Dockerfile.bridge3
+      dockerfile: docker/Dockerfile.bridge3
     ports:
       - "8081:8081"
     environment:

@@ -1,0 +1,184 @@
+services:
+  valkey:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_data:/data
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      - bridge_network
+    restart: unless-stopped
+
+  bridge1:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.bridge3
+    container_name: bridge1
+    environment:
+      PORT: 8081
+      STORAGE: "valkey"
+      VALKEY_URI: "redis://valkey:6379"
+      CORS_ENABLE: "true"
+      HEARTBEAT_INTERVAL: 10
+      RPS_LIMIT: 1000
+      CONNECTIONS_LIMIT: 200
+    depends_on:
+      valkey:
+        condition: service_healthy
+    networks:
+      - bridge_network
+    restart: unless-stopped
+
+  bridge2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.bridge3
+    container_name: bridge2
+    environment:
+      PORT: 8081
+      STORAGE: "valkey"
+      VALKEY_URI: "redis://valkey:6379"
+      CORS_ENABLE: "true"
+      HEARTBEAT_INTERVAL: 10
+      RPS_LIMIT: 1000
+      CONNECTIONS_LIMIT: 200
+    depends_on:
+      valkey:
+        condition: service_healthy
+    networks:
+      - bridge_network
+    restart: unless-stopped
+
+  bridge3:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.bridge3
+    container_name: bridge3
+    environment:
+      PORT: 8081
+      STORAGE: "valkey"
+      VALKEY_URI: "redis://valkey:6379"
+      CORS_ENABLE: "true"
+      HEARTBEAT_INTERVAL: 10
+      RPS_LIMIT: 1000
+      CONNECTIONS_LIMIT: 200
+    depends_on:
+      valkey:
+        condition: service_healthy
+    networks:
+      - bridge_network
+    restart: unless-stopped
+
+  # Dummy service that waits for all bridge instances
+  bridge:
+    image: alpine:latest
+    container_name: bridge
+    depends_on:
+      bridge1:
+        condition: service_started
+      bridge2:
+        condition: service_started
+      bridge3:
+        condition: service_started
+    command: ["echo", "All bridge instances are ready"]
+    networks:
+      - bridge_network
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ../nginx.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      bridge:
+        condition: service_started
+    networks:
+      - bridge_network
+    restart: unless-stopped
+
+  integration:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.integration
+    container_name: bridge-integration
+    environment:
+      BRIDGE_URL: "http://nginx:80/bridge"
+    depends_on:
+      nginx:
+        condition: service_started
+    networks:
+      - bridge_network
+    command: ["/bin/bash", "-c", "make test-bridge-sdk"]
+    # command: ["/bin/bash", "-c", "tail -f /dev/null"]
+
+  gointegration:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.gointegration
+    container_name: bridge-gointegration
+    environment:
+      BRIDGE_URL: "http://nginx:80/bridge"
+    depends_on:
+      bridge:
+        condition: service_started
+    networks:
+      - bridge_network
+    command: ["/bin/bash", "-c", "make test-gointegration"]
+    # command: ["/bin/bash", "-c", "tail -f /dev/null"]
+
+  benchmark:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.benchmark
+    container_name: benchmark
+    working_dir: /scripts
+    environment:
+      BRIDGE_URL: "http://bridge:8081/bridge"
+      RAMP_UP: "1m"
+      HOLD: "3m"
+      RAMP_DOWN: "1m"
+      SSE_VUS: "500"
+      SEND_RATE: "10000"
+    depends_on:
+      bridge:
+        condition: service_started
+    networks:
+      - bridge_network
+    volumes:
+      - ../benchmark:/scripts:ro
+      - ./benchmark/results:/results
+    entrypoint: [ "/bin/sh", "-lc" ]
+    command:
+      - >
+        printf '\n\n======  pprof BEFORE  ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 http://bridge:9103/debug/pprof/allocs 2>/dev/null || true;
+        pprof -proto http://bridge:9103/debug/pprof/allocs > /tmp/allocs-before.pb.gz 2>/dev/null || true;
+        printf '\n\n====== starting BENCH ======\n\n';
+        printf 'Running load test for %s with:\n' "$$TEST_DURATION";
+        printf '  - SSE Virtual Users: %s\n' "$$SSE_VUS";
+        printf '  - Send Rate: %s msg/s\n' "$$SEND_RATE";
+        printf '  - Target: %s\n\n' "$$BRIDGE_URL";
+        printf '\n\nPlease wait...\n\n';
+        /usr/local/bin/k6 run --quiet --summary-export=/results/summary.json /scripts/bridge_test.js;
+        printf '\n\n======  pprof AFTER   ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 http://bridge:9103/debug/pprof/allocs 2>/dev/null || true;
+        pprof -proto http://bridge:9103/debug/pprof/allocs > /tmp/allocs-after.pb.gz 2>/dev/null || true;
+        printf '\n\n======   pprof DIFF   ======\n\n';
+        pprof -top -sample_index=alloc_space -unit=GB -nodecount=5 -base=/tmp/allocs-before.pb.gz /tmp/allocs-after.pb.gz || true;
+        rm -f /tmp/allocs-before.pb.gz /tmp/allocs-after.pb.gz 2>/dev/null || true;
+        printf '\n\n============================\n\n';
+
+volumes:
+  valkey_data:
+
+networks:
+  bridge_network:
+    driver: bridge

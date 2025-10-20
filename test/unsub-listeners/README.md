@@ -1,5 +1,7 @@
 # Unsub Listeners Bug Test
 
+> **Note**: These tests are not running in CI.
+
 ## Bug
 
 When multiple SSE connections are open for the same `client_id`, closing one connection unsubscribes ALL listeners. This causes remaining open connections to stop receiving messages.

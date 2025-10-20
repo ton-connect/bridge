@@ -35,7 +35,7 @@ runs:
         set -euo pipefail
         cd ton-connect-bridge
         echo "Starting TON Connect Bridge service with docker-compose.memory.yml..."
-        docker compose -f docker-compose.memory.yml up --build -d
+        docker compose -f docker/docker-compose.memory.yml up --build -d
         
         echo "Waiting for services to be ready..."
         sleep 10
@@ -59,9 +59,9 @@ runs:
         if [ $attempt -gt $max_attempts ]; then
           echo "❌ TON Connect Bridge service failed to start within expected time"
           echo "Docker containers status:"
-          docker compose -f docker-compose.memory.yml ps
+          docker compose -f docker/docker-compose.memory.yml ps
           echo "TON Connect Bridge container logs:"
-          docker compose -f docker-compose.memory.yml logs bridge
+          docker compose -f docker/docker-compose.memory.yml logs bridge
           exit 1
         fi
         

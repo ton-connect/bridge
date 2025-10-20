@@ -1,0 +1,25 @@
+# Create a new file: Dockerfile.integration
+FROM node:24-alpine
+
+# Install necessary tools including make
+RUN apk add --no-cache \
+    make \
+    curl \
+    wget \
+    bash \
+    ca-certificates \
+    bind-tools \
+    go \
+    git
+
+# Set working directory
+WORKDIR /app
+
+# Copy your integration files
+COPY . .
+
+# Make sure any scripts are executable
+RUN chmod +x /app/scripts/* || true
+
+# Default command
+CMD ["make", "test-bridge-sdk"]

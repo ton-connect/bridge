@@ -62,7 +62,7 @@ Default url `http://localhost:8081/bridge`
 ```bash
 git clone https://github.com/ton-connect/bridge.git
 cd bridge
-docker compose -f docker-compose.memory.yml up --build -d
+docker compose -f docker/docker-compose.memory.yml up --build -d
 curl -I -f -s -o /dev/null -w "%{http_code}\n" http://localhost:9103/metrics
 ```
 
