@@ -48,8 +48,8 @@ services:
 
   benchmark:
     build:
-      context: .
-      dockerfile: benchmark/Benchmark.Dockerfile
+      context: ..
+      dockerfile: docker/Dockerfile.benchmark
     container_name: benchmark
     working_dir: /scripts
     environment:
@@ -65,8 +65,8 @@ services:
     networks:
       - bridge_network
     volumes:
-      - ./benchmark:/scripts:ro
-      - ./benchmark/results:/results
+      - ../benchmark:/scripts:ro
+      - ../benchmark/results:/results
     entrypoint: [ "/bin/sh", "-lc" ]
     command:
       - >

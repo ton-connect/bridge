@@ -87,7 +87,7 @@ services:
     networks:
       - bridge_network
     volumes:
-      - ./benchmark:/scripts:ro
+      - ../benchmark:/scripts:ro
       - ./benchmark/results:/results
     entrypoint: [ "/bin/sh", "-lc" ]
     command:

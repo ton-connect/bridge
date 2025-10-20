@@ -16,8 +16,8 @@ services:
 
   bridge1:
     build:
-      context: .
-      dockerfile: Dockerfile.bridge3
+      context: ..
+      dockerfile: docker/Dockerfile.bridge3
     container_name: bridge1
     environment:
       PORT: 8081
@@ -36,8 +36,8 @@ services:
 
   bridge2:
     build:
-      context: .
-      dockerfile: Dockerfile.bridge3
+      context: ..
+      dockerfile: docker/Dockerfile.bridge3
     container_name: bridge2
     environment:
       PORT: 8081
@@ -56,8 +56,8 @@ services:
 
   bridge3:
     build:
-      context: .
-      dockerfile: Dockerfile.bridge3
+      context: ..
+      dockerfile: docker/Dockerfile.bridge3
     container_name: bridge3
     environment:
       PORT: 8081
@@ -106,8 +106,8 @@ services:
 
   integration:
     build:
-      context: .
-      dockerfile: Dockerfile.integration
+      context: ..
+      dockerfile: docker/Dockerfile.integration
     container_name: bridge-integration
     environment:
       BRIDGE_URL: "http://nginx:80/bridge"
@@ -121,8 +121,8 @@ services:
 
   gointegration:
     build:
-      context: .
-      dockerfile: Dockerfile.gointegration
+      context: ..
+      dockerfile: docker/Dockerfile.gointegration
     container_name: bridge-gointegration
     environment:
       BRIDGE_URL: "http://nginx:80/bridge"
@@ -136,8 +136,8 @@ services:
 
   benchmark:
     build:
-      context: .
-      dockerfile: Dockerfile.benchmark
+      context: ..
+      dockerfile: docker/Dockerfile.benchmark
     container_name: benchmark
     working_dir: /scripts
     environment:
@@ -153,7 +153,7 @@ services:
     networks:
       - bridge_network
     volumes:
-      - ./benchmark:/scripts:ro
+      - ../benchmark:/scripts:ro
       - ./benchmark/results:/results
     entrypoint: [ "/bin/sh", "-lc" ]
     command:
