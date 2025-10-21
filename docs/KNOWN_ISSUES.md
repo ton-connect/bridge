@@ -1,6 +1,6 @@
-# known issues
+# Known issues
 
-## buffering
+## Buffering
 
 Some proxies may have default buffering settings that can be overridden, meaning the proxy may also modify headers.
 

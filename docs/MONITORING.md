@@ -481,78 +481,10 @@ alerting:
         - targets: ['alertmanager:9093']
 ```
 
-## Logging
-
-### Log Levels
-
-Set log level with `LOG_LEVEL` environment variable:
-
-```bash
-LOG_LEVEL=debug ./bridge3
-```
-
-**Levels:**
-- `trace` - Very verbose, all operations
-- `debug` - Debug information, useful for troubleshooting
-- `info` - General information (recommended for production)
-- `warn` - Warning messages
-- `error` - Error messages
-- `fatal` - Fatal errors, application exits
-- `panic` - Panic messages
-
-
 ## Profiling
 
-### Go pprof
+Bridge exposes Prometheus metrics at http://localhost:9103/metrics.
 
-When `PPROF_ENABLED=true` (default), profiling endpoints are available:
+Profiling will not affect performance unless you start exploring it. To view all available profiles, open http://localhost:9103/debug/pprof in your browser. For more information, see the [usage examples](https://pkg.go.dev/net/http/pprof/#hdr-Usage_examples).
 
-**Available profiles:**
-- `/debug/pprof/` - Index page
-- `/debug/pprof/heap` - Memory allocation
-- `/debug/pprof/goroutine` - Goroutine stack traces
-- `/debug/pprof/profile` - CPU profile (30s)
-- `/debug/pprof/block` - Blocking operations
-- `/debug/pprof/mutex` - Mutex contention
-
-### Usage Examples
-
-**CPU profiling:**
-```bash
-# Collect 30-second CPU profile
-curl http://localhost:9103/debug/pprof/profile?seconds=30 > cpu.prof
-
-# Analyze
-go tool pprof cpu.prof
-# Or interactive web UI:
-go tool pprof -http=:8080 cpu.prof
-```
-
-**Memory profiling:**
-```bash
-# Collect heap profile
-curl http://localhost:9103/debug/pprof/heap > heap.prof
-
-# Analyze
-go tool pprof heap.prof
-```
-
-**Goroutine analysis:**
-```bash
-# View goroutine count
-curl http://localhost:9103/debug/pprof/goroutine?debug=1
-
-# Detailed trace
-curl http://localhost:9103/debug/pprof/goroutine?debug=2 > goroutines.txt
-```
-
-**Live monitoring:**
-```bash
-# Interactive profiling
-go tool pprof http://localhost:9103/debug/pprof/heap
-
-# Commands:
-# top10 - Show top 10 allocations
-# list functionName - Show code
-# web - Open graph in browser
-```
+To enable profiling feature, use `PPROF_ENABLED=true` flag.
