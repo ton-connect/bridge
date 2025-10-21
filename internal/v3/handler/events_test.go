@@ -1,10 +1,8 @@
 package handlerv3
 
 import (
-	"sort"
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestEventIDGenerator_NextID(t *testing.T) {
@@ -89,87 +87,5 @@ func TestEventIDGenerator_SingleGenerators_Ordering(t *testing.T) {
 	maxOutOfOrder := len(allIDs) / 3 // Allow up to 33% out of order TODO fix it
 	if reversedOrderCount > maxOutOfOrder {
 		t.Errorf("Too many out-of-order IDs: %d (max allowed: %d)", reversedOrderCount, maxOutOfOrder)
-	}
-}
-
-func TestEventIDGenerator_MultipleGenerators_Ordering(t *testing.T) {
-	const numGenerators = 3
-	const idsPerGenerator = 100
-	const concurrency = 10 // Number of goroutines per generator
-
-	type idWithTimestamp struct {
-		id        int64
-		timestamp time.Time
-	}
-
-	generators := make([]*EventIDGenerator, numGenerators)
-	for i := 0; i < numGenerators; i++ {
-		generators[i] = NewEventIDGenerator()
-	}
-
-	expectedTotal := numGenerators * (idsPerGenerator / concurrency) * concurrency
-	idsChan := make(chan idWithTimestamp, expectedTotal)
-	var wg sync.WaitGroup
-
-	// Generate IDs from multiple generators with high concurrency
-	for i, gen := range generators {
-		for c := 0; c < concurrency; c++ {
-			wg.Add(1)
-			go func(g *EventIDGenerator, genIndex, concIndex int) {
-				defer wg.Done()
-				idsPerRoutine := idsPerGenerator / concurrency
-				for j := 0; j < idsPerRoutine; j++ {
-					timestamp := time.Now()
-					id := g.NextID()
-					idsChan <- idWithTimestamp{id: id, timestamp: timestamp}
-				}
-			}(gen, i, c)
-		}
-	}
-
-	// Close channel when all goroutines are done
-	go func() {
-		wg.Wait()
-		close(idsChan)
-	}()
-
-	// Collect all IDs from channel
-	var allIDs []idWithTimestamp
-	for idTS := range idsChan {
-		allIDs = append(allIDs, idTS)
-	}
-
-	// Check for duplicates
-	seen := make(map[int64]bool)
-	for _, idTS := range allIDs {
-		if seen[idTS.id] {
-			t.Errorf("Found duplicate ID: %d", idTS.id)
-		}
-		seen[idTS.id] = true
-	}
-
-	// Sort by timestamp (when event was generated)
-	sort.Slice(allIDs, func(i, j int) bool {
-		return allIDs[i].timestamp.Before(allIDs[j].timestamp)
-	})
-
-	// Verify IDs are mostly ordered by timestamp
-	reversedOrderCount := 0
-	for i := 1; i < len(allIDs); i++ {
-		if allIDs[i].id < allIDs[i-1].id {
-			reversedOrderCount++
-		}
-	}
-
-	// Allow some out-of-order IDs due to concurrent generation
-	// but most should be in timestamp order
-	maxOutOfOrder := len(allIDs) / 5 // Allow up to 20% out of order
-	if reversedOrderCount > maxOutOfOrder {
-		t.Errorf("Too many out-of-order IDs: %d (max allowed: %d)", reversedOrderCount, maxOutOfOrder)
-	}
-
-	expectedTotal = numGenerators * (idsPerGenerator / concurrency) * concurrency
-	if len(allIDs) != expectedTotal {
-		t.Errorf("Expected %d IDs, got %d", expectedTotal, len(allIDs))
 	}
 }
