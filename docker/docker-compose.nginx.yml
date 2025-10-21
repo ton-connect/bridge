@@ -96,7 +96,7 @@ services:
     ports:
       - "8080:80"
     volumes:
-      - ../nginx.conf:/etc/nginx/conf.d/default.conf
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf
     depends_on:
       bridge:
         condition: service_started
