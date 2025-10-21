@@ -1,77 +1,138 @@
-# bridge
-[http bridge](https://github.com/ton-connect/docs/blob/main/bridge.md) for tonconnect 2.0
+# Bridge
 
-**note:** for common issues and troubleshooting, see [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
+[HTTP bridge](https://github.com/ton-connect/docs/blob/main/bridge.md) implementation for TON Connect 2.0.
 
-## requirements
-- golang 1.24
-- postgres
+## 📚 Documentation
 
-## how to  install
+Complete documentation is available in the [docs/](docs/) folder:
 
-```
-git clone https://github.com/ton-connect/bridge
-make build
-./bridge
-```
+- **[Getting Started](docs/README.md)** - Quick start guide and overview
+- **[Architecture & API](docs/ARCHITECTURE.md)** - Bridge v1 vs v3, storage backends, and HTTP API
+- **[Configuration](docs/CONFIGURATION.md)** - Complete environment variables reference
+- **[Deployment](docs/DEPLOYMENT.md)** - Production deployment best practices
+- **[Monitoring](docs/MONITORING.md)** - Metrics, health checks, and observability
 
-## environments
-- LOG_LEVEL ##example"info"
-- PORT ##example"8081"
-- METRICS_PORT ##example"9103"
-- POSTGRES_URI ##example"postgres://user:pass@host/dbname"
-- POSTGRES_MAX_CONNS ##example"25" (maximum number of connections in the pool)
-- POSTGRES_MIN_CONNS ##example"0" (minimum number of connections in the pool)
-- POSTGRES_MAX_CONN_LIFETIME ##example"1h" (maximum lifetime of a connection)
-- POSTGRES_MAX_CONN_LIFETIME_JITTER ##example"10m" (jitter for connection lifetime)
-- POSTGRES_MAX_CONN_IDLE_TIME ##example"30m" (maximum idle time for connections)
-- POSTGRES_HEALTH_CHECK_PERIOD ##example"1m" (health check period for connections)
-- POSTGRES_LAZY_CONNECT ##example"false" (enable lazy connection initialization)
-- WEBHOOK_URL ##example"https://your-webhook-url.com"
-- COPY_TO_URL ##example"https://your-copy-url.com"
-- CORS_ENABLE ##example"true"
-- HEARTBEAT_INTERVAL (in seconds) ##example"10"
-- RPS_LIMIT ##example"1"
-- RATE_LIMITS_BY_PASS_TOKEN ##example"token1,token2"
-- CONNECTIONS_LIMIT ##example"50"
-- DISCONNECT_EVENTS_TTL (in seconds) ##example"3600"
-- DISCONNECT_EVENT_MAX_SIZE (in bytes) ##example"512"
-- CONNECT_CACHE_SIZE ##example"2000000" (maximum number of entries in connect client cache)
-- CONNECT_CACHE_TTL ##example"300" (time-to-live for connect client cache entries in seconds)
-- SELF_SIGNED_TLS ##example"false"
-- TRUSTED_PROXY_RANGES ##example"10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" (comma-separated list of IP ranges to trust for X-Forwarded-For header)
-- PPROF_ENABLED ##examle"true"
-- ENABLE_TRANSFERED_CACHE ##examle"true"
-- ENABLE_EXPIRED_CACHE ##examle"true"
-- 
+**Note:** For common issues and troubleshooting, see [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
 
-## how to profile
-
-Bridge exposes Prometheus metrics at http://localhost:9103/metrics.
-
-Profiling will not affect performance unless you start exploring it. To view all available profiles, open http://localhost:9103/debug/pprof in your browser. For more information, see the [usage examples](https://pkg.go.dev/net/http/pprof/#hdr-Usage_examples).
-
-To enable profiling feature, use `PPROF_ENABLED=true` flag.
-
-## Use local TON Connect Bridge
-
-Default url `http://localhost:8081/bridge`
-
-### Docker
+## 🚀 Quick Start
 
 ```bash
-git clone https://github.com/ton-connect/bridge.git
+git clone https://github.com/ton-connect/bridge
 cd bridge
-docker compose -f docker/docker-compose.memory.yml up --build -d
-curl -I -f -s -o /dev/null -w "%{http_code}\n" http://localhost:9103/metrics
+make build      # Build Bridge v1
+make build3     # Build Bridge v3
+./bridge        # Run Bridge v1 (requires PostgreSQL)
+./bridge3       # Run Bridge v3 (memory by default)
 ```
+
+Use `make help` to see all available commands.
+
+## 📋 Requirements
+
+- Go 1.23+
+- PostgreSQL (for Bridge v1 or Bridge v3 with PostgreSQL storage)
+- Valkey/Redis (for Bridge v3 with Valkey storage)
+- Node.js & npm (for SDK testing)
+
+## ⚡ Choose Your Bridge
+
+| Feature | Bridge v1 | Bridge v3 |
+|---------|-----------|-----------|
+| **Protocol** | HTTP Long Polling + SSE | Pub/Sub with SSE |
+| **Storage** | PostgreSQL, Memory | Memory, Valkey, PostgreSQL* |
+| **Use Case** | Production-ready, persistent | High-performance, real-time |
+| **Maturity** | Stable | Stable |
+
+\* PostgreSQL support for v3 is limited (no pub/sub yet)
+
+See [Architecture docs](docs/ARCHITECTURE.md) for detailed comparison.
+
+### Core Settings
+
+```bash
+LOG_LEVEL=info                               # Logging level
+PORT=8081                                    # HTTP server port
+METRICS_PORT=9103                            # Metrics port
+```
+
+### Storage (Bridge v3)
+
+```bash
+STORAGE=valkey                               # Storage backend: memory, valkey, postgres
+VALKEY_URI="valkey://localhost:6379"         # Valkey connection string
+```
+
+### Storage (Bridge v1)
+
+```bash
+POSTGRES_URI="postgres://user:pass@host/db"  # PostgreSQL connection string
+POSTGRES_MAX_CONNS=50                        # Connection pool size
+```
+
+### Performance
+
+```bash
+CORS_ENABLE=true                             # Enable CORS
+HEARTBEAT_INTERVAL=10                        # Heartbeat interval (seconds)
+RPS_LIMIT=100                                # Rate limit per second
+CONNECTIONS_LIMIT=500                        # Max concurrent connections per IP
+```
+
+See [Configuration docs](docs/CONFIGURATION.md) for complete reference.
+
+## 📊 Monitoring
+
+Bridge exposes Prometheus metrics at `http://localhost:9103/metrics`.
+
+**Key endpoints:**
+- `/health` - Health check
+- `/ready` - Readiness check (includes storage connectivity)
+- `/metrics` - Prometheus metrics
+- `/debug/pprof/*` - Go profiling (if `PPROF_ENABLED=true`)
+
+See [Monitoring docs](docs/MONITORING.md) for complete setup.
+
+## 🐳 Docker Quick Start
+
+**Bridge v1 with PostgreSQL:**
+```bash
+make STORAGE=postgres run
+```
+
+**Bridge v3 with memory (development):**
+```bash
+docker-compose -f docker/docker-compose.memory.yml up
+```
+
+**Bridge v3 with Valkey (production):**
+```bash
+docker-compose -f docker/docker-compose.valkey.yml up
+```
+
+## 🔌 Using Bridge in Your Project
+
+### Direct Usage
+
+Default URL: `http://localhost:8081/bridge`
+
+```bash
+# Subscribe to events
+curl -N "http://localhost:8081/bridge/events?client_id=your-client-id"
+
+# Send message
+curl -X POST "http://localhost:8081/bridge/message?client_id=sender&to=recipient&ttl=300" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"base64_encoded_message"}'
+```
+
+See [API docs](docs/ARCHITECTURE.md#api-reference) for complete reference.
 
 ### GitHub Action
 
-Example usage from another repository:
+Use Bridge in your CI/CD pipeline:
 
 ```yaml
-name: e2e
+name: E2E Tests
 on: [push, pull_request]
 
 jobs:
@@ -89,6 +150,73 @@ jobs:
       - name: Run E2E tests
         env:
           BRIDGE_URL: http://localhost:8081/bridge
-        run: |
-          npm run e2e
+        run: npm run e2e
 ```
+
+### TypeScript SDK
+
+```typescript
+import { BridgeGateway } from '@tonconnect/bridge-sdk';
+
+const gateway = new BridgeGateway({
+  bridgeUrl: 'http://localhost:8081/bridge',
+  clientId: 'my-client-id'
+});
+
+gateway.on('message', (message) => {
+  console.log('Received:', message);
+});
+
+await gateway.send({
+  to: 'recipient-id',
+  message: 'Hello!',
+  ttl: 300
+});
+```
+
+See [bridge-sdk/](bridge-sdk/) for details.
+
+## 🏗️ Development
+
+```bash
+# Build
+make build          # Bridge v1
+make build3         # Bridge v3
+
+# Test
+make test           # Unit tests
+make test-gointegration  # Integration tests
+
+# Format & Lint
+make fmt            # Format code
+make lint           # Run linter
+
+# Run with different storage
+make run                    # Memory storage (default)
+make STORAGE=postgres run   # PostgreSQL storage
+```
+
+## 🤝 Contributing
+
+Contributions are welcome! Please:
+
+1. Fork the repository
+2. Create a feature branch
+3. Make your changes
+4. Add tests
+5. Submit a pull request
+
+## 📄 License
+
+See [LICENSE](LICENSE) file for details.
+
+## 🔗 Resources
+
+- [TON Connect Documentation](https://github.com/ton-connect/docs)
+- [Bridge SDK](bridge-sdk/)
+- [Docker Setup](docker/)
+- [Test Suite](test/)
+
+---
+
+Made with ❤️ for the TON ecosystem
