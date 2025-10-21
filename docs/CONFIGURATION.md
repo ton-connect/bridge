@@ -36,7 +36,7 @@ LOG_LEVEL=debug PORT=8080 METRICS_PORT=9090 ./bridge3
 | `POSTGRES_HEALTH_CHECK_PERIOD` | duration | `1m` | Health check interval |
 | `POSTGRES_LAZY_CONNECT` | bool | `false` | Create connections on-demand |
 
-### Redis settings
+### Valkey settings
 
 TODO
 
@@ -44,11 +44,11 @@ TODO
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `HEARTBEAT_INTERVAL` | int | `10` | SSE heartbeat interval (seconds)<br>Dev: `5-10s` · Prod: `10-15s` |
-| `RPS_LIMIT` | int | `1` | Requests/sec per IP for `/bridge/message`<br>`0` = disabled (not recommended) |
-| `CONNECTIONS_LIMIT` | int | `50` | Max concurrent SSE connections per IP<br>Small: `50-100` · Medium: `200-500` · Large: `1000+` |
-| `MAX_BODY_SIZE` | int | `10485760` | Max HTTP request body size (bytes)<br>Default: 10 MB |
-| `RATE_LIMITS_BY_PASS_TOKEN` | string | - | Bypass tokens (comma-separated)<br>Use with `Authorization: Bearer <token>` |
+| `HEARTBEAT_INTERVAL` | int | `10` | SSE heartbeat interval (seconds) |
+| `RPS_LIMIT` | int | `1` | Requests/sec per IP for `/bridge/message` |
+| `CONNECTIONS_LIMIT` | int | `50` | Max concurrent SSE connections per IP |
+| `MAX_BODY_SIZE` | int | `10485760` | Max HTTP request body size (bytes) |
+| `RATE_LIMITS_BY_PASS_TOKEN` | string | - | Bypass tokens (comma-separated) |
 
 ```bash
 # Example
@@ -103,8 +103,6 @@ TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12" \
 | `ENVIRONMENT` | string | `production` | Environment name (`dev`, `staging`, `production`) |
 | `NETWORK_ID` | string | `-239` | TON network: `-239` (mainnet), `-3` (testnet) |
 
----
-
 ## Configuration Presets
 
 ### 🧪 Development (Memory)
@@ -114,6 +112,7 @@ LOG_LEVEL=debug
 STORAGE=memory
 CORS_ENABLE=true
 HEARTBEAT_INTERVAL=10
+RPS_LIMIT=50
 CONNECTIONS_LIMIT=50
 ```
 
@@ -125,10 +124,9 @@ POSTGRES_URI="postgres://bridge:${PASSWORD}@db.internal:5432/bridge?sslmode=requ
 POSTGRES_MAX_CONNS=100
 POSTGRES_MIN_CONNS=10
 CORS_ENABLE=true
-RPS_LIMIT=100000
-CONNECTIONS_LIMIT=50000
-TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12"
-PPROF_ENABLED=false
+RPS_LIMIT=500000
+CONNECTIONS_LIMIT=500000
+TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12,{USE_YOUR_OWN_PLEASE}"
 ENVIRONMENT=production
 BRIDGE_URL="https://bridge.myapp.com"
 ```
@@ -141,10 +139,9 @@ STORAGE=valkey
 VALKEY_URI="valkey://valkey.internal:6379/0"
 CORS_ENABLE=true
 RPS_LIMIT=100000
-CONNECTIONS_LIMIT=50000
-CONNECT_CACHE_SIZE=5000000
-TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12"
-PPROF_ENABLED=false
+CONNECTIONS_LIMIT=500000
+CONNECT_CACHE_SIZE=500000
+TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12,{USE_YOUR_OWN_PLEASE}"
 ENVIRONMENT=production
 BRIDGE_URL="https://bridge-v3.myapp.com"
 ```
