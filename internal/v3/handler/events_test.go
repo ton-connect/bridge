@@ -1,10 +1,8 @@
 package handlerv3
 
 import (
-	"sort"
 	"sync"
 	"testing"
-	"time"
 )
 
 func TestEventIDGenerator_NextID(t *testing.T) {
