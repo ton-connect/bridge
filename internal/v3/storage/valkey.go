@@ -19,6 +19,7 @@ type ValkeyStorage struct {
 	pubSubConn  *redis.PubSub
 	subscribers map[string][]chan<- models.SseMessage
 	subMutex    sync.RWMutex
+	isCluster   bool
 }
 
 // NewValkeyStorage creates a new Valkey storage instance
@@ -63,10 +64,12 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 
 	log.Infof("cluster slots result: %+v", clusterSlots)
 
+	var isCluster bool
 	if len(clusterSlots) == 0 {
 		// Not a cluster or cluster command failed, use single-node mode
 		log.Info("Using single-node mode")
 		client = redis.NewClient(opts)
+		isCluster = false
 	} else {
 		// Extract all node addresses from cluster slots
 		nodeAddrs := make(map[string]bool)
@@ -100,6 +103,7 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 			DialTimeout:  10 * time.Second,
 			PoolTimeout:  30 * time.Second,
 		})
+		isCluster = true
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -113,6 +117,7 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	return &ValkeyStorage{
 		client:      client,
 		subscribers: make(map[string][]chan<- models.SseMessage),
+		isCluster:   isCluster,
 	}, nil
 }
 
@@ -127,7 +132,12 @@ func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl 
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	err = s.client.Publish(ctx, channel, messageData).Err()
+	// Use sharded pub/sub for cluster mode, regular pub/sub for single-node
+	if s.isCluster {
+		err = s.client.SPublish(ctx, channel, messageData).Err()
+	} else {
+		err = s.client.Publish(ctx, channel, messageData).Err()
+	}
 	if err != nil {
 		return fmt.Errorf("failed to publish message to channel %s: %w", channel, err)
 	}
@@ -211,11 +221,21 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 
 	// If this is the first subscription, start the pub-sub connection
 	if s.pubSubConn == nil {
-		s.pubSubConn = s.client.Subscribe(ctx, channels...)
+		// Use sharded pub/sub for cluster mode, regular pub/sub for single-node
+		if s.isCluster {
+			s.pubSubConn = s.client.SSubscribe(ctx, channels...)
+		} else {
+			s.pubSubConn = s.client.Subscribe(ctx, channels...)
+		}
 		go s.handlePubSub()
 	} else {
 		// Subscribe to additional channels
-		err := s.pubSubConn.Subscribe(ctx, channels...)
+		var err error
+		if s.isCluster {
+			err = s.pubSubConn.SSubscribe(ctx, channels...)
+		} else {
+			err = s.pubSubConn.Subscribe(ctx, channels...)
+		}
 		if err != nil {
 			log.Errorf("failed to subscribe to additional channels: %v", err)
 		}
@@ -261,7 +281,13 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 
 	// Only unsubscribe from Redis channels that have NO subscribers left
 	if s.pubSubConn != nil && len(channelsToUnsub) > 0 {
-		err := s.pubSubConn.Unsubscribe(ctx, channelsToUnsub...)
+		var err error
+		// Use sharded pub/sub for cluster mode, regular pub/sub for single-node
+		if s.isCluster {
+			err = s.pubSubConn.SUnsubscribe(ctx, channelsToUnsub...)
+		} else {
+			err = s.pubSubConn.Unsubscribe(ctx, channelsToUnsub...)
+		}
 		if err != nil {
 			return fmt.Errorf("failed to unsubscribe from channels: %w", err)
 		}
