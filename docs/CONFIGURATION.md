@@ -11,11 +11,6 @@ Complete reference for all environment variables supported by TON Connect Bridge
 | `METRICS_PORT` | int | `9103` | Metrics port: `/health` `/ready` `/metrics` `/version` `/debug/pprof/*` |
 | `PPROF_ENABLED` | bool | `true` | See [pprof docs](https://pkg.go.dev/net/http/pprof) |
 
-```bash
-# Example
-LOG_LEVEL=debug PORT=8080 METRICS_PORT=9090 ./bridge3
-```
-
 ## Storage
 
 | Variable | Type | Default | Description |
@@ -36,7 +31,7 @@ LOG_LEVEL=debug PORT=8080 METRICS_PORT=9090 ./bridge3
 | `POSTGRES_HEALTH_CHECK_PERIOD` | duration | `1m` | Health check interval |
 | `POSTGRES_LAZY_CONNECT` | bool | `false` | Create connections on-demand |
 
-### Valkey settings
+### Redis settings
 
 TODO
 
@@ -50,15 +45,6 @@ TODO
 | `MAX_BODY_SIZE` | int | `10485760` | Max HTTP request body size (bytes) |
 | `RATE_LIMITS_BY_PASS_TOKEN` | string | - | Bypass tokens (comma-separated) |
 
-```bash
-# Example
-HEARTBEAT_INTERVAL=10 \
-RPS_LIMIT=100 \
-CONNECTIONS_LIMIT=500 \
-RATE_LIMITS_BY_PASS_TOKEN="secret-token-1,secret-token-2" \
-./bridge3
-```
-
 ## Security
 
 | Variable | Type | Default | Description |
@@ -66,13 +52,6 @@ RATE_LIMITS_BY_PASS_TOKEN="secret-token-1,secret-token-2" \
 | `CORS_ENABLE` | bool | `false` | Enable CORS: origins `*`, methods `GET/POST/OPTIONS`, credentials `true` |
 | `TRUSTED_PROXY_RANGES` | string | `0.0.0.0/0` | Trusted proxy CIDRs for `X-Forwarded-For` (comma-separated)<br>Example: `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16` |
 | `SELF_SIGNED_TLS` | bool | `false` | ⚠️ **Dev only**: Self-signed TLS cert. Use nginx/Cloudflare in prod |
-
-```bash
-# Example
-CORS_ENABLE=true \
-TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12" \
-./bridge
-```
 
 ## Caching
 

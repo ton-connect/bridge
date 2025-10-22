@@ -14,7 +14,7 @@ This directory contains performance testing tools for the Ton Connect Bridge Ser
    ```bash
    make build
    POSTGRES_URI="postgres://bridge_user:bridge_password@localhost:5432/bridge?sslmode=disable" \
-   PORT=8081 CORS_ENABLE=true RPS_LIMIT=100000 CONNECTIONS_LIMIT=100000 \
+   PORT=8081 CORS_ENABLE=true RPS_LIMIT=100 CONNECTIONS_LIMIT=8000 \
    LOG_LEVEL=error ./bridge
    ```
 

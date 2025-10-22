@@ -8,8 +8,7 @@ Production-ready deployment patterns and best practices for TON Connect Bridge.
 
 ## Quick Deployment Checklist
 
-- [ ] Choose Bridge version (v1 or v3) based on requirements
-- [ ] Select storage backend
+- [ ] Choose Bridge version (v1 or v3) and storage based on requirements
 - [ ] Configure environment variables
 - [ ] Set up TLS termination
 - [ ] Configure load balancer (if multi-instance)
