@@ -93,27 +93,27 @@ Bridge v3 is designed for **horizontal scaling**. It uses Redis-compatible stora
 
 ```
                 Load Balancer / DNS
-                         │
-        ┌────────────────┼───────────────┐
-        │                │               │
-        ▼                ▼               ▼
-   ┌────────┐       ┌────────┐      ┌────────┐
-   │BridgeV3│       │BridgeV3│      │BridgeV3│
-   │Instance│       │Instance│      │Instance│
-   └───┬───┘        └────┬───┘      └────┬───┘
-        │                │               │
-        └────────────────┼───────────────┘
-                         │
-                         ▼
-         ┌───────────────────────────────┐
-         │ Clustered/Not Clustered Redis │
-         └───────────────────────────────┘
+                      │
+        ┌───────────────┼───────────────┐
+        │               │               │
+        ▼               ▼               ▼
+   ┌────────┐      ┌────────┐      ┌────────┐
+   │BridgeV3│      │BridgeV3│      │BridgeV3│
+   │Instance│      │Instance│      │Instance│
+   └───┬────┘      └────┬───┘      └────┬───┘
+       │                │               │
+       └────────────────┼───────────────┘
+                        │
+                        ▼
+        ┌───────────────────────────────┐
+        │ Clustered/Not Clustered Redis │
+        └───────────────────────────────┘
 ```
 
 ### Scaling Requirements
 
 **Redis Version:**
-- **Redis 7.0+** (or Valkey) is **required** for production deployments
+- **Redis 7.0+** (or Valkey, or any Redis-compatible database) is **required** for production deployments
 - Uses [Sharded Pub/Sub](https://valkey.io/topics/pubsub/) introduced in Redis 7.0
 - Shard channels are assigned to slots by the same algorithm used for keys
 - This ensures pub/sub messages are properly distributed in cluster mode
