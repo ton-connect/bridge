@@ -51,7 +51,7 @@ Bridge v1 was the original implementation. All clients subscribe and send messag
 - No way to synchronize in-memory state across instances
 - Clients unable to receive messages if connected to different instances
 
-This limitation led to the development of Bridge v3.
+This limitation led to the development of Bridge v3 engine.
 
 ### Storage Options
 
@@ -92,24 +92,22 @@ Bridge v3 is designed for **horizontal scaling**. It uses Redis-compatible stora
 ### Architecture
 
 ```
-                    Load Balancer / DNS
-                           │
-        ┌──────────────────┼──────────────────┐
-        │                  │                  │
-        ▼                  ▼                  ▼
-   ┌─────────┐        ┌─────────┐       ┌─────────┐
-   │Bridge v3│        │Bridge v3│       │Bridge v3│
-   │Instance │        │Instance │       │Instance │
-   └────┬────┘        └────┬────┘       └────┬────┘
-        │                  │                  │
-        └──────────────────┼──────────────────┘
-                           │
-                           ▼
-                    ┌─────────────┐
-                    │Redis/Valkey │
-                    │  Pub/Sub +  │
-                    │   ZSETs     │
-                    └─────────────┘
+                Load Balancer / DNS
+                         │
+        ┌────────────────┼───────────────┐
+        │                │               │
+        ▼                ▼               ▼
+   ┌────────┐       ┌────────┐      ┌────────┐
+   │BridgeV3│       │BridgeV3│      │BridgeV3│
+   │Instance│       │Instance│      │Instance│
+   └───┬───┘        └────┬───┘      └────┬───┘
+        │                │               │
+        └────────────────┼───────────────┘
+                         │
+                         ▼
+         ┌───────────────────────────────┐
+         │ Clustered/Not Clustered Redis │
+         └───────────────────────────────┘
 ```
 
 ### Scaling Requirements
@@ -130,68 +128,8 @@ Bridge v3 is designed for **horizontal scaling**. It uses Redis-compatible stora
 - Each instance handles its own SSE connections
 - All instances share state through Redis
 
-### Storage Options
+## Which Bridge Engine to Use?
 
-- **Redis/Valkey** (required for production, supports clustering)
-- **Memory only** (development/testing, single instance only)
+BridgeV3 is the recommended engine for all new deployments. It provides horizontal scaling, better performance, and is the focus of ongoing development.
 
-# Storage Backends
-
-Bridge supports multiple storage backends for different use cases and performance requirements.
-
-## Memory Storage
-
-Supported for both BridgeV1 engine and BridgeV3 engine. Do not use it in your production environment.
-
-## PostgreSQL Storage
-
-Relational database with full ACID guarantees and persistent message storage.
-
-**Features:**
-- ✅ Full message persistence
-- ✅ ACID transactions
-- ✅ Proven reliability
-- ✅ Backup/restore support
-- ⚠️ Requires polling (Bridge v1)
-- ⚠️ Limited pub/sub (Bridge v3)
-- ❌ Vertical scaling only
-
-**Bridge v1 Support:** ✅ **Full support** (recommended)  
-
-**Best for:**
-- Production (Bridge v1)
-- Applications requiring message persistence
-- Compliance/audit requirements
-- Moderate traffic (<1,000 concurrent connections)
-
-## Valkey Storage
-
-High-performance pub/sub storage using Valkey (Redis fork). Designed for real-time, high-throughput messaging.
-
-**Features:**
-- ✅ Native pub/sub architecture
-- ✅ Sub-second message latency
-- ✅ Horizontal scaling
-- ✅ Cluster support
-- ✅ Optional persistence (AOF/RDB)
-- ⚠️ Eventual consistency
-- ❌ No ACID guarantees
-
-**Bridge v1 Support:** ❌ Not supported  
-**Bridge v3 Support:** ✅ **Recommended for production**
-
-### When to Use Bridge v1 or v3
-
-### Message Flow
-
-**Bridge v1:**
-1. Client connects to `/bridge/events`
-2. Bridge queries PostgreSQL every `HEARTBEAT_INTERVAL`
-3. New messages returned via SSE
-4. Messages marked as delivered in database
-
-**Bridge v3:**
-1. Client connects to `/bridge/events`
-2. Bridge subscribes to Valkey pub/sub channels, dublicate message to SET
-3. Messages pushed instantly via SSE when published
-4. No database queries for delivery
+BridgeV1 has been battle-tested, but we will be deprecating it in future versions.
