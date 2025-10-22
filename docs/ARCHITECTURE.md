@@ -132,4 +132,4 @@ Bridge v3 is designed for **horizontal scaling**. It uses Redis-compatible stora
 
 BridgeV3 is the recommended engine for all new deployments. It provides horizontal scaling, better performance, and is the focus of ongoing development.
 
-BridgeV1 has been battle-tested, but we will be deprecating it in future versions.
+BridgeV1 has been battle-tested, but we will deprecate it in future versions.
