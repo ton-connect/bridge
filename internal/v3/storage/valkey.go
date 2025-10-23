@@ -127,6 +127,12 @@ func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl 
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
+	// Note: We use regular Publish/Subscribe even in cluster mode because:
+	// - Regular PUBLISH broadcasts to ALL nodes in the cluster
+	// - Sharded SPUBLISH only goes to the specific shard owning that channel's slot
+	// - Since bridge instances can connect to different cluster nodes, we need
+	//   messages to be delivered cluster-wide, not just to one shard
+	// - Regular pub/sub in cluster mode works correctly and scales well
 	err = s.client.Publish(ctx, channel, messageData).Err()
 	if err != nil {
 		return fmt.Errorf("failed to publish message to channel %s: %w", channel, err)
@@ -211,6 +217,10 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 
 	// If this is the first subscription, start the pub-sub connection
 	if s.pubSubConn == nil {
+		// Note: We use regular Subscribe even in cluster mode because:
+		// - Regular PUBLISH broadcasts to ALL nodes in the cluster
+		// - This allows bridge instances connected to different nodes to receive messages
+		// - Sharded pub/sub would require complex per-shard connection management
 		s.pubSubConn = s.client.Subscribe(ctx, channels...)
 		go s.handlePubSub()
 	} else {
@@ -218,6 +228,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		err := s.pubSubConn.Subscribe(ctx, channels...)
 		if err != nil {
 			log.Errorf("failed to subscribe to additional channels: %v", err)
+			return fmt.Errorf("failed to subscribe to additional channels: %w", err)
 		}
 	}
 

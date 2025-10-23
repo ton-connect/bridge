@@ -1,6 +1,8 @@
 # Configuration
 
-Complete reference for all environment variables supported by TON Connect Bridge.
+Complete reference for all environment variables supported by TON Connect Bridge v3.
+
+> **Note:** Looking for Bridge v1 (PostgreSQL) configuration? See [`cmd/bridge/README.md`](../cmd/bridge/README.md) (deprecated).
 
 ## Core Settings
 
@@ -15,25 +17,23 @@ Complete reference for all environment variables supported by TON Connect Bridge
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `STORAGE` | string | `memory` | **Bridge v3 only**<br>`memory` - No persistence, fastest<br>`valkey` - Pub/sub, production recommended<br>`postgres` - Limited support, no pub/sub |
-| `POSTGRES_URI` | string | - | **Format:** `postgres://user:pass@host:port/db?sslmode=require`<br>Bridge v1: Required for production<br>Bridge v3: Limited support |
-| `VALKEY_URI` | string | - | **Format:** `valkey://[:pass@]host:port[/db]`<br>**Cluster:** `valkey://node1:6379,node2:6379,node3:6379` |
+| `STORAGE` | string | `memory` | Storage backend<br>`valkey` - **Recommended for production**, pub/sub support, horizontal scaling<br>`memory` - No persistence, development only<br>`postgres` - Limited support, no pub/sub, see [Bridge v1 docs](../cmd/bridge/README.md) |
+| `VALKEY_URI` | string | - | **Format:** `valkey://[:pass@]host:port[/db]`<br>**Cluster:** `valkey://node1:6379,node2:6379,node3:6379`<br>**Required for production deployments** |
 
-### PostgreSQL Pool Settings
+### Redis/Valkey Settings
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `POSTGRES_MAX_CONNS` | int | `25` | Max connections in pool |
-| `POSTGRES_MIN_CONNS` | int | `0` | Min idle connections |
-| `POSTGRES_MAX_CONN_LIFETIME` | duration | `1h` | Connection lifetime (`1h`, `30m`, `90s`) |
-| `POSTGRES_MAX_CONN_LIFETIME_JITTER` | duration | `10m` | Random jitter to prevent thundering herd |
-| `POSTGRES_MAX_CONN_IDLE_TIME` | duration | `30m` | Max idle time before closing |
-| `POSTGRES_HEALTH_CHECK_PERIOD` | duration | `1m` | Health check interval |
-| `POSTGRES_LAZY_CONNECT` | bool | `false` | Create connections on-demand |
-
-### Redis settings
-
-TODO
+| `VALKEY_URI` | string | - | Redis/Valkey connection string |
+| `VALKEY_MAX_RETRIES` | int | `3` | Max retry attempts for failed operations |
+| `VALKEY_POOL_SIZE` | int | `10` | Connection pool size per instance |
+| `VALKEY_MIN_IDLE_CONNS` | int | `5` | Minimum idle connections in pool |
+| `VALKEY_MAX_CONN_AGE` | duration | `0` | Max connection lifetime (0 = unlimited) |
+| `VALKEY_POOL_TIMEOUT` | duration | `4s` | Timeout for getting connection from pool |
+| `VALKEY_IDLE_TIMEOUT` | duration | `5m` | Close idle connections after this time |
+| `VALKEY_DIAL_TIMEOUT` | duration | `5s` | Timeout for establishing new connections |
+| `VALKEY_READ_TIMEOUT` | duration | `3s` | Timeout for socket reads |
+| `VALKEY_WRITE_TIMEOUT` | duration | `3s` | Timeout for socket writes |
 
 ## Performance & Limits
 
@@ -95,35 +95,41 @@ RPS_LIMIT=50
 CONNECTIONS_LIMIT=50
 ```
 
-### 🚀 Production: Bridge v1 + PostgreSQL
-
-```bash
-LOG_LEVEL=info
-POSTGRES_URI="postgres://bridge:${PASSWORD}@db.internal:5432/bridge?sslmode=require"
-POSTGRES_MAX_CONNS=100
-POSTGRES_MIN_CONNS=10
-CORS_ENABLE=true
-RPS_LIMIT=500000
-CONNECTIONS_LIMIT=500000
-TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12,{USE_YOUR_OWN_PLEASE}"
-ENVIRONMENT=production
-BRIDGE_URL="https://bridge.myapp.com"
-```
-
-### 🚀 Production: Bridge v3 + Valkey
+### 🚀 Production: Bridge v3 + Redis/Valkey
 
 ```bash
 LOG_LEVEL=info
 STORAGE=valkey
 VALKEY_URI="valkey://valkey.internal:6379/0"
+VALKEY_POOL_SIZE=50
+VALKEY_MIN_IDLE_CONNS=10
 CORS_ENABLE=true
 RPS_LIMIT=100000
 CONNECTIONS_LIMIT=500000
 CONNECT_CACHE_SIZE=500000
-TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12,{USE_YOUR_OWN_PLEASE}"
+TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
 ENVIRONMENT=production
-BRIDGE_URL="https://bridge-v3.myapp.com"
+BRIDGE_URL="https://bridge.myapp.com"
 ```
+
+### 🚀 Production: Redis Cluster
+
+```bash
+LOG_LEVEL=info
+STORAGE=valkey
+VALKEY_URI="valkey://node1:6379,node2:6379,node3:6379"
+VALKEY_POOL_SIZE=100
+VALKEY_MIN_IDLE_CONNS=20
+CORS_ENABLE=true
+RPS_LIMIT=500000
+CONNECTIONS_LIMIT=1000000
+CONNECT_CACHE_SIZE=1000000
+TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12"
+ENVIRONMENT=production
+BRIDGE_URL="https://bridge.myapp.com"
+```
+
+> **Note:** For Bridge v1 (PostgreSQL) configuration examples, see [`cmd/bridge/README.md`](../cmd/bridge/README.md)
 
 ## Using Environment Files
 
@@ -144,14 +150,6 @@ CONNECTIONS_LIMIT=200
 **Load:**
 ```bash
 export $(cat .env | xargs) && ./bridge3
-```
-
-**Docker Compose:**
-```yaml
-services:
-  bridge:
-    image: bridge3
-    env_file: .env
 ```
 
 </details>
