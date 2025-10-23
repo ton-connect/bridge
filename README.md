@@ -2,10 +2,6 @@
 
 [HTTP bridge](https://github.com/ton-connect/docs/blob/main/bridge.md) implementation for TON Connect 2.0.
 
-Bridge v3 is designed for **horizontal scaling** with Redis/Valkey pub/sub architecture, enabling production deployments with high availability and load distribution.
-
-> **Note:** Looking for Bridge v1 (PostgreSQL)? See [`cmd/bridge/README.md`](cmd/bridge/README.md) (deprecated).
-
 ## 🚀 Quick Start
 
 ```bash
@@ -29,12 +25,11 @@ Use `make help` to see all available commands.
 
 ## 📚 Documentation
 
-- **[Architecture](docs/ARCHITECTURE.md)** - Bridge v3 architecture, pub/sub design, and scaling
-- **[Configuration](docs/CONFIGURATION.md)** - Complete environment variables reference
-- **[Deployment](docs/DEPLOYMENT.md)** - Production deployment patterns and best practices
-- **[Known Issues](docs/KNOWN_ISSUES.md)** - Common issues and troubleshooting
-- **[Monitoring](docs/MONITORING.md)** - Metrics, health checks, and observability
-- **[Bridge v1 (Legacy)](cmd/bridge/README.md)** - Deprecated PostgreSQL-based implementation
+- [Architecture](docs/ARCHITECTURE.md) - Bridge architecture, pub/sub design, and scaling
+- [Configuration](docs/CONFIGURATION.md) - Complete environment variables reference
+- [Deployment](docs/DEPLOYMENT.md) - Production deployment patterns and best practices
+- [Known Issues](docs/KNOWN_ISSUES.md) - Common issues and troubleshooting
+- [Monitoring](docs/MONITORING.md) - Metrics, health checks, and observability
 
 ## Use local TON Connect Bridge
 

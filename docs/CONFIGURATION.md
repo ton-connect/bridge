@@ -1,8 +1,6 @@
 # Configuration
 
-Complete reference for all environment variables supported by TON Connect Bridge v3.
-
-> **Note:** Looking for Bridge v1 (PostgreSQL) configuration? See [`cmd/bridge/README.md`](../cmd/bridge/README.md) (deprecated).
+Complete reference for all environment variables supported by TON Connect Bridge.
 
 ## Core Settings
 
@@ -14,6 +12,8 @@ Complete reference for all environment variables supported by TON Connect Bridge
 | `PPROF_ENABLED` | bool | `true` | See [pprof docs](https://pkg.go.dev/net/http/pprof) |
 
 ## Storage
+
+TODO this all wrong
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
@@ -42,7 +42,7 @@ Complete reference for all environment variables supported by TON Connect Bridge
 | `HEARTBEAT_INTERVAL` | int | `10` | SSE heartbeat interval (seconds) |
 | `RPS_LIMIT` | int | `1` | Requests/sec per IP for `/bridge/message` |
 | `CONNECTIONS_LIMIT` | int | `50` | Max concurrent SSE connections per IP |
-| `MAX_BODY_SIZE` | int | `10485760` | Max HTTP request body size (bytes) |
+| `MAX_BODY_SIZE` | int | `10485760` | Max HTTP request body size (bytes) for `/bridge/message` |
 | `RATE_LIMITS_BY_PASS_TOKEN` | string | - | Bypass tokens (comma-separated) |
 
 ## Security
@@ -73,6 +73,8 @@ Complete reference for all environment variables supported by TON Connect Bridge
 
 ## TON Analytics
 
+TODO where to read more about it?
+
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `TF_ANALYTICS_ENABLED` | bool | `false` | Enable TonConnect analytics |
@@ -100,36 +102,15 @@ CONNECTIONS_LIMIT=50
 ```bash
 LOG_LEVEL=info
 STORAGE=valkey
-VALKEY_URI="valkey://valkey.internal:6379/0"
-VALKEY_POOL_SIZE=50
-VALKEY_MIN_IDLE_CONNS=10
+VALKEY_URI="rediss://username:yourpassword@localhost:6380?skip_verify=true"
 CORS_ENABLE=true
 RPS_LIMIT=100000
 CONNECTIONS_LIMIT=500000
 CONNECT_CACHE_SIZE=500000
-TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16"
+TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,{use_your_own_please}"
 ENVIRONMENT=production
-BRIDGE_URL="https://bridge.myapp.com"
+BRIDGE_URL="https://use-your-own-bridge.myapp.com"
 ```
-
-### 🚀 Production: Redis Cluster
-
-```bash
-LOG_LEVEL=info
-STORAGE=valkey
-VALKEY_URI="valkey://node1:6379,node2:6379,node3:6379"
-VALKEY_POOL_SIZE=100
-VALKEY_MIN_IDLE_CONNS=20
-CORS_ENABLE=true
-RPS_LIMIT=500000
-CONNECTIONS_LIMIT=1000000
-CONNECT_CACHE_SIZE=1000000
-TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12"
-ENVIRONMENT=production
-BRIDGE_URL="https://bridge.myapp.com"
-```
-
-> **Note:** For Bridge v1 (PostgreSQL) configuration examples, see [`cmd/bridge/README.md`](../cmd/bridge/README.md)
 
 ## Using Environment Files
 

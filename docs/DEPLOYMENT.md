@@ -2,8 +2,6 @@
 
 Production-ready deployment patterns and best practices for TON Connect Bridge v3.
 
-> **Note:** Looking for Bridge v1 deployment? See [`cmd/bridge/README.md`](../cmd/bridge/README.md) (deprecated).
-
 ## Quick Deployment Checklist
 
 - [ ] Set up Redis/Valkey cluster or managed service
@@ -334,8 +332,6 @@ If migrating from Bridge v1 to Bridge v3:
 4. **Gradual migration** - Use DNS or load balancer to shift traffic
 5. **Monitor closely** - Watch metrics during migration
 6. **Decommission v1** - After successful migration and monitoring period
-
-See [`cmd/bridge/README.md`](../cmd/bridge/README.md) for Bridge v1 documentation.
 
 For more examples, see the [`docker/`](../docker/) folder.
 
