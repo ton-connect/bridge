@@ -3,17 +3,8 @@
 > **⚠️ Warning:** Bridge v1 is deprecated and will be removed in future versions. 
 > 
 > **Please use [Bridge v3](../../README.md) for all new deployments.**
-
-Bridge v1 is the original implementation of TON Connect Bridge. It was production-proven but has a fundamental limitation: **it cannot be horizontally scaled** due to its in-memory message storage architecture.
-
-## Why Bridge v1 is Deprecated
-
-- **No horizontal scaling**: Cannot run multiple instances
-- **Single point of failure**: One instance handles all connections
-- **Limited capacity**: Constrained by single-server resources
-- **PostgreSQL dependency**: Requires PostgreSQL for production use
-
-**For scalable, production deployments, use [Bridge v3](../../README.md) instead.**
+>
+> Bridge v1 is the original implementation of TON Connect Bridge. It was production-proven but has a fundamental limitation: **it cannot be horizontally scaled** due to its in-memory message storage architecture.
 
 ---
 
@@ -24,8 +15,8 @@ Bridge v1 uses a single application instance with in-memory caching backed by Po
 ### How It Works
 
 **Message Storage:**
-- Messages are stored in **memory** for fast access
-- Messages are simultaneously pushed to **PostgreSQL** for persistent storage
+- Messages are pushed directly between clients in real-time via SSE
+- Messages are pushed to **PostgreSQL** for persistent storage
 
 **Client Subscription Flow:**
 1. Client subscribes to messages via SSE (`GET /bridge/events`)
@@ -35,9 +26,8 @@ Bridge v1 uses a single application instance with in-memory caching backed by Po
 
 **Message Sending Flow:**
 1. Client sends message via `POST /bridge/message`
-2. Bridge stores message in memory
-3. Bridge immediately sends message to the recipient client if connected (via SSE)
-4. Bridge writes message to PostgreSQL for persistence
+2. Bridge immediately pushes message to all subscribed clients via SSE
+3. Bridge writes message to PostgreSQL for persistence
 
 ### Architecture Diagram
 
@@ -103,10 +93,10 @@ POSTGRES_MAX_CONNS=100
 POSTGRES_MIN_CONNS=10
 CORS_ENABLE=true
 RPS_LIMIT=10000
-CONNECTIONS_LIMIT=5000
-TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12"
+CONNECTIONS_LIMIT=50000
+TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12,{use_your_own}"
 ENVIRONMENT=production
-BRIDGE_URL="https://bridge.myapp.com"
+BRIDGE_URL="https://use-your-own-bridge.myapp.com"
 ```
 
 ## Deployment
