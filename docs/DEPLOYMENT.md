@@ -44,7 +44,7 @@ Bridge v3 + Redis
 
 ### Pattern 2: Multi-Instance with Load Balancer (Recommended)
 
-**Best for:** Production, >1,000 concurrent connections, high availability
+**Best for:** Production, >10,000 concurrent connections, high availability
 
 ```
 Internet
@@ -79,10 +79,10 @@ Internet
 - Higher cost
 
 **Key Components:**
-- **Bridge v3 Instances:** 3+ instances for redundancy
-- **Redis Cluster:** 3-6 nodes with replication
-- **Load Balancer:** Distributes traffic, health checks
-- **TLS Termination:** SSL/TLS at load balancer level
+- Bridge v3 Instances: 3+ instances for redundancy
+- Redis Cluster: 3-6 nodes with replication
+- Load Balancer: Distributes traffic, health checks
+- TLS Termination: SSL/TLS at load balancer level
 
 ### Pattern 3: Multi-Region (Global)
 

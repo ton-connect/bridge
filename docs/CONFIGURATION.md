@@ -6,7 +6,7 @@ Complete reference for all environment variables supported by TON Connect Bridge
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `LOG_LEVEL` | string | `info` | **Logging level**<br>`panic` `fatal` `error` `warn` `info` `debug` `trace` |
+| `LOG_LEVEL` | string | `info` | Logging level<br>`panic` `fatal` `error` `warn` `info` `debug` `trace` |
 | `PORT` | int | `8081` | HTTP server port for bridge endpoints |
 | `METRICS_PORT` | int | `9103` | Metrics port: `/health` `/ready` `/metrics` `/version` `/debug/pprof/*` |
 | `PPROF_ENABLED` | bool | `true` | See [pprof docs](https://pkg.go.dev/net/http/pprof) |
@@ -16,7 +16,7 @@ Complete reference for all environment variables supported by TON Connect Bridge
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `STORAGE` | string | `memory` | `valkey` or `memory` |
-| `VALKEY_URI` | string | - | Format: `valkey://[:pass@]host:port[/db]`<br>**Cluster:** `rediss://default:@clustercfg.example.com:6379?skip_verify=true` |
+| `VALKEY_URI` | string | - | Format: `valkey://[:pass@]host:port[/db]`<br>Cluster: `rediss://default:@clustercfg.example.com:6379?skip_verify=true` |
 
 ## Performance & Limits
 
@@ -42,15 +42,11 @@ Complete reference for all environment variables supported by TON Connect Bridge
 |----------|------|---------|-------------|
 | `CONNECT_CACHE_SIZE` | int | `2000000` | Max entries in connect client cache |
 | `CONNECT_CACHE_TTL` | int | `300` | Cache TTL (seconds) |
-| `ENABLE_TRANSFERED_CACHE` | bool | `true` | Cache transferred messages (prevents duplicates) |
-| `ENABLE_EXPIRED_CACHE` | bool | `true` | Cache expired messages (improves performance) |
 
-## Events & Webhooks
+## Webhooks
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `DISCONNECT_EVENTS_TTL` | int | `3600` | Disconnect events retention (seconds) |
-| `DISCONNECT_EVENT_MAX_SIZE` | int | `512` | Max disconnect event size (bytes) |
 | `WEBHOOK_URL` | string | - | URL for bridge event notifications |
 | `COPY_TO_URL` | string | - | Mirror all messages to URL (debugging/analytics) |
 
@@ -80,7 +76,7 @@ RPS_LIMIT=50
 CONNECTIONS_LIMIT=50
 ```
 
-### 🚀 Production: Bridge v3 + Redis/Valkey
+### 🚀 Production (Redis/Valkey)
 
 ```bash
 LOG_LEVEL=info

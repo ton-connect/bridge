@@ -2,10 +2,29 @@
 
 TON Connect Bridge uses pub/sub architecture to synchronize state across multiple instances, enabling true high-availability deployments. It is designed for horizontal scaling with Redis-compatible storage.
 
+```
+                Load Balancer / DNS
+                        │
+        ┌───────────────┼───────────────┐
+        │               │               │
+        ▼               ▼               ▼
+   ┌────────┐      ┌────────┐      ┌────────┐
+   │BridgeV3│      │BridgeV3│      │BridgeV3│
+   │Instance│      │Instance│      │Instance│
+   └───┬────┘      └────┬───┘      └────┬───┘
+       │                │               │
+       └────────────────┼───────────────┘
+                        │
+                        ▼
+        ┌───────────────────────────────┐
+        │ Clustered/Not Clustered Redis │
+        └───────────────────────────────┘
+```
+
 ## How It Works
 
 **Deployment:**
-- Run 1, 3, 10, or more bridge instances simultaneously
+- Run any number of bridge instances simultaneously
 - User setup required: DNS, load balancing, Kubernetes, etc. to present multiple instances as a single endpoint
 - All instances share state through Redis pub/sub + sorted sets
 
@@ -29,27 +48,6 @@ TON Connect Bridge uses pub/sub architecture to synchronize state across multipl
 4. All bridge instances with subscribed clients receive the message via pub/sub
 5. Bridge instances deliver message to their connected clients via SSE
 
-## Architecture
-
-```
-                Load Balancer / DNS
-                      │
-        ┌───────────────┼───────────────┐
-        │               │               │
-        ▼               ▼               ▼
-   ┌────────┐      ┌────────┐      ┌────────┐
-   │BridgeV3│      │BridgeV3│      │BridgeV3│
-   │Instance│      │Instance│      │Instance│
-   └───┬────┘      └────┬───┘      └────┬───┘
-       │                │               │
-       └────────────────┼───────────────┘
-                        │
-                        ▼
-        ┌───────────────────────────────┐
-        │ Clustered/Not Clustered Redis │
-        └───────────────────────────────┘
-```
-
 ## Scaling Requirements
 
 **Redis Version:**
@@ -61,7 +59,7 @@ TON Connect Bridge uses pub/sub architecture to synchronize state across multipl
 - Managed services: AWS ElastiCache, GCP Memorystore, Azure Cache for Redis
 
 **Bridge Instances:**
-- Run any number of instances (1, 3, 10+)
+- Run any number of instances simultaneously
 - Each instance handles its own SSE connections
 - All instances share state through Redis
 
