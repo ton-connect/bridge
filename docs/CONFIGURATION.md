@@ -13,27 +13,10 @@ Complete reference for all environment variables supported by TON Connect Bridge
 
 ## Storage
 
-TODO this all wrong
-
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `STORAGE` | string | `memory` | Storage backend<br>`valkey` - **Recommended for production**, pub/sub support, horizontal scaling<br>`memory` - No persistence, development only<br>`postgres` - Limited support, no pub/sub, see [Bridge v1 docs](../cmd/bridge/README.md) |
-| `VALKEY_URI` | string | - | **Format:** `valkey://[:pass@]host:port[/db]`<br>**Cluster:** `valkey://node1:6379,node2:6379,node3:6379`<br>**Required for production deployments** |
-
-### Redis/Valkey Settings
-
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `VALKEY_URI` | string | - | Redis/Valkey connection string |
-| `VALKEY_MAX_RETRIES` | int | `3` | Max retry attempts for failed operations |
-| `VALKEY_POOL_SIZE` | int | `10` | Connection pool size per instance |
-| `VALKEY_MIN_IDLE_CONNS` | int | `5` | Minimum idle connections in pool |
-| `VALKEY_MAX_CONN_AGE` | duration | `0` | Max connection lifetime (0 = unlimited) |
-| `VALKEY_POOL_TIMEOUT` | duration | `4s` | Timeout for getting connection from pool |
-| `VALKEY_IDLE_TIMEOUT` | duration | `5m` | Close idle connections after this time |
-| `VALKEY_DIAL_TIMEOUT` | duration | `5s` | Timeout for establishing new connections |
-| `VALKEY_READ_TIMEOUT` | duration | `3s` | Timeout for socket reads |
-| `VALKEY_WRITE_TIMEOUT` | duration | `3s` | Timeout for socket writes |
+| `STORAGE` | string | `memory` | `valkey` or `memory` |
+| `VALKEY_URI` | string | - | Format: `valkey://[:pass@]host:port[/db]`<br>**Cluster:** `rediss://default:@clustercfg.example.com:6379?skip_verify=true` |
 
 ## Performance & Limits
 

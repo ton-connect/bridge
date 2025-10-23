@@ -20,7 +20,7 @@ Use `make help` to see all available commands.
 ## 📋 Requirements
 
 - Go 1.24+
-- Redis/Valkey (or any Redis-compatible storage) for production
+- Redis/Valkey 7.0+ (or any Redis-compatible storage) for production
 - Node.js & npm (for testing)
 
 ## 📚 Documentation

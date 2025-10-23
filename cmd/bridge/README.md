@@ -16,7 +16,7 @@ Bridge v1 uses a single application instance with in-memory caching backed by Po
 
 **Message Storage:**
 - Messages are pushed directly between clients in real-time via SSE
-- Messages are pushed to **PostgreSQL** for persistent storage
+- Messages are pushed to PostgreSQL for persistent storage
 
 **Client Subscription Flow:**
 1. Client subscribes to messages via SSE (`GET /bridge/events`)
@@ -149,7 +149,7 @@ CONNECTIONS_LIMIT=5000
 
 If you're currently using Bridge v1 and want to migrate to Bridge v3:
 
-1. **Set up Redis/Valkey cluster** - Choose a Redis-compatible storage solution
+1. **Set up Redis/Valkey 7.0+** - Deploy a Redis-compatible cluster
 2. **Deploy Bridge v3 instances** - Start with 2-3 instances behind a load balancer
 3. **Configure load balancer** - Ensure sticky sessions if needed
 4. **Test thoroughly** - Run parallel deployments to verify

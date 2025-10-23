@@ -86,7 +86,6 @@ services:
       dockerfile: docker/Dockerfile.bridge3
     container_name: bridge
     environment:
-      LOG_LEEVEL: "debug"
       PORT: 8081
       STORAGE: "valkey"
       VALKEY_URI: "redis://valkey-shard1:6379"

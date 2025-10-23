@@ -54,8 +54,6 @@ TON Connect Bridge uses pub/sub architecture to synchronize state across multipl
 
 **Redis Version:**
 - Redis 7.0+ (or Valkey, or any Redis-compatible database) for production deployments
-- Single-node: Regular PUBLISH ensures messages reach all bridge instances
-- Cluster mode: Sharded Pub/Sub for efficient cross-node message distribution
 
 **Redis Deployment Options:**
 - Single-node Redis (small deployments)
