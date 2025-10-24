@@ -6,7 +6,7 @@ Production-ready deployment patterns and best practices for TON Connect Bridge v
 
 - [ ] Set up Redis/Valkey 7.0+ cluster or managed service
 - [ ] Configure environment variables (see [CONFIGURATION.md](CONFIGURATION.md))
-- [ ] Deploy multiple Bridge v3 instances for high availability
+- [ ] Deploy multiple Bridge instances for high availability
 - [ ] Set up load balancer with health checks
 - [ ] Configure TLS termination
 - [ ] Enable monitoring and alerts (see [MONITORING.md](MONITORING.md))
@@ -27,10 +27,10 @@ Bridge v3 + Redis
      ├── TLS Termination (Cloudflare/nginx)
      │
      ▼
-┌────────┐
-│Bridge  │──── Redis/Valkey
-│  v3    │
-└────────┘
+┌──────────┐
+│  Bridge  │──── Redis/Valkey
+│ Instance │
+└──────────┘
 ```
 
 **Pros:**
@@ -52,20 +52,20 @@ Internet
   ├── TLS Termination & Load Balancer
   │   (nginx, HAProxy, or cloud LB)
   │
-  ├──────┬──────┬──────┐
-  │      │      │      │
-  ▼      ▼      ▼      ▼
-┌───┐  ┌───┐  ┌───┐  ┌───┐
-│Bv3│  │Bv3│  │Bv3│  │Bv3│ Bridge v3 Instances
-└───┘  └───┘  └───┘  └───┘
-   │      │      │      │
-   └──────┴──────┴──────┘
+  ├─────────────┬───────────┬────────────┐
+  │             │           │            │
+  ▼             ▼           ▼            ▼
+┌────────┐  ┌────────┐  ┌────────┐  ┌────────┐
+│ Bridge │  │ Bridge │  │ Bridge │  │ Bridge │
+│Instance│  │Instance│  │Instance│  │Instance│
+└────────┘  └────────┘  └────────┘  └────────┘
+     │          │          │          │
+     └──────────┴──────────┴──────────┘
             │
             ▼
-   ┌─────────────────┐
-   │  Redis Cluster  │
-   │  (3+ nodes)     │
-   └─────────────────┘
+   ┌───────────────┐
+   │ Redis Cluster │
+   └───────────────┘
 ```
 
 **Pros:**
@@ -94,17 +94,16 @@ Internet
 │ Load Balancer │      │ Load Balancer │      │ Load Balancer │
 └───────┬───────┘      └───────┬───────┘      └───────┬────────┘
         │                      │                      │
-     ┌──┴──┐                ┌──┴──┐                ┌──┴──┐
-     │ Bv3 │                │ Bv3 │                │ Bv3 │
-     │ x3  │                │ x3  │                │ x3  │
-     └──┬──┘                └──┬──┘                └──┬──┘
+  ┌─────┴──────┐         ┌─────┴──────┐         ┌─────┴──────┐
+  │   Bridge   │         │   Bridge   │         │   Bridge   │
+  └─────┬──────┘         └─────┬──────┘         └─────┬──────┘
         │                      │                      │
         └──────────────────────┴──────────────────────┘
                                │
-                     ┌─────────────────────┐
-                     │ Global Redis Cluster│
-                     │  (with replication) │
-                     └─────────────────────┘
+                    ┌──────────────────────┐
+                    │ Global Redis Cluster │
+                    │  (with replication)  │
+                    └──────────────────────┘
 ```
 
 **Requirements:**

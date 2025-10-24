@@ -4,7 +4,7 @@ Comprehensive monitoring and observability for TON Connect Bridge.
 
 ## Quick Overview
 
-Bridge exposes metrics at: **http://localhost:9103/metrics** (Prometheus format)
+Bridge exposes Prometheus metrics at http://localhost:9103/metrics.
 
 **Key metrics to watch:**
 - `number_of_active_connections` - Current SSE connections
@@ -13,8 +13,6 @@ Bridge exposes metrics at: **http://localhost:9103/metrics** (Prometheus format)
 - `bridge_ready_status` - Ready status (1 = ready)
 
 ## Profiling
-
-Bridge exposes Prometheus metrics at http://localhost:9103/metrics.
 
 Profiling will not affect performance unless you start exploring it. To view all available profiles, open http://localhost:9103/debug/pprof in your browser. For more information, see the [usage examples](https://pkg.go.dev/net/http/pprof/#hdr-Usage_examples).
 

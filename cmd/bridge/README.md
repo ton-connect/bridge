@@ -32,18 +32,15 @@ Bridge v1 uses a single application instance with in-memory caching backed by Po
 ### Architecture Diagram
 
 ```
-┌─────────┐         ┌─────────────┐         ┌────────────┐
-│  Wallet │ ◄─SSE── │  Bridge v1  │ ◄─────► │ PostgreSQL │
-└─────────┘         │  (single)   │         │ (persist)  │
-     │              │             │         └────────────┘
-     │              │   Memory    │
-     │              │   (cache)   │
-     │              └─────────────┘
-     │ POST /bridge/message
+  Internet
+     │
+     ├── TLS Termination (Cloudflare/nginx)
+     │
      ▼
-┌─────────┐
-│   dApp  │
-└─────────┘
+┌────────┐
+│ Bridge │──── PostgreSQL
+│   v1   │
+└────────┘
 ```
 
 ### Fundamental Limitation
@@ -101,32 +98,6 @@ BRIDGE_URL="https://use-your-own-bridge.myapp.com"
 
 ## Deployment
 
-### Single Instance Pattern
-
-**Best for:** <1,000 concurrent connections, low traffic
-
-```
-  Internet
-     │
-     ├── TLS Termination (Cloudflare/nginx)
-     │
-     ▼
-┌────────┐
-│ Bridge │──── PostgreSQL
-│   v1   │
-└────────┘
-```
-
-**Pros:**
-- Simple setup
-- Battle-tested
-- Low cost
-
-**Cons:**
-- Single point of failure
-- Cannot scale horizontally
-- Limited by single server capacity
-
 ### Docker Deployment
 
 ```bash
@@ -144,19 +115,6 @@ CORS_ENABLE=true
 RPS_LIMIT=1000
 CONNECTIONS_LIMIT=5000
 ```
-
-## Migration to Bridge v3
-
-If you're currently using Bridge v1 and want to migrate to Bridge v3:
-
-1. **Set up Redis/Valkey 7.0+** - Deploy a Redis-compatible cluster
-2. **Deploy Bridge v3 instances** - Start with 2-3 instances behind a load balancer
-3. **Configure load balancer** - Ensure sticky sessions if needed
-4. **Test thoroughly** - Run parallel deployments to verify
-5. **Switch traffic** - Gradually move clients to Bridge v3
-6. **Decommission Bridge v1** - Once all traffic is migrated
-
-See the [main README](../../README.md) for Bridge v3 setup instructions.
 
 ## Support
 
