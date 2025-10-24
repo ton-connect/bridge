@@ -6,7 +6,7 @@ services:
       - "5353:53/tcp"
       - "8080:8080"
     volumes:
-      - ../dnsmasq.conf:/etc/dnsmasq.conf
+      - ./dnsmasq.conf:/etc/dnsmasq.conf
     cap_add:
       - NET_ADMIN
     networks:

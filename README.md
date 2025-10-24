@@ -1,68 +1,46 @@
 # bridge
-[http bridge](https://github.com/ton-connect/docs/blob/main/bridge.md) for tonconnect 2.0
 
-**note:** for common issues and troubleshooting, see [KNOWN_ISSUES.md](KNOWN_ISSUES.md)
+[HTTP bridge](https://github.com/ton-connect/docs/blob/main/bridge.md) implementation for TON Connect 2.0.
 
-## requirements
-- golang 1.24
-- postgres
+## 🚀 Quick Start
 
-## how to  install
-
-```
+```bash
 git clone https://github.com/ton-connect/bridge
-make build
-./bridge
+cd bridge
+make build3
+./bridge3
 ```
 
-## environments
-- LOG_LEVEL ##example"info"
-- PORT ##example"8081"
-- METRICS_PORT ##example"9103"
-- POSTGRES_URI ##example"postgres://user:pass@host/dbname"
-- POSTGRES_MAX_CONNS ##example"25" (maximum number of connections in the pool)
-- POSTGRES_MIN_CONNS ##example"0" (minimum number of connections in the pool)
-- POSTGRES_MAX_CONN_LIFETIME ##example"1h" (maximum lifetime of a connection)
-- POSTGRES_MAX_CONN_LIFETIME_JITTER ##example"10m" (jitter for connection lifetime)
-- POSTGRES_MAX_CONN_IDLE_TIME ##example"30m" (maximum idle time for connections)
-- POSTGRES_HEALTH_CHECK_PERIOD ##example"1m" (health check period for connections)
-- POSTGRES_LAZY_CONNECT ##example"false" (enable lazy connection initialization)
-- WEBHOOK_URL ##example"https://your-webhook-url.com"
-- COPY_TO_URL ##example"https://your-copy-url.com"
-- CORS_ENABLE ##example"true"
-- HEARTBEAT_INTERVAL (in seconds) ##example"10"
-- RPS_LIMIT ##example"1"
-- RATE_LIMITS_BY_PASS_TOKEN ##example"token1,token2"
-- CONNECTIONS_LIMIT ##example"50"
-- DISCONNECT_EVENTS_TTL (in seconds) ##example"3600"
-- DISCONNECT_EVENT_MAX_SIZE (in bytes) ##example"512"
-- CONNECT_CACHE_SIZE ##example"2000000" (maximum number of entries in connect client cache)
-- CONNECT_CACHE_TTL ##example"300" (time-to-live for connect client cache entries in seconds)
-- SELF_SIGNED_TLS ##example"false"
-- TRUSTED_PROXY_RANGES ##example"10.0.0.0/8,172.16.0.0/12,192.168.0.0/16" (comma-separated list of IP ranges to trust for X-Forwarded-For header)
-- PPROF_ENABLED ##examle"true"
-- ENABLE_TRANSFERED_CACHE ##examle"true"
-- ENABLE_EXPIRED_CACHE ##examle"true"
-- 
+For production deployments, use Redis/Valkey storage. See [Configuration](docs/CONFIGURATION.md) for details.
 
-## how to profile
+Use `make help` to see all available commands.
 
-Bridge exposes Prometheus metrics at http://localhost:9103/metrics.
+**Note:** For common issues and troubleshooting, see [KNOWN_ISSUES.md](docs/KNOWN_ISSUES.md)
 
-Profiling will not affect performance unless you start exploring it. To view all available profiles, open http://localhost:9103/debug/pprof in your browser. For more information, see the [usage examples](https://pkg.go.dev/net/http/pprof/#hdr-Usage_examples).
+## 📋 Requirements
 
-To enable profiling feature, use `PPROF_ENABLED=true` flag.
+- Go 1.24+
+- Redis/Valkey 7.0+ (or any Redis-compatible storage) for production
+- Node.js & npm (for testing)
+
+## 📚 Documentation
+
+- [Architecture](docs/ARCHITECTURE.md) - Bridge architecture, pub/sub design, and scaling
+- [Configuration](docs/CONFIGURATION.md) - Complete environment variables reference
+- [Deployment](docs/DEPLOYMENT.md) - Production deployment patterns and best practices
+- [Known Issues](docs/KNOWN_ISSUES.md) - Common issues and troubleshooting
+- [Monitoring](docs/MONITORING.md) - Metrics, health checks, and observability
 
 ## Use local TON Connect Bridge
 
-Default url `http://localhost:8081/bridge`
+Default url: `http://localhost:8081/bridge`
 
 ### Docker
 
 ```bash
 git clone https://github.com/ton-connect/bridge.git
 cd bridge
-docker compose -f docker/docker-compose.memory.yml up --build -d
+docker compose -f docker/docker-compose.valkey.yml up --build -d
 curl -I -f -s -o /dev/null -w "%{http_code}\n" http://localhost:9103/metrics
 ```
 
@@ -92,3 +70,5 @@ jobs:
         run: |
           npm run e2e
 ```
+
+Made with ❤️ for the TON ecosystem

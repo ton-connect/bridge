@@ -4,7 +4,7 @@
 *.dll
 *.so
 *.dylib
-bridge
+/bridge
 .vscode/
 vendor/
 .DS_Store
@@ -20,8 +20,8 @@ vendor/
 
 .idea
 env.yaml
-bridge
-bridge3
+/bridge
+/bridge3
 benchmark/k6
 bridge-sdk/
 
