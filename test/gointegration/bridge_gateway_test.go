@@ -88,6 +88,9 @@ func OpenBridge(ctx context.Context, opts OpenOpts) (*BridgeGateway, error) {
 
 	req, _ := http.NewRequestWithContext(cctx, http.MethodGet, u.String(), nil)
 	req.Header.Set("Accept", "text/event-stream")
+	if opts.OriginURL != "" {
+		req.Header.Set("Origin", opts.OriginURL)
+	}
 	if opts.LastEventID != "" {
 		// Standard SSE resume header
 		req.Header.Set("Last-Event-ID", opts.LastEventID)
