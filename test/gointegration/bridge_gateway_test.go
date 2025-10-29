@@ -60,6 +60,7 @@ type OpenOpts struct {
 	BridgeURL   string
 	SessionID   string
 	LastEventID string
+	OriginURL   string
 }
 
 func OpenBridge(ctx context.Context, opts OpenOpts) (*BridgeGateway, error) {
