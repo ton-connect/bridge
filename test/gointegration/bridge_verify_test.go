@@ -134,7 +134,7 @@ func establishConnection(t *testing.T, baseURL, clientID, originURL string) func
 
 // ===== Tests =====
 
-func TestVerify_UnknownClient(t *testing.T) {
+func TestBridgeVerify_UnknownClient(t *testing.T) {
 	clientID := randomSessionID(t)
 	originURL := "https://example.com"
 
@@ -152,7 +152,7 @@ func TestVerify_UnknownClient(t *testing.T) {
 	}
 }
 
-func TestVerify_ExactMatch(t *testing.T) {
+func TestBridgeVerify_ExactMatch(t *testing.T) {
 	clientID := randomSessionID(t)
 	originURL := "https://example.com"
 
@@ -180,7 +180,7 @@ func TestVerify_ExactMatch(t *testing.T) {
 	}
 }
 
-func TestVerify_MissingClientID(t *testing.T) {
+func TestBridgeVerify_MissingClientID(t *testing.T) {
 	// Test with missing client_id
 	_, status, err := callVerifyEndpoint(t, BRIDGE_VERIFY_URL, "", "https://example.com", "connect")
 
@@ -195,7 +195,7 @@ func TestVerify_MissingClientID(t *testing.T) {
 	}
 }
 
-func TestVerify_MissingURL(t *testing.T) {
+func TestBridgeVerify_MissingURL(t *testing.T) {
 	clientID := randomSessionID(t)
 
 	// Test with missing url
@@ -212,7 +212,7 @@ func TestVerify_MissingURL(t *testing.T) {
 	}
 }
 
-func TestVerify_InvalidType(t *testing.T) {
+func TestBridgeVerify_InvalidType(t *testing.T) {
 	clientID := randomSessionID(t)
 	originURL := "https://example.com"
 
@@ -230,7 +230,7 @@ func TestVerify_InvalidType(t *testing.T) {
 	}
 }
 
-func TestVerify_DefaultTypeConnect(t *testing.T) {
+func TestBridgeVerify_DefaultTypeConnect(t *testing.T) {
 	clientID := randomSessionID(t)
 	originURL := "https://example.com"
 
@@ -251,7 +251,7 @@ func TestVerify_DefaultTypeConnect(t *testing.T) {
 	}
 }
 
-func TestVerify_MultipleConnectionsSameOrigin(t *testing.T) {
+func TestBridgeVerify_MultipleConnectionsSameOrigin(t *testing.T) {
 	clientID := randomSessionID(t)
 	originURL := "https://example.com"
 
