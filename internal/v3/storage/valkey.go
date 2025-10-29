@@ -15,19 +15,16 @@ import (
 )
 
 type ValkeyStorage struct {
-	client      redis.UniversalClient
+	client      *redis.ClusterClient
 	pubSubConn  *redis.PubSub
 	subscribers map[string][]chan<- models.SseMessage
 	subMutex    sync.RWMutex
 }
 
 // NewValkeyStorage creates a new Valkey storage instance
-// Supports both single node and cluster modes
-// For cluster mode, discovers cluster topology using CLUSTER SLOTS command
+// Always uses cluster mode and discovers cluster topology using CLUSTER SLOTS command
 func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	log := log.WithField("prefix", "NewValkeyStorage")
-
-	var client redis.UniversalClient
 
 	// Parse the primary URI
 	opts, err := redis.ParseURL(strings.TrimSpace(valkeyURI))
@@ -63,12 +60,9 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 
 	log.Infof("cluster slots result: %+v", clusterSlots)
 
-	if len(clusterSlots) == 0 {
-		// Not a cluster or cluster command failed, use single-node mode
-		log.Info("Using single-node mode")
-		client = redis.NewClient(opts)
-	} else {
-		// Extract all node addresses from cluster slots
+	// Extract all node addresses from cluster slots
+	var addrs []string
+	if len(clusterSlots) > 0 {
 		nodeAddrs := make(map[string]bool)
 		for _, slot := range clusterSlots {
 			for _, node := range slot.Nodes {
@@ -77,30 +71,34 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		}
 
 		// Convert to slice
-		addrs := make([]string, 0, len(nodeAddrs))
+		addrs = make([]string, 0, len(nodeAddrs))
 		for addr := range nodeAddrs {
 			addrs = append(addrs, addr)
 		}
-
 		log.Infof("Using cluster mode with %d nodes discovered from CLUSTER SLOTS", len(addrs))
-		client = redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:     addrs,
-			Password:  opts.Password,
-			Username:  opts.Username,
-			TLSConfig: opts.TLSConfig,
-			// Enable automatic cluster redirection handling
-			ReadOnly:       false,
-			RouteByLatency: true,
-			RouteRandomly:  false,
-			// Set maximum redirects to handle MOVED responses
-			MaxRedirects: 3,
-			// Set appropriate timeouts for managed clusters like AWS ElastiCache
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			DialTimeout:  10 * time.Second,
-			PoolTimeout:  30 * time.Second,
-		})
+	} else {
+		// Use the original address as the only cluster node
+		addrs = []string{opts.Addr}
+		log.Info("Using cluster mode with single node")
 	}
+
+	client := redis.NewClusterClient(&redis.ClusterOptions{
+		Addrs:     addrs,
+		Password:  opts.Password,
+		Username:  opts.Username,
+		TLSConfig: opts.TLSConfig,
+		// Enable automatic cluster redirection handling
+		ReadOnly:       false,
+		RouteByLatency: true,
+		RouteRandomly:  false,
+		// Set maximum redirects to handle MOVED responses
+		MaxRedirects: 3,
+		// Set appropriate timeouts for managed clusters like AWS ElastiCache
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		DialTimeout:  10 * time.Second,
+		PoolTimeout:  30 * time.Second,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
