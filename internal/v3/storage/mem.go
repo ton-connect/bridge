@@ -22,12 +22,20 @@ var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
 type MemStorage struct {
 	db          map[string][]message
 	subscribers map[string][]chan<- models.SseMessage
+	connections map[string][]memConnection // clientID -> connections
 	lock        sync.Mutex
 }
 
 type message struct {
 	models.SseMessage
 	expireAt time.Time
+}
+
+type memConnection struct {
+	IP        string
+	Origin    string
+	UserAgent string
+	ExpiresAt time.Time
 }
 
 func (m message) IsExpired(now time.Time) bool {
@@ -38,6 +46,7 @@ func NewMemStorage() *MemStorage {
 	s := MemStorage{
 		db:          map[string][]message{},
 		subscribers: make(map[string][]chan<- models.SseMessage),
+		connections: make(map[string][]memConnection),
 	}
 	go s.watcher()
 	return &s
@@ -184,4 +193,58 @@ func (s *MemStorage) Unsub(ctx context.Context, keys []string, messageCh chan<- 
 // HealthCheck should be implemented
 func (s *MemStorage) HealthCheck() error {
 	return nil // Always healthy
+}
+
+// AddConnection stores connection info in memory with TTL
+func (s *MemStorage) AddConnection(ctx context.Context, conn ConnectionInfo, ttl time.Duration) error {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	memConn := memConnection{
+		IP:        conn.IP,
+		Origin:    conn.Origin,
+		UserAgent: conn.UserAgent,
+		ExpiresAt: time.Now().Add(ttl),
+	}
+
+	s.connections[conn.ClientID] = append(s.connections[conn.ClientID], memConn)
+	return nil
+}
+
+// VerifyConnection checks if connection matches cached data
+// Returns: "ok" (exact match), "warning" (same origin different IP), "danger" (different origin), or "unknown" (no cached data)
+func (s *MemStorage) VerifyConnection(ctx context.Context, conn ConnectionInfo) (string, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	conns, exists := s.connections[conn.ClientID]
+	if !exists {
+		return "unknown", nil
+	}
+
+	now := time.Now()
+	foundCount := 0
+	leastSuspicious := "danger"
+
+	for _, cachedConn := range conns {
+		if now.After(cachedConn.ExpiresAt) {
+			continue
+		}
+
+		foundCount++
+
+		if cachedConn.Origin == conn.Origin && cachedConn.IP == conn.IP {
+			return "ok", nil
+		}
+
+		if cachedConn.Origin == conn.Origin {
+			leastSuspicious = "warning"
+		}
+	}
+
+	if foundCount == 0 {
+		return "unknown", nil
+	}
+
+	return leastSuspicious, nil
 }

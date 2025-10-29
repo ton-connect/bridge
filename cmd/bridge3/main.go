@@ -120,7 +120,7 @@ func main() {
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)
-	// e.POST("/bridge/verify", h.ConnectVerifyHandler)
+	e.POST("/bridge/verify", h.ConnectVerifyHandler)
 
 	var existedPaths []string
 	for _, r := range e.Routes() {
