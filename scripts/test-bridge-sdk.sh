@@ -49,6 +49,6 @@ export ROLLUP_NO_BUNDLER_WORKER=1
 
 # Run tests
 echo "🧪 Running bridge-sdk tests..."
-BRIDGE_URL="$BRIDGE_URL" npx vitest run gateway provider -t '^(?!.*should verify request).*$'
+BRIDGE_URL="$BRIDGE_URL" npx vitest run gateway provider
 
 echo "✅ Bridge-sdk tests completed successfully!"

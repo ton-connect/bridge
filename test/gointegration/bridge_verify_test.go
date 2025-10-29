@@ -1,7 +1,6 @@
 package bridge_test
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -56,20 +55,19 @@ func callVerifyEndpoint(t *testing.T, baseURL, clientID, originURL, verifyType s
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	// Build request body with form data
-	formData := url.Values{}
-	formData.Set("client_id", clientID)
-	formData.Set("url", originURL)
+	// Build URL with query parameters
+	queryParams := url.Values{}
+	queryParams.Set("client_id", clientID)
+	queryParams.Set("url", originURL)
 	if verifyType != "" {
-		formData.Set("type", verifyType)
+		queryParams.Set("type", verifyType)
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", baseURL+"/bridge/verify",
-		bytes.NewBufferString(formData.Encode()))
+	fullURL := baseURL + "/verify?" + queryParams.Encode()
+	req, err := http.NewRequestWithContext(ctx, "POST", fullURL, nil)
 	if err != nil {
 		return verifyResponse{}, 0, fmt.Errorf("create request: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
 	client := &http.Client{Timeout: 10 * time.Second}
 	resp, err := client.Do(req)
@@ -103,6 +101,7 @@ func callVerifyEndpoint(t *testing.T, baseURL, clientID, originURL, verifyType s
 	return vr, resp.StatusCode, nil
 }
 
+// establishConnection opens SSE connection and waits for heartbeat
 // establishConnection opens an SSE connection to register a client with the bridge
 func establishConnection(t *testing.T, baseURL, clientID, originURL string) func() {
 	t.Helper()
@@ -113,6 +112,7 @@ func establishConnection(t *testing.T, baseURL, clientID, originURL string) func
 	gw, err := OpenBridge(ctx, OpenOpts{
 		BridgeURL: baseURL,
 		SessionID: clientID,
+		OriginURL: originURL,
 	})
 	if err != nil {
 		cancel()
