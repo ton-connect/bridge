@@ -7,32 +7,8 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
-	"strings"
 	"testing"
 	"time"
-)
-
-// ===== Test config =====
-
-var (
-	// For verify tests, we use the same BRIDGE_URL as other tests
-	// and test either v1 or v3 depending on what's running
-	BRIDGE_VERIFY_URL = func() string {
-		// Try v3 URL first
-		if v := os.Getenv("BRIDGE_V3_URL"); v != "" {
-			return strings.TrimRight(v, "/")
-		}
-		// Try v1 URL
-		if v := os.Getenv("BRIDGE_V1_URL"); v != "" {
-			return strings.TrimRight(v, "/")
-		}
-		// Use default BRIDGE_URL (same as other tests)
-		if v := os.Getenv("BRIDGE_URL"); v != "" {
-			return strings.TrimRight(v, "/")
-		}
-		return "http://localhost:8081"
-	}()
 )
 
 // ===== Response types =====
@@ -139,7 +115,7 @@ func TestBridgeVerify_UnknownClient(t *testing.T) {
 	originURL := "https://example.com"
 
 	// Test with unknown client
-	resp, status, err := callVerifyEndpoint(t, BRIDGE_VERIFY_URL, clientID, originURL, "connect")
+	resp, status, err := callVerifyEndpoint(t, BRIDGE_URL_Provider, clientID, originURL, "connect")
 	if err != nil {
 		t.Logf("verify error: %v", err)
 	}
@@ -157,14 +133,14 @@ func TestBridgeVerify_ExactMatch(t *testing.T) {
 	originURL := "https://example.com"
 
 	// Establish connection
-	cleanup := establishConnection(t, BRIDGE_VERIFY_URL, clientID, originURL)
+	cleanup := establishConnection(t, BRIDGE_URL_Provider, clientID, originURL)
 	defer cleanup()
 
 	// Wait for connection to be registered
 	time.Sleep(500 * time.Millisecond)
 
 	// Verify - should return "ok" for exact match
-	resp, status, err := callVerifyEndpoint(t, BRIDGE_VERIFY_URL, clientID, originURL, "connect")
+	resp, status, err := callVerifyEndpoint(t, BRIDGE_URL_Provider, clientID, originURL, "connect")
 	if err != nil {
 		t.Fatalf("verify failed: %v", err)
 	}
@@ -182,7 +158,7 @@ func TestBridgeVerify_ExactMatch(t *testing.T) {
 
 func TestBridgeVerify_MissingClientID(t *testing.T) {
 	// Test with missing client_id
-	_, status, err := callVerifyEndpoint(t, BRIDGE_VERIFY_URL, "", "https://example.com", "connect")
+	_, status, err := callVerifyEndpoint(t, BRIDGE_URL_Provider, "", "https://example.com", "connect")
 
 	// Should return bad request
 	if status != http.StatusBadRequest {
@@ -199,7 +175,7 @@ func TestBridgeVerify_MissingURL(t *testing.T) {
 	clientID := randomSessionID(t)
 
 	// Test with missing url
-	_, status, err := callVerifyEndpoint(t, BRIDGE_VERIFY_URL, clientID, "", "connect")
+	_, status, err := callVerifyEndpoint(t, BRIDGE_URL_Provider, clientID, "", "connect")
 
 	// Should return bad request
 	if status != http.StatusBadRequest {
@@ -217,7 +193,7 @@ func TestBridgeVerify_InvalidType(t *testing.T) {
 	originURL := "https://example.com"
 
 	// Test with invalid type
-	_, status, err := callVerifyEndpoint(t, BRIDGE_VERIFY_URL, clientID, originURL, "invalid")
+	_, status, err := callVerifyEndpoint(t, BRIDGE_URL_Provider, clientID, originURL, "invalid")
 
 	// Should return bad request
 	if status != http.StatusBadRequest {
@@ -235,7 +211,7 @@ func TestBridgeVerify_DefaultTypeConnect(t *testing.T) {
 	originURL := "https://example.com"
 
 	// Test without type parameter (should default to "connect")
-	resp, status, err := callVerifyEndpoint(t, BRIDGE_VERIFY_URL, clientID, originURL, "")
+	resp, status, err := callVerifyEndpoint(t, BRIDGE_URL_Provider, clientID, originURL, "")
 	if err != nil && status != http.StatusOK {
 		t.Fatalf("verify failed: %v", err)
 	}
@@ -256,13 +232,13 @@ func TestBridgeVerify_MultipleConnectionsSameOrigin(t *testing.T) {
 	originURL := "https://example.com"
 
 	// Establish connection
-	cleanup := establishConnection(t, BRIDGE_VERIFY_URL, clientID, originURL)
+	cleanup := establishConnection(t, BRIDGE_URL_Provider, clientID, originURL)
 	defer cleanup()
 
 	time.Sleep(500 * time.Millisecond)
 
 	// Verify from same origin (same IP in test environment)
-	resp, status, err := callVerifyEndpoint(t, BRIDGE_VERIFY_URL, clientID, originURL, "connect")
+	resp, status, err := callVerifyEndpoint(t, BRIDGE_URL_Provider, clientID, originURL, "connect")
 	if err != nil {
 		t.Fatalf("verify failed: %v", err)
 	}
