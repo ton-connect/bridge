@@ -364,6 +364,9 @@ func TestBridge_ReceiveMessageOverOpenConnection(t *testing.T) {
 		t.Fatal("receiver not ready")
 	}
 
+	// Give the server-side subscription time to be established to avoid flappy tests
+	time.Sleep(100 * time.Millisecond)
+
 	if err := sender.Send(ctx, []byte("ping"), senderSession, receiverSession, nil); err != nil {
 		t.Fatalf("send: %v", err)
 	}
@@ -467,6 +470,10 @@ func TestBridge_ReceiveMessageAgainAfterReconnectWithValidLastEventID(t *testing
 	if !r1.IsReady() {
 		t.Fatal("receiver1 not ready")
 	}
+
+	// Give the server-side subscription time to be established
+	time.Sleep(100 * time.Millisecond)
+
 	if err := sender.Send(ctx, []byte("ping"), senderSession, session, nil); err != nil {
 		t.Fatalf("send: %v", err)
 	}
@@ -676,13 +683,16 @@ func TestBridge_MultipleMessagesInOrder(t *testing.T) {
 		t.Fatalf("open receiver: %v", err)
 	}
 	defer func() {
-		if err = sender.Close(); err != nil {
-			log.Println("error during sender.Close():", err)
+		if err = r.Close(); err != nil {
+			log.Println("error during r.Close():", err)
 		}
 	}()
 	if !r.IsReady() {
 		t.Fatal("receiver not ready")
 	}
+
+	// Give the server-side subscription time to be established
+	time.Sleep(100 * time.Millisecond)
 
 	// Send 3 messages
 	for _, m := range []string{"1", "2", "3"} {

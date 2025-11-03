@@ -294,6 +294,9 @@ func TestBridgeProvider_SendAndRetrieve(t *testing.T) {
 		}
 	}()
 
+	// Give the server-side subscription time to be established
+	time.Sleep(100 * time.Millisecond)
+
 	// send
 	if err := app.Send(context.Background(),
 		JSONRPC{Method: "sendTransaction", Params: []string{""}, ID: "1"},
