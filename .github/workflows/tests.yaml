@@ -58,16 +58,49 @@ jobs:
     - name: Get performance metrics
       if: github.event_name == 'pull_request'
       run: |
-        ./scripts/pr-metrics.sh "${{ matrix.storage }}" > metrics.md
+        ./scripts/pr-metrics.sh "${{ matrix.storage }}" > metrics-${{ matrix.storage }}.md
 
-    - name: Comment PR
+    - name: Update PR comment with current metrics
       if: github.event_name == 'pull_request'
       continue-on-error: true
-      uses: mshick/add-pr-comment@v2
+      uses: actions/github-script@v7
       with:
-        message-path: metrics.md
-        message-id: performance-metrics-${{ matrix.storage }}-${{ github.run_number }}
-        refresh-message-position: true
+        script: |
+          const fs = require('fs');
+          const metrics = fs.readFileSync('metrics-${{ matrix.storage }}.md', 'utf8');
+          
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          
+          const marker = '<!-- metrics-${{ github.run_id }} -->';
+          const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes(marker));
+          
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: botComment.body + '\n' + metrics
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `${marker}\n# 📊 Performance Metrics\n\n${metrics}`
+            });
+          }
+
+    - name: Upload metrics artifact
+      if: github.event_name == 'pull_request'
+      uses: actions/upload-artifact@v4
+      with:
+        name: metrics-${{ matrix.storage }}
+        path: metrics-${{ matrix.storage }}.md
+        retention-days: 1
 
     - name: Clean up containers
       if: always()
