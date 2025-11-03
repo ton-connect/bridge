@@ -58,16 +58,15 @@ jobs:
     - name: Get performance metrics
       if: github.event_name == 'pull_request'
       run: |
-        ./scripts/pr-metrics.sh "${{ matrix.storage }}" > metrics.md
+        ./scripts/pr-metrics.sh "${{ matrix.storage }}" > metrics-${{ matrix.storage }}.md
 
-    - name: Comment PR
+    - name: Upload metrics artifact
       if: github.event_name == 'pull_request'
-      continue-on-error: true
-      uses: mshick/add-pr-comment@v2
+      uses: actions/upload-artifact@v4
       with:
-        message-path: metrics.md
-        message-id: performance-metrics-${{ matrix.storage }}-${{ github.run_number }}
-        refresh-message-position: true
+        name: metrics-${{ matrix.storage }}
+        path: metrics-${{ matrix.storage }}.md
+        retention-days: 1
 
     - name: Clean up containers
       if: always()
@@ -80,3 +79,36 @@ jobs:
         echo "  Bridge SDK tests: exit code ${{ steps.bridge_sdk_tests.outputs.sdk_rc }}"
         echo "  Go integration tests: exit code ${{ steps.go_integration_tests.outputs.go_rc }}"
         exit 1
+
+  comment-metrics:
+    name: Comment Performance Metrics
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    needs: integration
+    steps:
+      - name: Download all metrics artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: metrics-*
+          path: metrics
+
+      - name: Combine metrics
+        run: |
+          echo "# 📊 Performance Metrics" > combined-metrics.md
+          echo "" >> combined-metrics.md
+          echo "_Updated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')_" >> combined-metrics.md
+          echo "" >> combined-metrics.md
+          
+          for storage in memory postgres valkey nginx dnsmasq sharded-valkey; do
+            if [ -f "metrics/metrics-${storage}/metrics-${storage}.md" ]; then
+              cat "metrics/metrics-${storage}/metrics-${storage}.md" >> combined-metrics.md
+              echo "" >> combined-metrics.md
+            fi
+          done
+
+      - name: Comment PR
+        uses: mshick/add-pr-comment@v2
+        with:
+          message-path: combined-metrics.md
+          message-id: performance-metrics-combined
+
