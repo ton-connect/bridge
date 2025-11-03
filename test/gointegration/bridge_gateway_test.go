@@ -193,10 +193,10 @@ func (g *BridgeGateway) WaitReady(ctx context.Context) error {
 		time.Sleep(100 * time.Millisecond)
 		return nil
 	}
-	
+
 	ticker := time.NewTicker(10 * time.Millisecond)
 	defer ticker.Stop()
-	
+
 	for {
 		select {
 		case <-ctx.Done():
