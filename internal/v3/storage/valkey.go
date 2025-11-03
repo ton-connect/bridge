@@ -317,7 +317,6 @@ func (s *ValkeyStorage) AddConnection(ctx context.Context, conn ConnectionInfo, 
 	key := fmt.Sprintf("conn:full:%s:%s:%s", conn.ClientID, conn.IP, url.QueryEscape(conn.Origin))
 
 	data := map[string]interface{}{
-		"client_id":  conn.ClientID,
 		"user_agent": conn.UserAgent,
 		"created_at": time.Now().Unix(),
 	}
