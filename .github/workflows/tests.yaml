@@ -60,6 +60,40 @@ jobs:
       run: |
         ./scripts/pr-metrics.sh "${{ matrix.storage }}" > metrics-${{ matrix.storage }}.md
 
+    - name: Update PR comment with current metrics
+      if: github.event_name == 'pull_request'
+      continue-on-error: true
+      uses: actions/github-script@v7
+      with:
+        script: |
+          const fs = require('fs');
+          const metrics = fs.readFileSync('metrics-${{ matrix.storage }}.md', 'utf8');
+          
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+          
+          const marker = '<!-- metrics-${{ github.run_id }} -->';
+          const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes(marker));
+          
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body: botComment.body + '\n' + metrics
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body: `${marker}\n# 📊 Performance Metrics\n\n${metrics}`
+            });
+          }
+
     - name: Upload metrics artifact
       if: github.event_name == 'pull_request'
       uses: actions/upload-artifact@v4
@@ -79,36 +113,3 @@ jobs:
         echo "  Bridge SDK tests: exit code ${{ steps.bridge_sdk_tests.outputs.sdk_rc }}"
         echo "  Go integration tests: exit code ${{ steps.go_integration_tests.outputs.go_rc }}"
         exit 1
-
-  comment-metrics:
-    name: Comment Performance Metrics
-    runs-on: ubuntu-latest
-    if: github.event_name == 'pull_request'
-    needs: integration
-    steps:
-      - name: Download all metrics artifacts
-        uses: actions/download-artifact@v4
-        with:
-          pattern: metrics-*
-          path: metrics
-
-      - name: Combine metrics
-        run: |
-          echo "# 📊 Performance Metrics" > combined-metrics.md
-          echo "" >> combined-metrics.md
-          echo "_Updated: $(date -u '+%Y-%m-%d %H:%M:%S UTC')_" >> combined-metrics.md
-          echo "" >> combined-metrics.md
-          
-          for storage in memory postgres valkey nginx dnsmasq sharded-valkey; do
-            if [ -f "metrics/metrics-${storage}/metrics-${storage}.md" ]; then
-              cat "metrics/metrics-${storage}/metrics-${storage}.md" >> combined-metrics.md
-              echo "" >> combined-metrics.md
-            fi
-          done
-
-      - name: Comment PR
-        uses: mshick/add-pr-comment@v2
-        with:
-          message-path: combined-metrics.md
-          message-id: performance-metrics-combined
-
