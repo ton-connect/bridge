@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -309,11 +310,11 @@ func (s *ValkeyStorage) handlePubSub() {
 }
 
 // AddConnection stores connection info in Valkey with TTL
-// Key pattern: conn:full:{clientID}:{ip}:{origin}
+// Key pattern: conn:full:{clientID}:{ip}:{urlEncodedOrigin}
 func (s *ValkeyStorage) AddConnection(ctx context.Context, conn ConnectionInfo, ttl time.Duration) error {
 	log := log.WithField("prefix", "ValkeyStorage.AddConnection")
 
-	key := fmt.Sprintf("conn:full:%s:%s:%s", conn.ClientID, conn.IP, conn.Origin)
+	key := fmt.Sprintf("conn:full:%s:%s:%s", conn.ClientID, conn.IP, url.QueryEscape(conn.Origin))
 
 	data := map[string]interface{}{
 		"client_id":  conn.ClientID,
@@ -345,7 +346,7 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 	log := log.WithField("prefix", "ValkeyStorage.VerifyConnection")
 
 	// Check for exact match first
-	exactKey := fmt.Sprintf("conn:full:%s:%s:%s", conn.ClientID, conn.IP, conn.Origin)
+	exactKey := fmt.Sprintf("conn:full:%s:%s:%s", conn.ClientID, conn.IP, url.QueryEscape(conn.Origin))
 	exists, err := s.client.Exists(ctx, exactKey).Result()
 	if err != nil {
 		return "", fmt.Errorf("failed to check connection existence: %w", err)
@@ -374,13 +375,18 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 	// Check for partial matches
 	leastSuspicious := "danger"
 	for _, key := range keys {
-		// Extract origin from key: conn:full:{clientID}:{ip}:{origin}
+		// Extract origin from key: conn:full:{clientID}:{ip}:{urlEncodedOrigin}
 		parts := strings.Split(key, ":")
 		if len(parts) < 5 {
 			continue
 		}
 
-		cachedOrigin := strings.Join(parts[4:], ":") // Handle origins with colons
+		encodedOrigin := parts[4]
+		cachedOrigin, err := url.QueryUnescape(encodedOrigin)
+		if err != nil {
+			log.Warnf("failed to decode origin from key %s: %v", key, err)
+			continue
+		}
 
 		if cachedOrigin == conn.Origin {
 			leastSuspicious = "warning"
