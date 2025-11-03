@@ -60,6 +60,7 @@ type OpenOpts struct {
 	BridgeURL   string
 	SessionID   string
 	LastEventID string
+	OriginURL   string
 }
 
 func OpenBridge(ctx context.Context, opts OpenOpts) (*BridgeGateway, error) {
@@ -87,6 +88,9 @@ func OpenBridge(ctx context.Context, opts OpenOpts) (*BridgeGateway, error) {
 
 	req, _ := http.NewRequestWithContext(cctx, http.MethodGet, u.String(), nil)
 	req.Header.Set("Accept", "text/event-stream")
+	if opts.OriginURL != "" {
+		req.Header.Set("Origin", opts.OriginURL)
+	}
 	if opts.LastEventID != "" {
 		// Standard SSE resume header
 		req.Header.Set("Last-Event-ID", opts.LastEventID)
@@ -178,6 +182,33 @@ func (g *BridgeGateway) IsReady() bool {
 	g.mu.RLock()
 	defer g.mu.RUnlock()
 	return g.ready
+}
+
+// WaitReady blocks until the gateway is ready for server-side subscription
+// This replaces the need for arbitrary sleeps after OpenBridge
+func (g *BridgeGateway) WaitReady(ctx context.Context) error {
+	if g.IsReady() {
+		// Give the server-side subscription time to be established
+		// This is a known requirement of the bridge architecture
+		time.Sleep(100 * time.Millisecond)
+		return nil
+	}
+
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+			if g.IsReady() {
+				// Give the server-side subscription time to be established
+				time.Sleep(100 * time.Millisecond)
+				return nil
+			}
+		}
+	}
 }
 
 func (g *BridgeGateway) IsClosed() bool {
@@ -356,8 +387,8 @@ func TestBridge_ReceiveMessageOverOpenConnection(t *testing.T) {
 		t.Fatalf("open receiver: %v", err)
 	}
 	defer func() { _ = receiver.Close() }()
-	if !receiver.IsReady() {
-		t.Fatal("receiver not ready")
+	if err := receiver.WaitReady(ctx); err != nil {
+		t.Fatalf("receiver not ready: %v", err)
 	}
 
 	if err := sender.Send(ctx, []byte("ping"), senderSession, receiverSession, nil); err != nil {
@@ -460,9 +491,10 @@ func TestBridge_ReceiveMessageAgainAfterReconnectWithValidLastEventID(t *testing
 	if err != nil {
 		t.Fatalf("open receiver1: %v", err)
 	}
-	if !r1.IsReady() {
-		t.Fatal("receiver1 not ready")
+	if err := r1.WaitReady(ctx); err != nil {
+		t.Fatalf("receiver1 not ready: %v", err)
 	}
+
 	if err := sender.Send(ctx, []byte("ping"), senderSession, session, nil); err != nil {
 		t.Fatalf("send: %v", err)
 	}
@@ -672,12 +704,12 @@ func TestBridge_MultipleMessagesInOrder(t *testing.T) {
 		t.Fatalf("open receiver: %v", err)
 	}
 	defer func() {
-		if err = sender.Close(); err != nil {
-			log.Println("error during sender.Close():", err)
+		if err = r.Close(); err != nil {
+			log.Println("error during r.Close():", err)
 		}
 	}()
-	if !r.IsReady() {
-		t.Fatal("receiver not ready")
+	if err := r.WaitReady(ctx); err != nil {
+		t.Fatalf("receiver not ready: %v", err)
 	}
 
 	// Send 3 messages

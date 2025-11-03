@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -306,6 +307,93 @@ func (s *ValkeyStorage) handlePubSub() {
 		}
 		s.subMutex.RUnlock()
 	}
+}
+
+// AddConnection stores connection info in Valkey with TTL
+// Key pattern: conn:full:{clientID}:{ip}:{urlEncodedOrigin}
+func (s *ValkeyStorage) AddConnection(ctx context.Context, conn ConnectionInfo, ttl time.Duration) error {
+	log := log.WithField("prefix", "ValkeyStorage.AddConnection")
+
+	key := fmt.Sprintf("conn:full:%s:%s:%s", conn.ClientID, conn.IP, url.QueryEscape(conn.Origin))
+
+	data := map[string]interface{}{
+		"user_agent": conn.UserAgent,
+		"created_at": time.Now().Unix(),
+	}
+
+	pipe := s.client.Pipeline()
+	pipe.HSet(ctx, key, data)
+	pipe.Expire(ctx, key, ttl)
+
+	// Also add to clientID index for efficient lookup
+	indexKey := fmt.Sprintf("conn:idx:%s", conn.ClientID)
+	pipe.SAdd(ctx, indexKey, key)
+	pipe.Expire(ctx, indexKey, ttl)
+
+	_, err := pipe.Exec(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to store connection: %w", err)
+	}
+
+	log.Debugf("stored connection for client %s from %s", conn.ClientID, conn.IP)
+	return nil
+}
+
+// VerifyConnection checks if connection matches cached data
+// Returns: "ok" (exact match), "warning" (same origin different IP), "danger" (different origin), or "unknown" (no cached data)
+func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInfo) (string, error) {
+	log := log.WithField("prefix", "ValkeyStorage.VerifyConnection")
+
+	// Check for exact match first
+	exactKey := fmt.Sprintf("conn:full:%s:%s:%s", conn.ClientID, conn.IP, url.QueryEscape(conn.Origin))
+	exists, err := s.client.Exists(ctx, exactKey).Result()
+	if err != nil {
+		return "", fmt.Errorf("failed to check connection existence: %w", err)
+	}
+	if exists > 0 {
+		log.Debugf("connection verified OK for client %s", conn.ClientID)
+		return "ok", nil
+	}
+
+	// Get all connections for this clientID
+	indexKey := fmt.Sprintf("conn:idx:%s", conn.ClientID)
+	keys, err := s.client.SMembers(ctx, indexKey).Result()
+	if err != nil {
+		if err == redis.Nil {
+			log.Debugf("no cached connections for client %s", conn.ClientID)
+			return "unknown", nil
+		}
+		return "", fmt.Errorf("failed to get connection index: %w", err)
+	}
+
+	if len(keys) == 0 {
+		log.Debugf("no cached connections for client %s", conn.ClientID)
+		return "unknown", nil
+	}
+
+	// Check for partial matches
+	leastSuspicious := "danger"
+	for _, key := range keys {
+		// Extract origin from key: conn:full:{clientID}:{ip}:{urlEncodedOrigin}
+		parts := strings.Split(key, ":")
+		if len(parts) < 5 {
+			continue
+		}
+
+		encodedOrigin := parts[4]
+		cachedOrigin, err := url.QueryUnescape(encodedOrigin)
+		if err != nil {
+			log.Warnf("failed to decode origin from key %s: %v", key, err)
+			continue
+		}
+
+		if cachedOrigin == conn.Origin {
+			leastSuspicious = "warning"
+		}
+	}
+
+	log.Debugf("connection verification result: %s for client %s", leastSuspicious, conn.ClientID)
+	return leastSuspicious, nil
 }
 
 // HealthCheck verifies the connection to Valkey

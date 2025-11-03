@@ -153,6 +153,25 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
 	session := h.CreateSession(clientIds, lastEventId)
 
+	// Track connection for verification
+	if len(clientIds) > 0 {
+		ip := h.realIP.Extract(c.Request())
+		origin := utils.ExtractOrigin(c.Request().Header.Get("Origin"))
+		userAgent := c.Request().Header.Get("User-Agent")
+
+		conn := storagev3.ConnectionInfo{
+			ClientID:  clientIds[0],
+			IP:        ip,
+			Origin:    origin,
+			UserAgent: userAgent,
+		}
+
+		ttl := time.Duration(config.Config.ConnectCacheTTL) * time.Second
+		if err := h.storage.AddConnection(c.Request().Context(), conn, ttl); err != nil {
+			log.Warnf("failed to store connection: %v", err)
+		}
+	}
+
 	ctx := c.Request().Context()
 	notify := ctx.Done()
 	go func() {
@@ -355,9 +374,52 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	return c.JSON(http.StatusOK, utils.HttpResOk())
 }
 
-// func (h *handler) ConnectVerifyHandler(c echo.Context) error {
-// 	return c.JSON(utils.HttpResError("not implemented", http.StatusInternalServerError))
-// }
+type verifyResponse struct {
+	Status string `json:"status"`
+}
+
+func (h *handler) ConnectVerifyHandler(c echo.Context) error {
+	ctx := c.Request().Context()
+	ip := h.realIP.Extract(c.Request())
+
+	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
+	if err != nil {
+		badRequestMetric.Inc()
+		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
+	}
+
+	clientId, ok := paramsStore.Get("client_id")
+	if !ok {
+		badRequestMetric.Inc()
+		return c.JSON(utils.HttpResError("param \"client_id\" not present", http.StatusBadRequest))
+	}
+	urlParam, ok := paramsStore.Get("url")
+	if !ok {
+		badRequestMetric.Inc()
+		return c.JSON(utils.HttpResError("param \"url\" not present", http.StatusBadRequest))
+	}
+	qtype, ok := paramsStore.Get("type")
+	if !ok {
+		qtype = "connect"
+	}
+
+	switch strings.ToLower(qtype) {
+	case "connect":
+		conn := storagev3.ConnectionInfo{
+			ClientID: clientId,
+			IP:       ip,
+			Origin:   utils.ExtractOrigin(urlParam),
+		}
+		status, err := h.storage.VerifyConnection(ctx, conn)
+		if err != nil {
+			return c.JSON(utils.HttpResError(err.Error(), http.StatusInternalServerError))
+		}
+		return c.JSON(http.StatusOK, verifyResponse{Status: status})
+	default:
+		badRequestMetric.Inc()
+		return c.JSON(utils.HttpResError("param \"type\" must be: connect", http.StatusBadRequest))
+	}
+}
 
 func (h *handler) removeConnection(ses *Session) {
 	log := logrus.WithField("prefix", "removeConnection")

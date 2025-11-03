@@ -15,10 +15,23 @@ var (
 	// TransferedCache = common_storage.NewMessageCache(config.Config.EnableTransferedCache, time.Minute)
 )
 
+// ConnectionInfo represents connection metadata for verification
+type ConnectionInfo struct {
+	ClientID  string
+	IP        string
+	Origin    string
+	UserAgent string
+}
+
 type Storage interface {
 	Pub(ctx context.Context, message models.SseMessage, ttl int64) error
 	Sub(ctx context.Context, keys []string, lastEventId int64, messageCh chan<- models.SseMessage) error
 	Unsub(ctx context.Context, keys []string, messageCh chan<- models.SseMessage) error
+
+	// Connection verification methods
+	AddConnection(ctx context.Context, conn ConnectionInfo, ttl time.Duration) error
+	VerifyConnection(ctx context.Context, conn ConnectionInfo) (string, error)
+
 	HealthCheck() error
 }
 
