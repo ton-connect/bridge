@@ -41,7 +41,7 @@ test-bench:
 	go test -race -count 10 -timeout 15s -bench=BenchmarkConnectionCache -benchmem ./internal/v1/handler
 
 test-gointegration:
-	go test -v -p 5 -v -run TestBridge ./test/gointegration
+	go test -v -p 10 -v -run TestBridge ./test/gointegration
 
 test-bridge-sdk:
 	@./scripts/test-bridge-sdk.sh
