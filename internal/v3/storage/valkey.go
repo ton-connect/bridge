@@ -309,15 +309,14 @@ func (s *ValkeyStorage) handlePubSub() {
 }
 
 // AddConnection stores connection info in Valkey with TTL
-// Key pattern: conn:{clientID}:{ip}:{origin}
+// Key pattern: conn:full:{clientID}:{ip}:{origin}
 func (s *ValkeyStorage) AddConnection(ctx context.Context, conn ConnectionInfo, ttl time.Duration) error {
 	log := log.WithField("prefix", "ValkeyStorage.AddConnection")
 
-	key := fmt.Sprintf("conn:%s:%s:%s", conn.ClientID, conn.IP, conn.Origin)
+	key := fmt.Sprintf("conn:full:%s:%s:%s", conn.ClientID, conn.IP, conn.Origin)
 
 	data := map[string]interface{}{
-		"ip":         conn.IP,
-		"origin":     conn.Origin,
+		"client_id":  conn.ClientID,
 		"user_agent": conn.UserAgent,
 		"created_at": time.Now().Unix(),
 	}
@@ -346,7 +345,7 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 	log := log.WithField("prefix", "ValkeyStorage.VerifyConnection")
 
 	// Check for exact match first
-	exactKey := fmt.Sprintf("conn:%s:%s:%s", conn.ClientID, conn.IP, conn.Origin)
+	exactKey := fmt.Sprintf("conn:full:%s:%s:%s", conn.ClientID, conn.IP, conn.Origin)
 	exists, err := s.client.Exists(ctx, exactKey).Result()
 	if err != nil {
 		return "", fmt.Errorf("failed to check connection existence: %w", err)
@@ -360,6 +359,10 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 	indexKey := fmt.Sprintf("conn:idx:%s", conn.ClientID)
 	keys, err := s.client.SMembers(ctx, indexKey).Result()
 	if err != nil {
+		if err == redis.Nil {
+			log.Debugf("no cached connections for client %s", conn.ClientID)
+			return "unknown", nil
+		}
 		return "", fmt.Errorf("failed to get connection index: %w", err)
 	}
 
@@ -371,13 +374,13 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 	// Check for partial matches
 	leastSuspicious := "danger"
 	for _, key := range keys {
-		// Extract origin from key: conn:{clientID}:{ip}:{origin}
+		// Extract origin from key: conn:full:{clientID}:{ip}:{origin}
 		parts := strings.Split(key, ":")
-		if len(parts) < 4 {
+		if len(parts) < 5 {
 			continue
 		}
 
-		cachedOrigin := strings.Join(parts[3:], ":") // Handle origins with colons
+		cachedOrigin := strings.Join(parts[4:], ":") // Handle origins with colons
 
 		if cachedOrigin == conn.Origin {
 			leastSuspicious = "warning"
