@@ -2,6 +2,8 @@ package storagev3
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -111,10 +113,15 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	}
 
 	log.Info("Successfully connected to Valkey")
-	return &ValkeyStorage{
+	storage := &ValkeyStorage{
 		client:      client,
 		subscribers: make(map[string][]chan<- models.SseMessage),
-	}, nil
+	}
+	
+	// Start background worker to log expired messages
+	go storage.expiredMessagesWorker()
+	
+	return storage, nil
 }
 
 // Pub publishes a message to Redis and stores it with TTL
@@ -171,8 +178,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	for _, key := range keys {
 		clientKey := fmt.Sprintf("client:%s", key)
 
-		// Remove expired messages first
-		// TODO support expired messages but not delivered log
+		// Remove expired messages (logged by expiredMessagesWorker)
 		s.client.ZRemRangeByScore(ctx, clientKey, "0", fmt.Sprintf("%d", now))
 
 		// Get all remaining messages
@@ -394,6 +400,94 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 
 	log.Debugf("connection verification result: %s for client %s", leastSuspicious, conn.ClientID)
 	return leastSuspicious, nil
+}
+
+// expiredMessagesWorker periodically scans for and logs expired messages
+func (s *ValkeyStorage) expiredMessagesWorker() {
+	log := log.WithField("prefix", "ValkeyStorage.expiredMessagesWorker")
+	log.Info("Starting expired messages worker")
+
+	ticker := time.NewTicker(10 * time.Second)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		ctx := context.Background()
+		now := time.Now().Unix()
+
+		// Use SCAN to iterate through all client: keys
+		var cursor uint64
+		for {
+			keys, nextCursor, err := s.client.Scan(ctx, cursor, "client:*", 100).Result()
+			if err != nil {
+				log.Errorf("failed to scan keys: %v", err)
+				break
+			}
+
+			// Check each key for expired messages
+			for _, key := range keys {
+				// Extract client ID from key: client:{clientID}
+				clientID := strings.TrimPrefix(key, "client:")
+
+				// Get expired messages (score < now)
+				expiredMessages, err := s.client.ZRangeByScore(ctx, key, &redis.ZRangeBy{
+					Min: "0",
+					Max: fmt.Sprintf("%d", now),
+				}).Result()
+				if err != nil {
+					if err != redis.Nil {
+						log.Errorf("failed to get expired messages for %s: %v", clientID, err)
+					}
+					continue
+				}
+
+				// Log each expired message if not already delivered
+				for _, msgData := range expiredMessages {
+					var msg models.SseMessage
+					err := json.Unmarshal([]byte(msgData), &msg)
+					if err != nil {
+						log.Errorf("failed to unmarshal expired message: %v", err)
+						continue
+					}
+
+					if !ExpiredCache.IsMarked(msg.EventId) {
+						var bridgeMsg models.BridgeMessage
+						fromID := "unknown"
+						hash := sha256.Sum256(msg.Message)
+						messageHash := hex.EncodeToString(hash[:])
+
+						if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+							fromID = bridgeMsg.From
+							contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+							messageHash = hex.EncodeToString(contentHash[:])
+						}
+
+						log.WithFields(map[string]interface{}{
+							"hash":     messageHash,
+							"from":     fromID,
+							"to":       clientID,
+							"event_id": msg.EventId,
+							"trace_id": bridgeMsg.TraceId,
+						}).Debug("message expired")
+					}
+				}
+
+				// Remove expired messages
+				if len(expiredMessages) > 0 {
+					removed, err := s.client.ZRemRangeByScore(ctx, key, "0", fmt.Sprintf("%d", now)).Result()
+					if err != nil {
+						log.Errorf("failed to remove expired messages for %s: %v", clientID, err)
+					} else if removed > 0 {
+						log.Debugf("removed %d expired messages for client %s", removed, clientID)
+					}
+				}
+			}
+
+			cursor = nextCursor
+			if cursor == 0 {
+				break
+			}
+		}
+	}
 }
 
 // HealthCheck verifies the connection to Valkey

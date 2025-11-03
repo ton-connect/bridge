@@ -42,10 +42,9 @@ var Config = struct {
 	SelfSignedTLS      bool     `env:"SELF_SIGNED_TLS" envDefault:"false"`
 
 	// Caching
-	ConnectCacheSize      int  `env:"CONNECT_CACHE_SIZE" envDefault:"2000000"`
-	ConnectCacheTTL       int  `env:"CONNECT_CACHE_TTL" envDefault:"300"`
-	EnableTransferedCache bool `env:"ENABLE_TRANSFERED_CACHE" envDefault:"true"`
-	EnableExpiredCache    bool `env:"ENABLE_EXPIRED_CACHE" envDefault:"true"`
+	ConnectCacheSize     int  `env:"CONNECT_CACHE_SIZE" envDefault:"2000000"`
+	ConnectCacheTTL      int  `env:"CONNECT_CACHE_TTL" envDefault:"300"`
+	LogMessagesLifecycle bool `env:"LOG_MESSAGES_LIFECYCLE" envDefault:"true"`
 
 	// Events & Webhooks
 	DisconnectEventsTTL    int64  `env:"DISCONNECT_EVENTS_TTL" envDefault:"3600"`
