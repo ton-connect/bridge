@@ -2,13 +2,13 @@ package storagev3
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
+	json "github.com/bytedance/sonic"
 	"github.com/redis/go-redis/v9"
 	"github.com/sethvargo/go-retry"
 	log "github.com/sirupsen/logrus"
@@ -46,7 +46,11 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		func(ctx context.Context) ([]redis.ClusterSlot, error) {
 			slots, err := tempClient.ClusterSlots(ctx).Result()
 			if err != nil {
-				// TODO which errors should we filter?
+				if strings.Contains(err.Error(), "cluster support disabled") {
+					log.Info("Cluster support disabled, using single-node mode")
+					return []redis.ClusterSlot{}, nil
+				}
+
 				log.Debugf("retrying cluster slots query due to: %v", err)
 				return nil, retry.RetryableError(err)
 			}
@@ -128,24 +132,21 @@ func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl 
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	err = s.client.Publish(ctx, channel, messageData).Err()
-	if err != nil {
-		return fmt.Errorf("failed to publish message to channel %s: %w", channel, err)
-	}
-
+	pipe := s.client.Pipeline()
+	pipe.Publish(ctx, channel, messageData)
 	// Store message with TTL as backup for offline clients
 	expireTime := time.Now().Add(time.Duration(ttl) * time.Second).Unix()
-	err = s.client.ZAdd(ctx, channel, redis.Z{
+	pipe.ZAdd(ctx, channel, redis.Z{
 		Score:  float64(expireTime),
 		Member: messageData,
-	}).Err()
-
-	if err != nil {
-		return fmt.Errorf("failed to store message in sorted set for channel %s: %w", channel, err)
-	}
+	})
 
 	// Set expiration on the key itself
-	s.client.Expire(ctx, channel, time.Duration(ttl+60)*time.Second) // TODO remove 60 seconds buffer?
+	pipe.Expire(ctx, channel, time.Duration(ttl+60)*time.Second) // TODO remove 60 seconds buffer?
+
+	if _, err = pipe.Exec(ctx); err != nil {
+		return fmt.Errorf("failed to publish and store message: %w", err)
+	}
 
 	log.Debugf("published and stored message for client %s with TTL %d seconds", message.To, ttl)
 	return nil
@@ -156,8 +157,6 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	log := log.WithField("prefix", "ValkeyStorage.Sub")
 
 	s.subMutex.Lock()
-	defer s.subMutex.Unlock()
-
 	// Add messageCh to subscribers for each key
 	for _, key := range keys {
 		if s.subscribers[key] == nil {
@@ -165,6 +164,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		}
 		s.subscribers[key] = append(s.subscribers[key], messageCh)
 	}
+	s.subMutex.Unlock()
 
 	// Send historical messages for each key
 	now := time.Now().Unix()

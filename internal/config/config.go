@@ -11,9 +11,10 @@ import (
 var Config = struct {
 	// Core Settings
 	LogLevel     string `env:"LOG_LEVEL" envDefault:"info"`
-	Port         int    `env:"PORT" envDefault:"8081"`
-	MetricsPort  int    `env:"METRICS_PORT" envDefault:"9103"`
-	PprofEnabled bool   `env:"PPROF_ENABLED" envDefault:"true"`
+	IsDebugMode  bool
+	Port         int  `env:"PORT" envDefault:"8081"`
+	MetricsPort  int  `env:"METRICS_PORT" envDefault:"9103"`
+	PprofEnabled bool `env:"PPROF_ENABLED" envDefault:"true"`
 
 	// Storage
 	Storage   string `env:"STORAGE" envDefault:"memory"` // For v3 only: memory or valkey
@@ -73,4 +74,5 @@ func LoadConfig() {
 		level = logrus.InfoLevel
 	}
 	logrus.SetLevel(level)
+	Config.IsDebugMode = level == logrus.DebugLevel
 }

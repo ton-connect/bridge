@@ -5,7 +5,6 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -16,6 +15,7 @@ import (
 
 	"time"
 
+	json "github.com/bytedance/sonic"
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
@@ -197,28 +197,28 @@ loop:
 				break loop
 			}
 			c.Response().Flush()
+			if config.Config.IsDebugMode {
+				fromId := "unknown"
+				toId := msg.To
 
-			fromId := "unknown"
-			toId := msg.To
+				hash := sha256.Sum256(msg.Message)
+				messageHash := hex.EncodeToString(hash[:])
 
-			hash := sha256.Sum256(msg.Message)
-			messageHash := hex.EncodeToString(hash[:])
+				var bridgeMsg models.BridgeMessage
+				if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+					fromId = bridgeMsg.From
+					contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+					messageHash = hex.EncodeToString(contentHash[:])
+				}
 
-			var bridgeMsg models.BridgeMessage
-			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
-				fromId = bridgeMsg.From
-				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
-				messageHash = hex.EncodeToString(contentHash[:])
+				logrus.WithFields(logrus.Fields{
+					"hash":     messageHash,
+					"from":     fromId,
+					"to":       toId,
+					"event_id": msg.EventId,
+					"trace_id": bridgeMsg.TraceId,
+				}).Debug("message sent")
 			}
-
-			logrus.WithFields(logrus.Fields{
-				"hash":     messageHash,
-				"from":     fromId,
-				"to":       toId,
-				"event_id": msg.EventId,
-				"trace_id": bridgeMsg.TraceId,
-			}).Debug("message sent")
-
 			deliveredMessagesMetric.Inc()
 			storagev3.ExpiredCache.Mark(msg.EventId)
 		case <-ticker.C:
@@ -349,26 +349,27 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			log.Errorf("db error: %v", err)
 		}
 	}()
+	if config.Config.IsDebugMode {
+		var bridgeMsg models.BridgeMessage
+		fromId := "unknown"
 
-	var bridgeMsg models.BridgeMessage
-	fromId := "unknown"
+		hash := sha256.Sum256(sseMessage.Message)
+		messageHash := hex.EncodeToString(hash[:])
 
-	hash := sha256.Sum256(sseMessage.Message)
-	messageHash := hex.EncodeToString(hash[:])
+		if err := json.Unmarshal(sseMessage.Message, &bridgeMsg); err == nil {
+			fromId = bridgeMsg.From
+			contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+			messageHash = hex.EncodeToString(contentHash[:])
+		}
 
-	if err := json.Unmarshal(sseMessage.Message, &bridgeMsg); err == nil {
-		fromId = bridgeMsg.From
-		contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
-		messageHash = hex.EncodeToString(contentHash[:])
+		log.WithFields(logrus.Fields{
+			"hash":     messageHash,
+			"from":     fromId,
+			"to":       toId[0],
+			"event_id": sseMessage.EventId,
+			"trace_id": bridgeMsg.TraceId,
+		}).Debug("message received")
 	}
-
-	log.WithFields(logrus.Fields{
-		"hash":     messageHash,
-		"from":     fromId,
-		"to":       toId[0],
-		"event_id": sseMessage.EventId,
-		"trace_id": bridgeMsg.TraceId,
-	}).Debug("message received")
 
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, utils.HttpResOk())
