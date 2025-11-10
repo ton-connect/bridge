@@ -117,10 +117,10 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		client:      client,
 		subscribers: make(map[string][]chan<- models.SseMessage),
 	}
-	
+
 	// Start background worker to log expired messages
 	go storage.expiredMessagesWorker()
-	
+
 	return storage, nil
 }
 
