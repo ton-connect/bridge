@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -46,6 +47,10 @@ var (
 	transferedMessagesNumMetric = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "number_of_transfered_messages",
 		Help: "The total number of transfered_messages",
+	})
+	uniqueTransferedMessagesNumMetric = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "number_of_unique_transfered_messages",
+		Help: "The total number of unique transfered_messages",
 	})
 	deliveredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
 		Name: "number_of_delivered_messages",
@@ -280,6 +285,15 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
+
+	// Track unique messages to prevent duplicate counting
+	data := append(message, []byte(clientId[0])...)
+	sum := sha256.Sum256(data)
+	messageId := int64(binary.BigEndian.Uint64(sum[:8]))
+	if ok := storagev3.TransferedCache.MarkIfNotExists(messageId); ok {
+		uniqueTransferedMessagesNumMetric.Inc()
+	}
+
 	if config.Config.CopyToURL != "" {
 		go func() {
 			u, err := url.Parse(config.Config.CopyToURL)

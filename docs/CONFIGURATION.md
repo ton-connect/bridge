@@ -42,6 +42,7 @@ Complete reference for all environment variables supported by TON Connect Bridge
 |----------|------|---------|-------------|
 | `CONNECT_CACHE_SIZE` | int | `2000000` | Max entries in connect client cache |
 | `CONNECT_CACHE_TTL` | int | `300` | Cache TTL (seconds) |
+| `LOG_MESSAGES_LIFECYCLE` | bool | `true` | Enable message lifecycle logging (received/sent/expired) |
 
 ## Webhooks
 
