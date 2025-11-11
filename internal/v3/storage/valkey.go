@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/sethvargo/go-retry"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/internal/models"
 )
@@ -36,25 +35,25 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		return nil, fmt.Errorf("failed to parse URI: %w", err)
 	}
 
+	// Set aggressive timeouts for initial connection attempts
+	// This prevents hanging on unreachable or misconfigured endpoints
+	opts.DialTimeout = 5 * time.Second
+	opts.ReadTimeout = 5 * time.Second
+	opts.WriteTimeout = 5 * time.Second
+	opts.PoolTimeout = 10 * time.Second
+
 	// First, connect to the single node to check if it's part of a cluster
 	tempClient := redis.NewClient(opts)
-	ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 30*time.Second)
+	ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancelTemp()
 
-	// Try to get cluster info with retry logic
-	clusterSlots, err := retry.DoValue(ctxTemp, retry.WithMaxRetries(7, retry.NewFibonacci(500*time.Millisecond)),
-		func(ctx context.Context) ([]redis.ClusterSlot, error) {
-			slots, err := tempClient.ClusterSlots(ctx).Result()
-			if err != nil {
-				// TODO which errors should we filter?
-				log.Debugf("retrying cluster slots query due to: %v", err)
-				return nil, retry.RetryableError(err)
-			}
-			return slots, nil
-		})
-
+	// Try to get cluster info with NO retries for faster single-node detection
+	clusterSlots, err := tempClient.ClusterSlots(ctxTemp).Result()
+	
 	if err != nil {
-		log.Warnf("failed to get cluster slots after retries: %v", err)
+		// If cluster command fails (single-node, cluster disabled, or network error),
+		// immediately fall back to single-node mode without retries
+		log.Debugf("cluster detection skipped: %v", err)
 		clusterSlots = []redis.ClusterSlot{} // Fallback to single-node mode
 	}
 
