@@ -94,32 +94,6 @@ services:
     command: ["/bin/bash", "-c", "make test-gointegration"]
     # command: ["/bin/bash", "-c", "tail -f /dev/null"]
 
-  data-monitor:
-    image: valkey/valkey:7.2-alpine
-    container_name: shard-data-monitor
-    depends_on:
-      bridge:
-        condition: service_started
-    networks:
-      bridge_network:
-        ipv4_address: 172.20.0.60
-    command: >
-      sh -c "
-        echo 'Monitoring data distribution across shards...' &&
-        sleep 30 &&
-        while true; do
-          echo '=== Data Distribution Report ===' &&
-          echo 'Shard 1 (172.20.0.20:6379):' &&
-          valkey-cli -h 172.20.0.20 -p 6379 info keyspace &&
-          valkey-cli -h 172.20.0.20 -p 6379 dbsize &&
-          echo 'Cluster Info:' &&
-          valkey-cli -c -h 172.20.0.20 -p 6379 cluster info &&
-          echo '==============================' &&
-          sleep 60
-        done
-      "
-    restart: unless-stopped
-
   benchmark:
     build:
       context: ..
