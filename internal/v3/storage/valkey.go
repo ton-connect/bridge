@@ -16,19 +16,16 @@ import (
 )
 
 type ValkeyStorage struct {
-	client      redis.UniversalClient
+	client      *redis.ClusterClient
 	pubSubConn  *redis.PubSub
 	subscribers map[string][]chan<- models.SseMessage
 	subMutex    sync.RWMutex
 }
 
 // NewValkeyStorage creates a new Valkey storage instance
-// Supports both single node and cluster modes
-// For cluster mode, discovers cluster topology using CLUSTER SLOTS command
+// Always uses cluster client mode with CLUSTER SLOTS discovery for ElastiCache
 func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	log := log.WithField("prefix", "NewValkeyStorage")
-
-	var client redis.UniversalClient
 
 	// Parse the primary URI
 	opts, err := redis.ParseURL(strings.TrimSpace(valkeyURI))
@@ -36,7 +33,7 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		return nil, fmt.Errorf("failed to parse URI: %w", err)
 	}
 
-	// First, connect to the single node to check if it's part of a cluster
+	// Connect to seed node to discover cluster topology
 	tempClient := redis.NewClient(opts)
 	ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancelTemp()
@@ -46,7 +43,6 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		func(ctx context.Context) ([]redis.ClusterSlot, error) {
 			slots, err := tempClient.ClusterSlots(ctx).Result()
 			if err != nil {
-				// TODO which errors should we filter?
 				log.Debugf("retrying cluster slots query due to: %v", err)
 				return nil, retry.RetryableError(err)
 			}
@@ -54,54 +50,49 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		})
 
 	if err != nil {
-		log.Warnf("failed to get cluster slots after retries: %v", err)
-		clusterSlots = []redis.ClusterSlot{} // Fallback to single-node mode
+		return nil, fmt.Errorf("failed to get cluster slots after retries: %w", err)
 	}
 
 	if err := tempClient.Close(); err != nil {
 		log.Warnf("failed to close temporary client: %v", err)
 	}
 
-	log.Infof("cluster slots result: %+v", clusterSlots)
-
-	if len(clusterSlots) == 0 {
-		// Not a cluster or cluster command failed, use single-node mode
-		log.Info("Using single-node mode")
-		client = redis.NewClient(opts)
-	} else {
-		// Extract all node addresses from cluster slots
-		nodeAddrs := make(map[string]bool)
-		for _, slot := range clusterSlots {
-			for _, node := range slot.Nodes {
-				nodeAddrs[node.Addr] = true
-			}
+	// Extract all node addresses from cluster slots
+	nodeAddrs := make(map[string]bool)
+	for _, slot := range clusterSlots {
+		for _, node := range slot.Nodes {
+			nodeAddrs[node.Addr] = true
 		}
-
-		// Convert to slice
-		addrs := make([]string, 0, len(nodeAddrs))
-		for addr := range nodeAddrs {
-			addrs = append(addrs, addr)
-		}
-
-		log.Infof("Using cluster mode with %d nodes discovered from CLUSTER SLOTS", len(addrs))
-		client = redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:     addrs,
-			Password:  opts.Password,
-			Username:  opts.Username,
-			TLSConfig: opts.TLSConfig,
-			// Enable automatic cluster redirection handling
-			ReadOnly:       false,
-			RouteByLatency: true,
-			RouteRandomly:  false,
-			// Set maximum redirects to handle MOVED responses
-			MaxRedirects: 3,
-			// Set appropriate timeouts for managed clusters like AWS ElastiCache
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			DialTimeout:  10 * time.Second,
-			PoolTimeout:  30 * time.Second,
-		})
 	}
+
+	// Convert to slice
+	addrs := make([]string, 0, len(nodeAddrs))
+	for addr := range nodeAddrs {
+		addrs = append(addrs, addr)
+	}
+
+	if len(addrs) == 0 {
+		return nil, fmt.Errorf("no cluster nodes discovered from CLUSTER SLOTS")
+	}
+
+	log.Infof("Using cluster mode with %d nodes discovered from CLUSTER SLOTS", len(addrs))
+	client := redis.NewClusterClient(&redis.ClusterOptions{
+		Addrs:     addrs,
+		Password:  opts.Password,
+		Username:  opts.Username,
+		TLSConfig: opts.TLSConfig,
+		// Enable automatic cluster redirection handling
+		ReadOnly:       false,
+		RouteByLatency: true,
+		RouteRandomly:  false,
+		// Set maximum redirects to handle MOVED responses
+		MaxRedirects: 3,
+		// Set appropriate timeouts for managed clusters like AWS ElastiCache
+		ReadTimeout:  30 * time.Second,
+		WriteTimeout: 30 * time.Second,
+		DialTimeout:  10 * time.Second,
+		PoolTimeout:  30 * time.Second,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -110,7 +101,7 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		return nil, fmt.Errorf("connection failed: %w", err)
 	}
 
-	log.Info("Successfully connected to Valkey")
+	log.Info("Successfully connected to Valkey cluster")
 	return &ValkeyStorage{
 		client:      client,
 		subscribers: make(map[string][]chan<- models.SseMessage),
