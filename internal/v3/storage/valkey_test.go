@@ -3,13 +3,14 @@ package storagev3
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
 
 func TestNewValkeyStorage_SingleNode(t *testing.T) {
 	// Test with invalid URI to ensure it fails gracefully
-	_, err := NewValkeyStorage("invalid://uri")
+	_, err := NewSingleNodeValkeyStorage("invalid://uri")
 	if err == nil {
 		t.Error("Expected error for invalid URI, got nil")
 	}
@@ -20,7 +21,7 @@ func TestNewValkeyStorage_RedisURI(t *testing.T) {
 	valkeyURI := "redis://localhost:6379"
 
 	// This will fail to connect, but should parse URI correctly
-	_, err := NewValkeyStorage(valkeyURI)
+	_, err := NewSingleNodeValkeyStorage(valkeyURI)
 
 	// We expect a connection error, not a parsing error
 	if err != nil && err.Error() != "connection failed: dial tcp [::1]:6379: connect: connection refused" &&
@@ -30,6 +31,27 @@ func TestNewValkeyStorage_RedisURI(t *testing.T) {
 		t.Logf("Connection failed as expected: %v", err)
 	}
 }
+
+func TestNewValkeyStorage_ForceCluster_FailsForSingleNode(t *testing.T) {
+	// Test that clustered storage type fails when connecting to non-cluster instance
+	valkeyURI := "redis://localhost:6379"
+
+	_, err := NewClusteredValkeyStorage(valkeyURI)
+
+	// Should fail because it's not a cluster (or connection refused)
+	if err == nil {
+		t.Error("Expected error when forcing cluster mode on non-cluster instance, got nil")
+	}
+
+	// Error should mention cluster or connection failure
+	if err != nil {
+		errMsg := err.Error()
+		if !strings.Contains(errMsg, "cluster") && !strings.Contains(errMsg, "CLUSTER") && !strings.Contains(errMsg, "connection") {
+			t.Errorf("Expected error about cluster or connection, got: %v", err)
+		}
+	}
+}
+
 
 // getTestValkeyURI returns the Valkey URI from environment or skips the test
 func getTestValkeyURI(t *testing.T) string {
@@ -46,7 +68,7 @@ func getTestValkeyURI(t *testing.T) string {
 
 func TestValkeyStorage_ConnectionVerification_ExactMatch(t *testing.T) {
 	uri := getTestValkeyURI(t)
-	storage, err := NewValkeyStorage(uri)
+	storage, err := NewSingleNodeValkeyStorage(uri)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}
@@ -77,7 +99,7 @@ func TestValkeyStorage_ConnectionVerification_ExactMatch(t *testing.T) {
 
 func TestValkeyStorage_ConnectionVerification_SameOriginDifferentIP(t *testing.T) {
 	uri := getTestValkeyURI(t)
-	storage, err := NewValkeyStorage(uri)
+	storage, err := NewSingleNodeValkeyStorage(uri)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}
@@ -115,7 +137,7 @@ func TestValkeyStorage_ConnectionVerification_SameOriginDifferentIP(t *testing.T
 
 func TestValkeyStorage_ConnectionVerification_DifferentOrigin(t *testing.T) {
 	uri := getTestValkeyURI(t)
-	storage, err := NewValkeyStorage(uri)
+	storage, err := NewSingleNodeValkeyStorage(uri)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}
@@ -153,7 +175,7 @@ func TestValkeyStorage_ConnectionVerification_DifferentOrigin(t *testing.T) {
 
 func TestValkeyStorage_ConnectionVerification_Unknown(t *testing.T) {
 	uri := getTestValkeyURI(t)
-	storage, err := NewValkeyStorage(uri)
+	storage, err := NewSingleNodeValkeyStorage(uri)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}
@@ -178,7 +200,7 @@ func TestValkeyStorage_ConnectionVerification_Unknown(t *testing.T) {
 
 func TestValkeyStorage_ConnectionVerification_TTLExpiration(t *testing.T) {
 	uri := getTestValkeyURI(t)
-	storage, err := NewValkeyStorage(uri)
+	storage, err := NewSingleNodeValkeyStorage(uri)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}
@@ -221,7 +243,7 @@ func TestValkeyStorage_ConnectionVerification_TTLExpiration(t *testing.T) {
 
 func TestValkeyStorage_ConnectionVerification_MultipleConnections(t *testing.T) {
 	uri := getTestValkeyURI(t)
-	storage, err := NewValkeyStorage(uri)
+	storage, err := NewSingleNodeValkeyStorage(uri)
 	if err != nil {
 		t.Fatalf("failed to create storage: %v", err)
 	}

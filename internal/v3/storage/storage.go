@@ -38,7 +38,17 @@ type Storage interface {
 func NewStorage(storageType string, uri string) (Storage, error) {
 	switch storageType {
 	case "valkey", "redis":
-		return NewValkeyStorage(uri)
+		s, err := NewSingleNodeValkeyStorage(uri)
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
+	case "clustered-valkey", "clustered-redis":
+		s, err := NewClusteredValkeyStorage(uri)
+		if err != nil {
+			return nil, err
+		}
+		return s, nil
 	case "postgres":
 		return nil, fmt.Errorf("postgres storage does not support pub-sub functionality yet")
 	case "memory":

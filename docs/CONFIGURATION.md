@@ -15,8 +15,8 @@ Complete reference for all environment variables supported by TON Connect Bridge
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `STORAGE` | string | `memory` | `valkey` or `memory` |
-| `VALKEY_URI` | string | - | Format: `valkey://[:pass@]host:port[/db]`<br>Cluster: `rediss://default:@clustercfg.example.com:6379?skip_verify=true` |
+| `STORAGE` | string | `memory` | Storage backend type:<br>• `memory` - In-memory storage (dev only, no persistence)<br>• `valkey` / `redis` - Auto-detect single-node or cluster mode<br>• `clustered-valkey` / `clustered-redis` - Force cluster mode (fails if cluster not detected) |
+| `VALKEY_URI` | string | - | Connection URI:<br>• Single-node: `valkey://[:pass@]host:port[/db]`<br>• Cluster: `rediss://default:@clustercfg.example.com:6379?skip_verify=true`<br>• Auto-detects topology via `CLUSTER SLOTS` command |
 
 ## Performance & Limits
 
