@@ -24,7 +24,7 @@ jobs:
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        storage: [memory, postgres, valkey, nginx, dnsmasq, sharded-valkey]
+        storage: [memory, postgres, nginx, dnsmasq, cluster-valkey]
 
     steps:
     - uses: actions/checkout@v5
