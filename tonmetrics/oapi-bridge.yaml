@@ -1,0 +1,4 @@
+package: tonmetrics
+generate:
+  models: true
+output: bridge_events.gen.go

@@ -26,3 +26,4 @@ benchmark/k6
 bridge-sdk/
 
 .env
+tonmetrics/.tmp/

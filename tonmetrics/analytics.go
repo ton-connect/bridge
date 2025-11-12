@@ -58,39 +58,48 @@ func (a *TonMetricsClient) SendEvent(event interface{}) {
 	// log.Debugf("analytics request sent successfully: %s", string(analyticsData))
 }
 
-// CreateBridgeRequestReceivedEvent creates a BridgeRequestReceivedEvent with common fields populated
-func CreateBridgeRequestReceivedEvent(bridgeURL, clientID, traceID, environment, version, networkId string, eventID int64) BridgeRequestReceivedEvent {
-	return BridgeRequestReceivedEvent{
-		BridgeUrl:         bridgeURL,
-		ClientEnvironment: environment,
-		ClientId:          clientID,
-		ClientTimestamp:   int32(time.Now().Unix()),
-		EventId:           fmt.Sprintf("%d", eventID),
-		EventName:         "bridge-request-received",
-		MessageId:         "",
-		NetworkId:         networkId,
-		RequestType:       "",
-		Subsystem:         "bridge",
-		TraceId:           traceID,
-		Version:           version,
+// CreateBridgeRequestReceivedEvent creates a BridgeClientMessageReceivedEvent with common fields populated
+func CreateBridgeRequestReceivedEvent(bridgeURL, clientID, traceID, environment, version, networkId string, eventID int64) BridgeClientMessageReceivedEvent {
+	timestamp := int(time.Now().Unix())
+	eventName := BridgeClientMessageReceivedEventEventNameBridgeClientMessageReceived
+	subsystem := BridgeClientMessageReceivedEventSubsystemBridge
+	clientEnv := BridgeClientMessageReceivedEventClientEnvironment(environment)
+	eventIDStr := fmt.Sprintf("%d", eventID)
+
+	return BridgeClientMessageReceivedEvent{
+		BridgeUrl:         &bridgeURL,
+		ClientEnvironment: &clientEnv,
+		ClientId:          &clientID,
+		ClientTimestamp:   &timestamp,
+		EventId:           &eventIDStr,
+		EventName:         &eventName,
+		NetworkId:         &networkId,
+		Subsystem:         &subsystem,
+		TraceId:           &traceID,
+		Version:           &version,
 	}
 }
 
 // CreateBridgeRequestSentEvent creates a BridgeRequestSentEvent with common fields populated
 func CreateBridgeRequestSentEvent(bridgeURL, clientID, traceID, requestType, environment, version, networkId string, eventID int64) BridgeRequestSentEvent {
+	timestamp := int(time.Now().Unix())
+	eventName := BridgeRequestSentEventEventNameBridgeClientMessageSent
+	subsystem := BridgeRequestSentEventSubsystemBridge
+	clientEnv := BridgeRequestSentEventClientEnvironment(environment)
+	eventIDStr := fmt.Sprintf("%d", eventID)
+
 	return BridgeRequestSentEvent{
-		BridgeUrl:         bridgeURL,
-		ClientEnvironment: environment,
-		ClientId:          clientID,
-		ClientTimestamp:   int32(time.Now().Unix()),
-		EventId:           fmt.Sprintf("%d", eventID),
-		EventName:         "bridge-request-sent",
-		MessageId:         "",
-		NetworkId:         networkId,
-		RequestType:       requestType,
-		Subsystem:         "bridge",
-		TraceId:           traceID,
-		Version:           version,
+		BridgeUrl:         &bridgeURL,
+		ClientEnvironment: &clientEnv,
+		ClientId:          &clientID,
+		ClientTimestamp:   &timestamp,
+		EventId:           &eventIDStr,
+		EventName:         &eventName,
+		NetworkId:         &networkId,
+		RequestType:       &requestType,
+		Subsystem:         &subsystem,
+		TraceId:           &traceID,
+		Version:           &version,
 	}
 }
 
