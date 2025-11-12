@@ -31,13 +31,13 @@ var Config = struct {
 
 	// Performance & Limits
 	HeartbeatInterval     int      `env:"HEARTBEAT_INTERVAL" envDefault:"10"`
-	RPSLimit              int      `env:"RPS_LIMIT" envDefault:"1"`
-	ConnectionsLimit      int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`
+	RPSLimit              int      `env:"RPS_LIMIT" envDefault:"500"`
+	ConnectionsLimit      int      `env:"CONNECTIONS_LIMIT" envDefault:"5000"`
 	MaxBodySize           int64    `env:"MAX_BODY_SIZE" envDefault:"10485760"` // 10 MB
 	RateLimitsByPassToken []string `env:"RATE_LIMITS_BY_PASS_TOKEN"`
 
 	// Security
-	CorsEnable         bool     `env:"CORS_ENABLE"`
+	CorsEnable         bool     `env:"CORS_ENABLE" envDefault:"true"`
 	TrustedProxyRanges []string `env:"TRUSTED_PROXY_RANGES" envDefault:"0.0.0.0/0"`
 	SelfSignedTLS      bool     `env:"SELF_SIGNED_TLS" envDefault:"false"`
 
