@@ -21,38 +21,35 @@ type ValkeyStorage struct {
 	subMutex    sync.RWMutex
 }
 
-// NewValkeyStorage creates a new Valkey storage instance with automatic cluster detection
-// It attempts to detect if the endpoint is a cluster by using CLUSTER INFO command
-// forceCluster flag allows manual override of auto-detection (useful for AWS ElastiCache config endpoints)
-// Supports both single-node and cluster modes with Redis 7 sharded pub/sub when available
-func NewValkeyStorage(valkeyURI string,) (*ValkeyStorage, error) {
+// NewValkeyStorage creates a Valkey-backed storage client.
+// Expects a Redis cluster URL (parsed by redis.ParseURL) and requires
+// Redis Cluster + Redis 7+ sharded pub/sub. Returns *ValkeyStorage or error.
+func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	log := log.WithField("prefix", "NewValkeyStorage")
 
-	// Parse the URI
 	opts, err := redis.ParseURL(strings.TrimSpace(valkeyURI))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse URI: %w", err)
 	}
 
 	if !detectClusterMode(opts) {
-		return nil, fmt.Errorf("Redis endpoint is not in cluster mode; ValkeyStorage requires Redis Cluster")
+		return nil, fmt.Errorf("redis endpoint is not in cluster mode; cluster mode is required")
 	}
 
 	clusterClient := redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:          []string{opts.Addr},
-			Username:       opts.Username,
-			Password:       opts.Password,
-			TLSConfig:      opts.TLSConfig,
-			ReadOnly:       false,
-			RouteByLatency: true,
-			MaxRedirects:   3,
-			ReadTimeout:    30 * time.Second,
-			WriteTimeout:   30 * time.Second,
-			DialTimeout:    10 * time.Second,
-			PoolTimeout:    30 * time.Second,
-		})
+		Addrs:          []string{opts.Addr},
+		Username:       opts.Username,
+		Password:       opts.Password,
+		TLSConfig:      opts.TLSConfig,
+		ReadOnly:       false,
+		RouteByLatency: true,
+		MaxRedirects:   3,
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		DialTimeout:    10 * time.Second,
+		PoolTimeout:    30 * time.Second,
+	})
 
-	// Verify connection
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
@@ -62,9 +59,8 @@ func NewValkeyStorage(valkeyURI string,) (*ValkeyStorage, error) {
 
 	logDiscoveredNodes(ctx, clusterClient)
 
-	// Detect Redis 7+ sharded pub/sub support
 	if !supportsShardedPubSub(ctx, clusterClient) {
-		return nil, fmt.Errorf("Redis 7+ with sharded pub/sub is required")
+		return nil, fmt.Errorf("redis server does not support sharded pub/sub; requires redis >= 7.0")
 	}
 
 	log.Info("Successfully connected to Valkey/Redis")
@@ -78,7 +74,11 @@ func NewValkeyStorage(valkeyURI string,) (*ValkeyStorage, error) {
 // detectClusterMode checks if the Redis endpoint is in cluster mode
 func detectClusterMode(opts *redis.Options) bool {
 	tempClient := redis.NewClient(opts)
-	defer tempClient.Close()
+	defer func() {
+		if err := tempClient.Close(); err != nil {
+			log.WithField("prefix", "detectClusterMode").Warnf("failed to close temp redis client: %v", err)
+		}
+	}()
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
