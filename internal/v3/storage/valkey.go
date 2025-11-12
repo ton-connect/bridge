@@ -2,6 +2,8 @@ package storagev3
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -11,9 +13,13 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	"github.com/sethvargo/go-retry"
+	"github.com/sirupsen/logrus"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/internal/models"
 )
+
+// TODO move other consts here
+const pendingClientsKey = "bridge:msg:clients"
 
 type ValkeyStorage struct {
 	client      redis.UniversalClient
@@ -111,10 +117,15 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	}
 
 	log.Info("Successfully connected to Valkey")
-	return &ValkeyStorage{
+	s := &ValkeyStorage{
 		client:      client,
 		subscribers: make(map[string][]chan<- models.SseMessage),
-	}, nil
+	}
+
+	// Start background worker for expiring messages
+	go s.worker()
+
+	return s, nil
 }
 
 // Pub publishes a message to Redis and stores it with TTL
@@ -139,12 +150,16 @@ func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl 
 		Score:  float64(expireTime),
 		Member: messageData,
 	}).Err()
-
 	if err != nil {
 		return fmt.Errorf("failed to store message in sorted set for channel %s: %w", channel, err)
 	}
 
-	// Set expiration on the key itself
+	// Index this client as having pending messages
+	if err := s.client.SAdd(ctx, pendingClientsKey, message.To).Err(); err != nil {
+		log.Warnf("failed to index client %s in %s: %v", message.To, pendingClientsKey, err)
+	}
+
+	// Set expiration on the key itself (extra buffer to allow cleanup)
 	s.client.Expire(ctx, channel, time.Duration(ttl+60)*time.Second) // TODO remove 60 seconds buffer?
 
 	log.Debugf("published and stored message for client %s with TTL %d seconds", message.To, ttl)
@@ -410,4 +425,108 @@ func (s *ValkeyStorage) HealthCheck() error {
 
 	log.Info("Valkey is healthy")
 	return nil
+}
+
+func (s *ValkeyStorage) worker() {
+	log := log.WithField("prefix", "ValkeyStorage.worker")
+
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+
+	for range ticker.C {
+		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+
+		now := time.Now().Unix()
+		var cursor uint64
+
+		for {
+			clients, newCursor, err := s.client.SScan(ctx, pendingClientsKey, cursor, "", 100).Result()
+			if err != nil {
+				log.Warnf("failed to scan pending clients set: %v", err)
+				break
+			}
+
+			for _, clientID := range clients {
+				s.removeExpiredForClient(ctx, clientID, now)
+
+				// If the client's ZSET is empty, remove it from the index set
+				clientKey := fmt.Sprintf("client:%s", clientID)
+				zcard, err := s.client.ZCard(ctx, clientKey).Result()
+				if err == nil && zcard == 0 {
+					// Best-effort cleanup
+					if err := s.client.SRem(ctx, pendingClientsKey, clientID).Err(); err != nil {
+						log.Warnf("failed to remove client %s from %s: %v", clientID, pendingClientsKey, err)
+					}
+					// Optionally delete the key itself
+					_ = s.client.Del(ctx, clientKey).Err()
+				}
+			}
+
+			cursor = newCursor
+			if cursor == 0 {
+				break
+			}
+		}
+
+		cancel()
+	}
+}
+
+// removeExpiredForClient removes all messages for clientID with expireTime <= now
+// and logs them as expired.
+func (s *ValkeyStorage) removeExpiredForClient(ctx context.Context, clientID string, now int64) {
+	log := log.WithField("prefix", "ValkeyStorage.removeExpiredForClient")
+
+	clientKey := fmt.Sprintf("client:%s", clientID)
+	maxScore := fmt.Sprintf("%d", now)
+
+	// Read expired messages
+	expiredMessages, err := s.client.ZRangeByScore(ctx, clientKey, &redis.ZRangeBy{
+		Min: "-inf",
+		Max: maxScore,
+	}).Result()
+	if err != nil {
+		if err != redis.Nil {
+			log.Warnf("failed to get expired messages for client %s: %v", clientID, err)
+		}
+		return
+	}
+	if len(expiredMessages) == 0 {
+		return
+	}
+
+	// Remove them from the sorted set
+	if _, err := s.client.ZRemRangeByScore(ctx, clientKey, "-inf", maxScore).Result(); err != nil {
+		log.Warnf("failed to remove expired messages for client %s: %v", clientID, err)
+		// We still log based on what we already fetched; worst case we log twice later.
+	}
+
+	for _, raw := range expiredMessages {
+		var msg models.SseMessage
+		if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+			log.Warnf("failed to unmarshal expired message for client %s: %v", clientID, err)
+			continue
+		}
+
+		fromID := "unknown"
+		traceID := "unknown"
+		hash := sha256.Sum256(msg.Message)
+		messageHash := hex.EncodeToString(hash[:])
+
+		var bridgeMsg models.BridgeMessage
+		if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+			fromID = bridgeMsg.From
+			traceID = bridgeMsg.TraceId
+			contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+			messageHash = hex.EncodeToString(contentHash[:])
+		}
+
+		log.WithFields(logrus.Fields{
+			"hash":     messageHash,
+			"from":     fromID,
+			"to":       msg.To,
+			"event_id": msg.EventId,
+			"trace_id": traceID,
+		}).Debug("message expired")
+	}
 }
