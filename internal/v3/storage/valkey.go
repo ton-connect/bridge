@@ -32,8 +32,8 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		return nil, fmt.Errorf("failed to parse URI: %w", err)
 	}
 
-	if !detectClusterMode(opts) {
-		return nil, fmt.Errorf("redis endpoint is not in cluster mode; cluster mode is required")
+	if err := detectClusterMode(opts); err != nil {
+		return nil, fmt.Errorf("failed to detect cluster mode or redis endpoint is not in cluster mode: %w", err)
 	}
 
 	clusterClient := redis.NewClusterClient(&redis.ClusterOptions{
@@ -72,19 +72,18 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 }
 
 // detectClusterMode checks if the Redis endpoint is in cluster mode
-func detectClusterMode(opts *redis.Options) bool {
-	tempClient := redis.NewClient(opts)
+func detectClusterMode(opts *redis.Options) error {
+	client := redis.NewClient(opts)
 	defer func() {
-		if err := tempClient.Close(); err != nil {
+		if err := client.Close(); err != nil {
 			log.WithField("prefix", "detectClusterMode").Warnf("failed to close temp redis client: %v", err)
 		}
 	}()
-
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	clusterInfo, err := tempClient.ClusterInfo(ctx).Result()
-	return err == nil && strings.Contains(clusterInfo, "cluster_enabled:1")
+	_, err := client.ClusterInfo(ctx).Result()
+	return err
 }
 
 // supportsShardedPubSub checks if the Redis server supports sharded pub/sub (Redis 7+)
