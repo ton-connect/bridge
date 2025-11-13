@@ -4,16 +4,15 @@ TOOLS_DIR := $(shell go env GOPATH)/bin
 OAPI := $(TOOLS_DIR)/oapi-codegen
 OAPI_PKG := github.com/oapi-codegen/oapi-codegen/v2/cmd/oapi-codegen@v2.4.1
 SPEC_URL := https://analytics.ton.org/swagger/doc.json
-TMP_DIR := $(CURDIR)/.tmp
-SPEC_RAW := $(TMP_DIR)/swagger-tonconnect.json
-SPEC_BRIDGE := $(TMP_DIR)/swagger-tonconnect-bridge.json
+SPEC_RAW := $(CURDIR)/swagger-tonconnect.json
+SPEC_BRIDGE := $(CURDIR)/swagger-tonconnect-bridge.json
 CONFIG := $(CURDIR)/oapi-bridge.yaml
 GEN_FILE := $(CURDIR)/bridge_events.gen.go
 
-$(TMP_DIR):
+$(CURDIR):
 	mkdir -p $@
 
-$(SPEC_RAW): | $(TMP_DIR)
+$(SPEC_RAW): | $(CURDIR)
 	curl -sS $(SPEC_URL) -o $@
 
 FORCE:
@@ -33,6 +32,3 @@ tools: $(OAPI)
 generate: tools $(SPEC_BRIDGE)
 	$(OAPI) -generate models -config $(CONFIG) $(SPEC_BRIDGE)
 	gofmt -w $(GEN_FILE)
-
-clean:
-	rm -rf $(TMP_DIR)
