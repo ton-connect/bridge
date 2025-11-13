@@ -1,18 +1,120 @@
 services:
-  valkey:
+
+  valkey-shard1:
     image: valkey/valkey:7.2-alpine
+    container_name: valkey-shard1
     ports:
       - "6379:6379"
+      - "16379:16379"
     volumes:
-      - valkey_data:/data
+      - valkey_shard1_data:/data
+    command: >
+      valkey-server
+        --port 6379
+        --cluster-enabled yes
+        --cluster-config-file nodes-6379.conf
+        --cluster-node-timeout 5000
+        --appendonly yes
+        --cluster-announce-ip 172.20.0.20
+        --cluster-announce-port 6379
+        --cluster-announce-bus-port 16379
     healthcheck:
-      test: ["CMD", "valkey-cli", "ping"]
+      test: ["CMD", "valkey-cli", "-p", "6379", "ping"]
       interval: 5s
       timeout: 3s
       retries: 5
     networks:
-      - bridge_network
+      bridge_network:
+        ipv4_address: 172.20.0.20
     restart: unless-stopped
+
+  valkey-shard2:
+    image: valkey/valkey:7.2-alpine
+    container_name: valkey-shard2
+    ports:
+      - "6380:6380"
+      - "16380:16380"
+    volumes:
+      - valkey_shard2_data:/data
+    command: >
+      valkey-server
+        --port 6380
+        --cluster-enabled yes
+        --cluster-config-file nodes-6380.conf
+        --cluster-node-timeout 5000
+        --appendonly yes
+        --cluster-announce-ip 172.20.0.21
+        --cluster-announce-port 6380
+        --cluster-announce-bus-port 16380
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-p", "6380", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.21
+    restart: unless-stopped
+
+  valkey-shard3:
+    image: valkey/valkey:7.2-alpine
+    container_name: valkey-shard3
+    ports:
+      - "6381:6381"
+      - "16381:16381"
+    volumes:
+      - valkey_shard3_data:/data
+    command: >
+      valkey-server
+        --port 6381
+        --cluster-enabled yes
+        --cluster-config-file nodes-6381.conf
+        --cluster-node-timeout 5000
+        --appendonly yes
+        --cluster-announce-ip 172.20.0.22
+        --cluster-announce-port 6381
+        --cluster-announce-bus-port 16381
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-p", "6381", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.22
+    restart: unless-stopped
+
+  valkey-cluster-init:
+    image: valkey/valkey:7.2-alpine
+    container_name: valkey-cluster-init
+    depends_on:
+      valkey-shard1:
+        condition: service_healthy
+      valkey-shard2:
+        condition: service_healthy
+      valkey-shard3:
+        condition: service_healthy
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.23
+    command: >
+      sh -c "
+      sleep 10 &&
+      echo 'Resetting cluster state on all nodes...' &&
+      valkey-cli -h 172.20.0.20 -p 6379 FLUSHALL &&
+      valkey-cli -h 172.20.0.21 -p 6380 FLUSHALL &&
+      valkey-cli -h 172.20.0.22 -p 6381 FLUSHALL &&
+      valkey-cli -h 172.20.0.20 -p 6379 CLUSTER RESET HARD &&
+      valkey-cli -h 172.20.0.21 -p 6380 CLUSTER RESET HARD &&
+      valkey-cli -h 172.20.0.22 -p 6381 CLUSTER RESET HARD &&
+      echo 'Creating new cluster...' &&
+      valkey-cli --cluster create 172.20.0.20:6379 172.20.0.21:6380 172.20.0.22:6381 --cluster-replicas 0 --cluster-yes &&
+      echo 'Waiting for gossip to stabilize...' &&
+      sleep 5 &&
+      valkey-cli -c -h 172.20.0.20 -p 6379 cluster nodes &&
+      valkey-cli -c -h 172.20.0.20 -p 6379 cluster info
+      "
+    restart: "no"
 
   bridge1:
     build:
@@ -22,16 +124,17 @@ services:
     environment:
       PORT: 8081
       STORAGE: "valkey"
-      VALKEY_URI: "redis://valkey:6379"
+      VALKEY_URI: "redis://valkey-shard1:6379"
       CORS_ENABLE: "true"
       HEARTBEAT_INTERVAL: 10
       RPS_LIMIT: 1000
       CONNECTIONS_LIMIT: 200
     depends_on:
-      valkey:
-        condition: service_healthy
+      valkey-cluster-init:
+        condition: service_completed_successfully
     networks:
-      - bridge_network
+      bridge_network:
+        ipv4_address: 172.20.0.30
     restart: unless-stopped
 
   bridge2:
@@ -42,16 +145,17 @@ services:
     environment:
       PORT: 8081
       STORAGE: "valkey"
-      VALKEY_URI: "redis://valkey:6379"
+      VALKEY_URI: "redis://valkey-shard1:6379"
       CORS_ENABLE: "true"
       HEARTBEAT_INTERVAL: 10
       RPS_LIMIT: 1000
       CONNECTIONS_LIMIT: 200
     depends_on:
-      valkey:
-        condition: service_healthy
+      valkey-cluster-init:
+        condition: service_completed_successfully
     networks:
-      - bridge_network
+      bridge_network:
+        ipv4_address: 172.20.0.31
     restart: unless-stopped
 
   bridge3:
@@ -62,16 +166,17 @@ services:
     environment:
       PORT: 8081
       STORAGE: "valkey"
-      VALKEY_URI: "redis://valkey:6379"
+      VALKEY_URI: "redis://valkey-shard1:6379"
       CORS_ENABLE: "true"
       HEARTBEAT_INTERVAL: 10
       RPS_LIMIT: 1000
       CONNECTIONS_LIMIT: 200
     depends_on:
-      valkey:
-        condition: service_healthy
+      valkey-cluster-init:
+        condition: service_completed_successfully
     networks:
-      - bridge_network
+      bridge_network:
+        ipv4_address: 172.20.0.32
     restart: unless-stopped
 
   # Dummy service that waits for all bridge instances
@@ -87,7 +192,8 @@ services:
         condition: service_started
     command: ["echo", "All bridge instances are ready"]
     networks:
-      - bridge_network
+      bridge_network:
+        ipv4_address: 172.20.0.33
     restart: unless-stopped
 
   nginx:
@@ -98,10 +204,15 @@ services:
     volumes:
       - ./nginx.conf:/etc/nginx/conf.d/default.conf
     depends_on:
-      bridge:
+      bridge1:
+        condition: service_started
+      bridge2:
+        condition: service_started
+      bridge3:
         condition: service_started
     networks:
-      - bridge_network
+      bridge_network:
+        ipv4_address: 172.20.0.40
     restart: unless-stopped
 
   integration:
@@ -115,7 +226,8 @@ services:
       nginx:
         condition: service_started
     networks:
-      - bridge_network
+      bridge_network:
+        ipv4_address: 172.20.0.50
     command: ["/bin/bash", "-c", "make test-bridge-sdk"]
     # command: ["/bin/bash", "-c", "tail -f /dev/null"]
 
@@ -125,12 +237,13 @@ services:
       dockerfile: docker/Dockerfile.gointegration
     container_name: bridge-gointegration
     environment:
-      BRIDGE_URL: "http://nginx:80/bridge"
+      BRIDGE_URL: "http://172.20.0.40:80/bridge"
     depends_on:
-      bridge:
+      nginx:
         condition: service_started
     networks:
-      - bridge_network
+      bridge_network:
+        ipv4_address: 172.20.0.60
     command: ["/bin/bash", "-c", "make test-gointegration"]
     # command: ["/bin/bash", "-c", "tail -f /dev/null"]
 
@@ -151,7 +264,8 @@ services:
       bridge:
         condition: service_started
     networks:
-      - bridge_network
+      bridge_network:
+        ipv4_address: 172.20.0.70
     volumes:
       - ../benchmark:/scripts:ro
       - ./benchmark/results:/results
@@ -177,8 +291,13 @@ services:
         printf '\n\n============================\n\n';
 
 volumes:
-  valkey_data:
+  valkey_shard1_data:
+  valkey_shard2_data:
+  valkey_shard3_data:
 
 networks:
   bridge_network:
     driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16

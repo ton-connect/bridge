@@ -10,7 +10,6 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	"github.com/sethvargo/go-retry"
 	log "github.com/sirupsen/logrus"
 	"github.com/tonkeeper/bridge/internal/models"
 )
@@ -22,99 +21,98 @@ type ValkeyStorage struct {
 	subMutex    sync.RWMutex
 }
 
-// NewValkeyStorage creates a new Valkey storage instance
-// Supports both single node and cluster modes
-// For cluster mode, discovers cluster topology using CLUSTER SLOTS command
+// NewValkeyStorage creates a Valkey-backed storage client.
+// Expects a Redis cluster URL (parsed by redis.ParseURL) and requires
+// Redis Cluster + Redis 7+ sharded pub/sub. Returns *ValkeyStorage or error.
 func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	log := log.WithField("prefix", "NewValkeyStorage")
 
-	var client redis.UniversalClient
-
-	// Parse the primary URI
 	opts, err := redis.ParseURL(strings.TrimSpace(valkeyURI))
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse URI: %w", err)
 	}
 
-	// First, connect to the single node to check if it's part of a cluster
-	tempClient := redis.NewClient(opts)
-	ctxTemp, cancelTemp := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancelTemp()
-
-	// Try to get cluster info with retry logic
-	clusterSlots, err := retry.DoValue(ctxTemp, retry.WithMaxRetries(7, retry.NewFibonacci(500*time.Millisecond)),
-		func(ctx context.Context) ([]redis.ClusterSlot, error) {
-			slots, err := tempClient.ClusterSlots(ctx).Result()
-			if err != nil {
-				// TODO which errors should we filter?
-				log.Debugf("retrying cluster slots query due to: %v", err)
-				return nil, retry.RetryableError(err)
-			}
-			return slots, nil
-		})
-
-	if err != nil {
-		log.Warnf("failed to get cluster slots after retries: %v", err)
-		clusterSlots = []redis.ClusterSlot{} // Fallback to single-node mode
+	if err := detectClusterMode(opts); err != nil {
+		return nil, fmt.Errorf("failed to detect cluster mode or redis endpoint is not in cluster mode: %w", err)
 	}
 
-	if err := tempClient.Close(); err != nil {
-		log.Warnf("failed to close temporary client: %v", err)
-	}
-
-	log.Infof("cluster slots result: %+v", clusterSlots)
-
-	if len(clusterSlots) == 0 {
-		// Not a cluster or cluster command failed, use single-node mode
-		log.Info("Using single-node mode")
-		client = redis.NewClient(opts)
-	} else {
-		// Extract all node addresses from cluster slots
-		nodeAddrs := make(map[string]bool)
-		for _, slot := range clusterSlots {
-			for _, node := range slot.Nodes {
-				nodeAddrs[node.Addr] = true
-			}
-		}
-
-		// Convert to slice
-		addrs := make([]string, 0, len(nodeAddrs))
-		for addr := range nodeAddrs {
-			addrs = append(addrs, addr)
-		}
-
-		log.Infof("Using cluster mode with %d nodes discovered from CLUSTER SLOTS", len(addrs))
-		client = redis.NewClusterClient(&redis.ClusterOptions{
-			Addrs:     addrs,
-			Password:  opts.Password,
-			Username:  opts.Username,
-			TLSConfig: opts.TLSConfig,
-			// Enable automatic cluster redirection handling
-			ReadOnly:       false,
-			RouteByLatency: true,
-			RouteRandomly:  false,
-			// Set maximum redirects to handle MOVED responses
-			MaxRedirects: 3,
-			// Set appropriate timeouts for managed clusters like AWS ElastiCache
-			ReadTimeout:  30 * time.Second,
-			WriteTimeout: 30 * time.Second,
-			DialTimeout:  10 * time.Second,
-			PoolTimeout:  30 * time.Second,
-		})
-	}
+	clusterClient := redis.NewClusterClient(&redis.ClusterOptions{
+		Addrs:          []string{opts.Addr},
+		Username:       opts.Username,
+		Password:       opts.Password,
+		TLSConfig:      opts.TLSConfig,
+		ReadOnly:       false,
+		RouteByLatency: true,
+		MaxRedirects:   3,
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		DialTimeout:    10 * time.Second,
+		PoolTimeout:    30 * time.Second,
+	})
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	if err := client.Ping(ctx).Err(); err != nil {
+	if err := clusterClient.Ping(ctx).Err(); err != nil {
 		return nil, fmt.Errorf("connection failed: %w", err)
 	}
 
-	log.Info("Successfully connected to Valkey")
+	logDiscoveredNodes(ctx, clusterClient)
+
+	if !supportsShardedPubSub(ctx, clusterClient) {
+		return nil, fmt.Errorf("redis server does not support sharded pub/sub; requires redis >= 7.0")
+	}
+
+	log.Info("Successfully connected to Valkey/Redis")
+
 	return &ValkeyStorage{
-		client:      client,
+		client:      clusterClient,
 		subscribers: make(map[string][]chan<- models.SseMessage),
 	}, nil
+}
+
+// detectClusterMode checks if the Redis endpoint is in cluster mode
+func detectClusterMode(opts *redis.Options) error {
+	client := redis.NewClient(opts)
+	defer func() {
+		if err := client.Close(); err != nil {
+			log.WithField("prefix", "detectClusterMode").Warnf("failed to close temp redis client: %v", err)
+		}
+	}()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	_, err := client.ClusterInfo(ctx).Result()
+	return err
+}
+
+// supportsShardedPubSub checks if the Redis server supports sharded pub/sub (Redis 7+)
+func supportsShardedPubSub(ctx context.Context, client redis.UniversalClient) bool {
+	cmd := client.Do(ctx, "COMMAND", "INFO", "SPUBLISH")
+	if err := cmd.Err(); err != nil {
+		return false
+	}
+
+	res, err := cmd.Slice()
+	if err != nil {
+		return false
+	}
+	return len(res) > 0
+}
+
+// logDiscoveredNodes logs all master nodes discovered by go-redis (for debugging/monitoring)
+func logDiscoveredNodes(ctx context.Context, client *redis.ClusterClient) {
+	log := log.WithField("prefix", "ValkeyStorage.logDiscoveredNodes")
+
+	err := client.ForEachMaster(ctx, func(ctx context.Context, c *redis.Client) error {
+		opts := c.Options()
+		log.Infof("Discovered master node: %s", opts.Addr)
+		return nil
+	})
+
+	if err != nil {
+		log.Warnf("Failed to enumerate cluster nodes: %v", err)
+	}
 }
 
 // Pub publishes a message to Redis and stores it with TTL
