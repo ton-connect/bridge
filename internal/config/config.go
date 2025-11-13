@@ -31,8 +31,8 @@ var Config = struct {
 
 	// Performance & Limits
 	HeartbeatInterval     int      `env:"HEARTBEAT_INTERVAL" envDefault:"10"`
-	RPSLimit              int      `env:"RPS_LIMIT" envDefault:"500"`
-	ConnectionsLimit      int      `env:"CONNECTIONS_LIMIT" envDefault:"5000"`
+	RPSLimit              int      `env:"RPS_LIMIT" envDefault:"10"`
+	ConnectionsLimit      int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`
 	MaxBodySize           int64    `env:"MAX_BODY_SIZE" envDefault:"10485760"` // 10 MB
 	RateLimitsByPassToken []string `env:"RATE_LIMITS_BY_PASS_TOKEN"`
 
