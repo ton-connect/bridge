@@ -27,6 +27,7 @@ import (
 	"github.com/tonkeeper/bridge/internal/models"
 	"github.com/tonkeeper/bridge/internal/utils"
 	storagev3 "github.com/tonkeeper/bridge/internal/v3/storage"
+	"github.com/tonkeeper/bridge/tonmetrics"
 )
 
 var validHeartbeatTypes = map[string]string{
@@ -72,6 +73,7 @@ type handler struct {
 	eventIDGen        *EventIDGenerator
 	heartbeatInterval time.Duration
 	realIP            *utils.RealIPExtractor
+	analytics         tonmetrics.AnalyticsClient
 }
 
 func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor) *handler {
@@ -83,12 +85,14 @@ func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor 
 		eventIDGen:        NewEventIDGenerator(),
 		realIP:            extractor,
 		heartbeatInterval: heartbeatInterval,
+		analytics:         tonmetrics.NewAnalyticsClient(),
 	}
 	return &h
 }
 
 func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	log := logrus.WithField("prefix", "EventRegistrationHandler")
+	connectStartedAt := time.Now()
 	_, ok := c.Response().Writer.(http.Flusher)
 	if !ok {
 		http.Error(c.Response().Writer, "streaming unsupported", http.StatusInternalServerError)
@@ -117,6 +121,12 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "invalid heartbeat type. Supported: legacy and message"
 		log.Error(errorMsg)
+		go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectErrorEvent(
+			"",
+			"",
+			http.StatusBadRequest,
+			errorMsg,
+		))
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -129,6 +139,12 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "Last-Event-ID should be int"
 			log.Error(errorMsg)
+			go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectErrorEvent(
+				"",
+				"",
+				http.StatusBadRequest,
+				errorMsg,
+			))
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -139,6 +155,12 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
 			log.Error(errorMsg)
+			go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectErrorEvent(
+				"",
+				"",
+				http.StatusBadRequest,
+				errorMsg,
+			))
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -147,10 +169,34 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
+		go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectErrorEvent(
+			"",
+			"",
+			http.StatusBadRequest,
+			errorMsg,
+		))
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
-	clientIds := strings.Split(clientId[0], ",")
+	clientIds := normalizeClientIDs(clientId[0])
+	if len(clientIds) == 0 {
+		badRequestMetric.Inc()
+		errorMsg := "param \"client_id\" must contain at least one value"
+		log.Error(errorMsg)
+		go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectErrorEvent(
+			"",
+			"",
+			http.StatusBadRequest,
+			errorMsg,
+		))
+		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
+	}
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
+	for _, id := range clientIds {
+		if id == "" {
+			continue
+		}
+		go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectStartedEvent(id, ""))
+	}
 	session := h.CreateSession(clientIds, lastEventId)
 
 	// Track connection for verification
@@ -183,6 +229,22 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	ticker := time.NewTicker(h.heartbeatInterval)
 	defer ticker.Stop()
 	session.Start()
+	if len(clientIds) > 0 {
+		duration := int(time.Since(connectStartedAt).Milliseconds())
+		if clientIds[0] != "" {
+			go h.analytics.SendEvent(h.analytics.CreateBridgeConnectEstablishedEvent(
+				clientIds[0],
+				"",
+				duration,
+			))
+		}
+	}
+	for _, id := range clientIds {
+		if id == "" {
+			continue
+		}
+		go h.analytics.SendEvent(h.analytics.CreateBridgeEventsClientSubscribedEvent(id, ""))
+	}
 loop:
 	for {
 		select {
@@ -209,6 +271,14 @@ loop:
 				fromId = bridgeMsg.From
 				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
 				messageHash = hex.EncodeToString(contentHash[:])
+			} else {
+				go h.analytics.SendEvent(h.analytics.CreateBridgeClientMessageDecodeErrorEvent(
+					msg.To,
+					"",
+					messageHash,
+					0,
+					err.Error(),
+				))
 			}
 
 			logrus.WithFields(logrus.Fields{
@@ -218,6 +288,15 @@ loop:
 				"event_id": msg.EventId,
 				"trace_id": bridgeMsg.TraceId,
 			}).Debug("message sent")
+
+			go h.analytics.SendEvent(h.analytics.CreateBridgeMessageSentEvent(
+				msg.To,
+				bridgeMsg.TraceId,
+				"",
+				"",
+				messageHash,
+			))
+			go h.analytics.SendEvent(h.analytics.CreateBridgeRequestReceivedEvent(msg.To, bridgeMsg.TraceId))
 
 			deliveredMessagesMetric.Inc()
 			storagev3.ExpiredCache.Mark(msg.EventId)
@@ -237,6 +316,19 @@ loop:
 func (h *handler) SendMessageHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 	log := logrus.WithContext(ctx).WithField("prefix", "SendMessageHandler")
+	currentClientID := ""
+	currentTraceID := ""
+	currentTopic := ""
+	currentMessageHash := ""
+	failValidation := func(msg string) error {
+		go h.analytics.SendEvent(h.analytics.CreateBridgeMessageValidationFailedEvent(
+			currentClientID,
+			currentTraceID,
+			currentTopic,
+			currentMessageHash,
+		))
+		return c.JSON(utils.HttpResError(msg, http.StatusBadRequest))
+	}
 
 	params := c.QueryParams()
 	clientId, ok := params["client_id"]
@@ -244,15 +336,16 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
+		return failValidation(errorMsg)
 	}
+	currentClientID = clientId[0]
 
 	toId, ok := params["to"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
 		log.Error(errorMsg)
-		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
+		return failValidation(errorMsg)
 	}
 
 	ttlParam, ok := params["ttl"]
@@ -260,26 +353,28 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
 		log.Error(errorMsg)
-		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
+		return failValidation(errorMsg)
 	}
 	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
+		return failValidation(err.Error())
 	}
 	if ttl > 300 { // TODO: config MaxTTL value
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" too high"
 		log.Error(errorMsg)
-		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
+		return failValidation(errorMsg)
 	}
 	message, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
+		return failValidation(err.Error())
 	}
+	// hash := sha256.Sum256(message)
+	// currentMessageHash = hex.EncodeToString(hash[:])
 	if config.Config.CopyToURL != "" {
 		go func() {
 			u, err := url.Parse(config.Config.CopyToURL)
@@ -296,6 +391,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}
 	topic, ok := params["topic"]
 	if ok {
+		currentTopic = topic[0]
 		go func(clientID, topic, message string) {
 			handler_common.SendWebhook(clientID, handler_common.WebhookData{Topic: topic, Hash: message})
 		}(clientId[0], topic[0], string(message))
@@ -322,6 +418,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			traceId = uuids.String()
 		}
 	}
+	currentTraceID = traceId
 
 	mes, err := json.Marshal(models.BridgeMessage{
 		From:    clientId[0],
@@ -331,7 +428,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
+		return failValidation(err.Error())
 	}
 
 	sseMessage := models.SseMessage{
@@ -370,6 +467,20 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"trace_id": bridgeMsg.TraceId,
 	}).Debug("message received")
 
+	if clientId[0] != "" {
+		go h.analytics.SendEvent(h.analytics.CreateBridgeMessageReceivedEvent(
+			clientId[0],
+			traceId,
+			currentTopic,
+			fmt.Sprintf("%d", sseMessage.EventId),
+		))
+	}
+	go h.analytics.SendEvent(h.analytics.CreateBridgeRequestSentEvent(
+		clientId[0],
+		traceId,
+		currentTopic,
+	))
+
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, utils.HttpResOk())
 }
@@ -385,17 +496,32 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
 	if err != nil {
 		badRequestMetric.Inc()
+		go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
+			"",
+			"",
+			"bad_request",
+		))
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
 	clientId, ok := paramsStore.Get("client_id")
 	if !ok {
 		badRequestMetric.Inc()
+		go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
+			"",
+			"",
+			"bad_request",
+		))
 		return c.JSON(utils.HttpResError("param \"client_id\" not present", http.StatusBadRequest))
 	}
 	urlParam, ok := paramsStore.Get("url")
 	if !ok {
 		badRequestMetric.Inc()
+		go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
+			clientId,
+			"",
+			"bad_request",
+		))
 		return c.JSON(utils.HttpResError("param \"url\" not present", http.StatusBadRequest))
 	}
 	qtype, ok := paramsStore.Get("type")
@@ -412,11 +538,26 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		}
 		status, err := h.storage.VerifyConnection(ctx, conn)
 		if err != nil {
+			go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
+				clientId,
+				"",
+				"error",
+			))
 			return c.JSON(utils.HttpResError(err.Error(), http.StatusInternalServerError))
 		}
+		go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
+			clientId,
+			"",
+			status,
+		))
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
 		badRequestMetric.Inc()
+		go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
+			clientId,
+			"",
+			"bad_request",
+		))
 		return c.JSON(utils.HttpResError("param \"type\" must be: connect", http.StatusBadRequest))
 	}
 }
@@ -448,6 +589,9 @@ func (h *handler) removeConnection(ses *Session) {
 			h.Mux.Unlock()
 		}
 		activeSubscriptionsMetric.Dec()
+		if id != "" {
+			go h.analytics.SendEvent(h.analytics.CreateBridgeEventsClientUnsubscribedEvent(id, ""))
+		}
 	}
 }
 
@@ -476,4 +620,17 @@ func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session 
 		activeSubscriptionsMetric.Inc()
 	}
 	return session
+}
+
+func normalizeClientIDs(raw string) []string {
+	values := strings.Split(raw, ",")
+	result := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		result = append(result, v)
+	}
+	return result
 }
