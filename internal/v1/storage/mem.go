@@ -5,11 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
 	log "github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/models"
+	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 type MemStorage struct {
@@ -58,6 +60,7 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 					"event_id": m.EventId,
 					"trace_id": bridgeMsg.TraceId,
 				}).Debug("message expired")
+				go sendBridgeMessageExpiredEvent(clientID, m.EventId, bridgeMsg.TraceId, messageHash)
 			}
 		} else {
 			results = append(results, m)
@@ -115,4 +118,17 @@ func (s *MemStorage) Add(ctx context.Context, mes models.SseMessage, ttl int64) 
 
 func (s *MemStorage) HealthCheck() error {
 	return nil // Always healthy
+}
+
+var analyticsClient = tonmetrics.NewAnalyticsClient()
+
+// TODO whats going on here?
+func sendBridgeMessageExpiredEvent(clientID string, eventID int64, traceID, messageHash string) {
+	analyticsClient.SendEvent(analyticsClient.CreateBridgeMessageExpiredEvent(
+		clientID,
+		traceID,
+		"",
+		fmt.Sprintf("%d", eventID),
+		messageHash,
+	))
 }
