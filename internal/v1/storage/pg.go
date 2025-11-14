@@ -203,6 +203,7 @@ func (s *PgStorage) worker() {
 						"event_id": eventID,
 						"trace_id": traceID,
 					}).Debug("message expired")
+					go sendBridgeMessageExpiredEvent(clientID, eventID, traceID, messageHash)
 				}
 			}
 			rows.Close()
