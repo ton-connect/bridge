@@ -18,6 +18,7 @@ import (
 	"github.com/ton-connect/bridge/internal/utils"
 	handlerv3 "github.com/ton-connect/bridge/internal/v3/handler"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
+	"github.com/ton-connect/bridge/tonmetrics"
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 )
@@ -26,6 +27,8 @@ func main() {
 	log.Info(fmt.Sprintf("Bridge3 %s is running", internal.BridgeVersionRevision))
 	config.LoadConfig()
 	app.InitMetrics()
+
+	tonAnalytics := tonmetrics.NewAnalyticsClient()
 
 	dbURI := ""
 	store := "memory"
@@ -45,7 +48,7 @@ func main() {
 		// No URI needed for memory storage
 	}
 
-	dbConn, err := storagev3.NewStorage(store, dbURI)
+	dbConn, err := storagev3.NewStorage(store, dbURI, tonAnalytics)
 
 	if err != nil {
 		log.Fatalf("failed to create storage: %v", err)

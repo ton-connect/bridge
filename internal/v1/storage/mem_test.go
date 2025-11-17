@@ -17,7 +17,6 @@ func newMessage(expire time.Time, i int) message {
 }
 
 func Test_removeExpiredMessages(t *testing.T) {
-
 	now := time.Now()
 	tests := []struct {
 		name string
@@ -55,7 +54,7 @@ func Test_removeExpiredMessages(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := removeExpiredMessages(tt.ms, tt.now, "test-key"); !reflect.DeepEqual(got, tt.want) {
+			if got, _ := removeExpiredMessages(tt.ms, tt.now); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("removeExpiredMessages() = %v, want %v", got, tt.want)
 			}
 		})

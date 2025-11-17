@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"sync"
 	"time"
 
@@ -15,8 +14,9 @@ import (
 )
 
 type MemStorage struct {
-	db   map[string][]message
-	lock sync.Mutex
+	db           map[string][]message
+	lock         sync.Mutex
+	tonAnalytics tonmetrics.AnalyticsClient
 }
 
 type message struct {
@@ -28,20 +28,38 @@ func (m message) IsExpired(now time.Time) bool {
 	return m.expireAt.Before(now)
 }
 
-func NewMemStorage() *MemStorage {
+func NewMemStorage(tonAnalytics tonmetrics.AnalyticsClient) *MemStorage {
 	s := MemStorage{
-		db: map[string][]message{},
+		db:           map[string][]message{},
+		tonAnalytics: tonAnalytics,
 	}
 	go s.watcher()
 	return &s
 }
 
-func removeExpiredMessages(ms []message, now time.Time, clientID string) []message {
-	log := log.WithField("prefix", "removeExpiredMessages")
+func removeExpiredMessages(ms []message, now time.Time) ([]message, []message) {
 	results := make([]message, 0)
+	expired := make([]message, 0)
 	for _, m := range ms {
 		if m.IsExpired(now) {
 			if !ExpiredCache.IsMarked(m.EventId) {
+				expired = append(expired, m)
+			}
+		} else {
+			results = append(results, m)
+		}
+	}
+	return results, expired
+}
+
+func (s *MemStorage) watcher() {
+	for {
+		s.lock.Lock()
+		for key, msgs := range s.db {
+			actual, expired := removeExpiredMessages(msgs, time.Now())
+			s.db[key] = actual
+
+			for _, m := range expired {
 				var bridgeMsg models.BridgeMessage
 				fromID := "unknown"
 				hash := sha256.Sum256(m.Message)
@@ -52,28 +70,22 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 					contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
 					messageHash = hex.EncodeToString(contentHash[:])
 				}
-
 				log.WithFields(map[string]interface{}{
 					"hash":     messageHash,
 					"from":     fromID,
-					"to":       clientID,
+					"to":       key,
 					"event_id": m.EventId,
 					"trace_id": bridgeMsg.TraceId,
 				}).Debug("message expired")
-				go sendBridgeMessageExpiredEvent(clientID, m.EventId, bridgeMsg.TraceId, messageHash)
-			}
-		} else {
-			results = append(results, m)
-		}
-	}
-	return results
-}
 
-func (s *MemStorage) watcher() {
-	for {
-		s.lock.Lock()
-		for key, msgs := range s.db {
-			s.db[key] = removeExpiredMessages(msgs, time.Now(), key)
+				go s.tonAnalytics.SendEvent(s.tonAnalytics.CreateBridgeMessageExpiredEvent(
+					key,
+					bridgeMsg.TraceId,
+					"", // TODO we don't know topic here
+					m.EventId,
+					messageHash,
+				))
+			}
 		}
 		s.lock.Unlock()
 
@@ -118,17 +130,4 @@ func (s *MemStorage) Add(ctx context.Context, mes models.SseMessage, ttl int64) 
 
 func (s *MemStorage) HealthCheck() error {
 	return nil // Always healthy
-}
-
-var analyticsClient = tonmetrics.NewAnalyticsClient()
-
-// TODO whats going on here?
-func sendBridgeMessageExpiredEvent(clientID string, eventID int64, traceID, messageHash string) {
-	analyticsClient.SendEvent(analyticsClient.CreateBridgeMessageExpiredEvent(
-		clientID,
-		traceID,
-		"",
-		fmt.Sprintf("%d", eventID),
-		messageHash,
-	))
 }

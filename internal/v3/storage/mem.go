@@ -12,6 +12,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/models"
+	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
@@ -20,10 +21,11 @@ var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
 })
 
 type MemStorage struct {
-	db          map[string][]message
-	subscribers map[string][]chan<- models.SseMessage
-	connections map[string][]memConnection // clientID -> connections
-	lock        sync.Mutex
+	db           map[string][]message
+	subscribers  map[string][]chan<- models.SseMessage
+	connections  map[string][]memConnection // clientID -> connections
+	lock         sync.Mutex
+	tonAnalytics tonmetrics.AnalyticsClient
 }
 
 type message struct {
@@ -42,22 +44,40 @@ func (m message) IsExpired(now time.Time) bool {
 	return m.expireAt.Before(now)
 }
 
-func NewMemStorage() *MemStorage {
+func NewMemStorage(tonAnalytics tonmetrics.AnalyticsClient) *MemStorage {
 	s := MemStorage{
-		db:          map[string][]message{},
-		subscribers: make(map[string][]chan<- models.SseMessage),
-		connections: make(map[string][]memConnection),
+		db:           map[string][]message{},
+		subscribers:  make(map[string][]chan<- models.SseMessage),
+		connections:  make(map[string][]memConnection),
+		tonAnalytics: tonAnalytics,
 	}
 	go s.watcher()
 	return &s
 }
 
-func removeExpiredMessages(ms []message, now time.Time, clientID string) []message {
-	log := logrus.WithField("prefix", "removeExpiredMessages")
+func removeExpiredMessages(ms []message, now time.Time) ([]message, []message) {
 	results := make([]message, 0)
+	expired := make([]message, 0)
 	for _, m := range ms {
 		if m.IsExpired(now) {
 			if !ExpiredCache.IsMarked(m.EventId) {
+				expired = append(expired, m)
+			}
+		} else {
+			results = append(results, m)
+		}
+	}
+	return results, expired
+}
+
+func (s *MemStorage) watcher() {
+	for {
+		s.lock.Lock()
+		for key, msgs := range s.db {
+			actual, expired := removeExpiredMessages(msgs, time.Now())
+			s.db[key] = actual
+
+			for _, m := range expired {
 				var bridgeMsg models.BridgeMessage
 				fromID := "unknown"
 				hash := sha256.Sum256(m.Message)
@@ -68,28 +88,23 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 					contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
 					messageHash = hex.EncodeToString(contentHash[:])
 				}
-
 				expiredMessagesMetric.Inc()
-				log.WithFields(map[string]interface{}{
+				logrus.WithFields(map[string]interface{}{
 					"hash":     messageHash,
 					"from":     fromID,
-					"to":       clientID,
+					"to":       key,
 					"event_id": m.EventId,
 					"trace_id": bridgeMsg.TraceId,
 				}).Debug("message expired")
-			}
-		} else {
-			results = append(results, m)
-		}
-	}
-	return results
-}
 
-func (s *MemStorage) watcher() {
-	for {
-		s.lock.Lock()
-		for key, ms := range s.db {
-			s.db[key] = removeExpiredMessages(ms, time.Now(), key)
+				go s.tonAnalytics.SendEvent(s.tonAnalytics.CreateBridgeMessageExpiredEvent(
+					fromID,
+					bridgeMsg.TraceId,
+					"", // TODO we don't know topic here
+					m.EventId,
+					messageHash,
+				))
+			}
 		}
 		s.lock.Unlock()
 		time.Sleep(time.Second)
