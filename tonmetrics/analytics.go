@@ -54,7 +54,7 @@ func NewAnalyticsClient() AnalyticsClient {
 		client:      http.DefaultClient,
 		bridgeURL:   config.Config.BridgeURL,
 		subsystem:   "bridge",
-		environment: "bridge",
+		environment: "bridge", // TODO this is client environment, e.g., "miniapp". No idea how to get it here
 		version:     config.Config.BridgeVersion,
 		networkId:   config.Config.NetworkId,
 	}
@@ -333,7 +333,7 @@ func (a *TonMetricsClient) CreateBridgeMessageValidationFailedEvent(clientID, tr
 // CreateBridgeVerifyEvent builds a bridge-verify event.
 func (a *TonMetricsClient) CreateBridgeVerifyEvent(clientID, traceID, verificationResult string) BridgeVerifyEvent {
 	timestamp := int(time.Now().Unix())
-	eventName := BridgeVerifyEventEventName("")
+	eventName := BridgeVerifyEventEventName("") // TODO fix missing constant in specs
 	environment := BridgeVerifyEventClientEnvironment(a.environment)
 	subsystem := BridgeVerifyEventSubsystem(a.subsystem)
 
@@ -421,7 +421,7 @@ func optionalInt(value int) *int {
 func newAnalyticsEventID() *string {
 	id, err := uuid.NewV7()
 	if err != nil {
-		// TODO what to do on error?
+		logrus.WithError(err).Warn("Failed to generate UUIDv7, falling back to UUIDv4")
 		str := uuid.New().String()
 		return &str
 	}
