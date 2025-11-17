@@ -19,12 +19,8 @@ const (
 // AnalyticsClient defines the interface for analytics clients
 type AnalyticsClient interface {
 	SendEvent(event interface{})
-	CreateBridgeClientConnectStartedEvent(clientID, traceID string) BridgeClientConnectStartedEvent
-	CreateBridgeConnectEstablishedEvent(clientID, traceID string, durationMillis int) BridgeConnectEstablishedEvent
-	CreateBridgeClientConnectErrorEvent(clientID, traceID string, errorCode int, errorMessage string) BridgeClientConnectErrorEvent
 	CreateBridgeEventsClientSubscribedEvent(clientID, traceID string) BridgeEventsClientSubscribedEvent
 	CreateBridgeEventsClientUnsubscribedEvent(clientID, traceID string) BridgeEventsClientUnsubscribedEvent
-	// CreateBridgeClientMessageDecodeErrorEvent(clientID, traceID string, encryptedMessageHash string, errorCode int, errorMessage string) BridgeClientMessageDecodeErrorEvent
 	CreateBridgeMessageSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageSentEvent
 	CreateBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageReceivedEvent
 	CreateBridgeMessageExpiredEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageExpiredEvent
@@ -83,72 +79,6 @@ func (a *TonMetricsClient) SendEvent(event interface{}) {
 	}
 
 	// log.Debugf("analytics request sent successfully: %s", string(analyticsData))
-}
-
-// CreateBridgeClientConnectStartedEvent builds a bridge-client-connect-started event.
-func (a *TonMetricsClient) CreateBridgeClientConnectStartedEvent(clientID, traceID string) BridgeClientConnectStartedEvent {
-	timestamp := int(time.Now().Unix())
-	eventName := BridgeClientConnectStartedEventEventNameBridgeClientConnectStarted
-	environment := BridgeClientConnectStartedEventClientEnvironment(a.environment)
-	subsystem := BridgeClientConnectStartedEventSubsystem(a.subsystem)
-
-	return BridgeClientConnectStartedEvent{
-		BridgeUrl:         &a.bridgeURL,
-		ClientEnvironment: &environment,
-		ClientId:          &clientID,
-		ClientTimestamp:   &timestamp,
-		EventId:           newAnalyticsEventID(),
-		EventName:         &eventName,
-		NetworkId:         &a.networkId,
-		Subsystem:         &subsystem,
-		TraceId:           optionalString(traceID),
-		Version:           &a.version,
-	}
-}
-
-// CreateBridgeConnectEstablishedEvent builds a bridge-client-connect-established event.
-func (a *TonMetricsClient) CreateBridgeConnectEstablishedEvent(clientID, traceID string, durationMillis int) BridgeConnectEstablishedEvent {
-	timestamp := int(time.Now().Unix())
-	eventName := BridgeConnectEstablishedEventEventNameBridgeClientConnectEstablished
-	environment := BridgeConnectEstablishedEventClientEnvironment(a.environment)
-	subsystem := BridgeConnectEstablishedEventSubsystem(a.subsystem)
-
-	return BridgeConnectEstablishedEvent{
-		BridgeConnectDuration: optionalInt(durationMillis),
-		BridgeUrl:             &a.bridgeURL,
-		ClientEnvironment:     &environment,
-		ClientId:              &clientID,
-		ClientTimestamp:       &timestamp,
-		EventId:               newAnalyticsEventID(),
-		EventName:             &eventName,
-		NetworkId:             &a.networkId,
-		Subsystem:             &subsystem,
-		TraceId:               optionalString(traceID),
-		Version:               &a.version,
-	}
-}
-
-// CreateBridgeClientConnectErrorEvent builds a bridge-client-connect-error event.
-func (a *TonMetricsClient) CreateBridgeClientConnectErrorEvent(clientID, traceID string, errorCode int, errorMessage string) BridgeClientConnectErrorEvent {
-	timestamp := int(time.Now().Unix())
-	eventName := BridgeClientConnectErrorEventEventNameBridgeClientConnectError
-	environment := BridgeClientConnectErrorEventClientEnvironment(a.environment)
-	subsystem := BridgeClientConnectErrorEventSubsystem(a.subsystem)
-
-	return BridgeClientConnectErrorEvent{
-		BridgeUrl:         &a.bridgeURL,
-		ClientEnvironment: &environment,
-		ClientId:          &clientID,
-		ClientTimestamp:   &timestamp,
-		ErrorCode:         optionalInt(errorCode),
-		ErrorMessage:      optionalString(errorMessage),
-		EventId:           newAnalyticsEventID(),
-		EventName:         &eventName,
-		NetworkId:         &a.networkId,
-		Subsystem:         &subsystem,
-		TraceId:           optionalString(traceID),
-		Version:           &a.version,
-	}
 }
 
 // CreateBridgeEventsClientSubscribedEvent builds a bridge-events-client-subscribed event.
@@ -336,18 +266,6 @@ func (n *NoopMetricsClient) SendEvent(event interface{}) {
 	// No-op
 }
 
-func (n *NoopMetricsClient) CreateBridgeClientConnectStartedEvent(clientID, traceID string) BridgeClientConnectStartedEvent {
-	return BridgeClientConnectStartedEvent{}
-}
-
-func (n *NoopMetricsClient) CreateBridgeConnectEstablishedEvent(clientID, traceID string, durationMillis int) BridgeConnectEstablishedEvent {
-	return BridgeConnectEstablishedEvent{}
-}
-
-func (n *NoopMetricsClient) CreateBridgeClientConnectErrorEvent(clientID, traceID string, errorCode int, errorMessage string) BridgeClientConnectErrorEvent {
-	return BridgeClientConnectErrorEvent{}
-}
-
 func (n *NoopMetricsClient) CreateBridgeEventsClientSubscribedEvent(clientID, traceID string) BridgeEventsClientSubscribedEvent {
 	return BridgeEventsClientSubscribedEvent{}
 }
@@ -378,13 +296,6 @@ func (n *NoopMetricsClient) CreateBridgeVerifyEvent(clientID, traceID, verificat
 
 func optionalString(value string) *string {
 	if value == "" {
-		return nil
-	}
-	return &value
-}
-
-func optionalInt(value int) *int {
-	if value == 0 {
 		return nil
 	}
 	return &value
