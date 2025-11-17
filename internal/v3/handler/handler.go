@@ -155,14 +155,8 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		// TODO send analytics event
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
-	clientIds := normalizeClientIDs(clientId[0])
-	if len(clientIds) == 0 {
-		badRequestMetric.Inc()
-		errorMsg := "param \"client_id\" must contain at least one value"
-		log.Error(errorMsg)
-		// TODO send analytics event
-		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
-	}
+
+	clientIds := strings.Split(clientId[0], ",")
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
 
 	session := h.CreateSession(clientIds, lastEventId)
@@ -492,9 +486,7 @@ func (h *handler) removeConnection(ses *Session) {
 			h.Mux.Unlock()
 		}
 		activeSubscriptionsMetric.Dec()
-		if id != "" {
-			go h.analytics.SendEvent(h.analytics.CreateBridgeEventsClientUnsubscribedEvent(id, ""))
-		}
+		go h.analytics.SendEvent(h.analytics.CreateBridgeEventsClientUnsubscribedEvent(id, ""))
 	}
 }
 
@@ -540,17 +532,4 @@ func (h *handler) failValidation(
 		messageHash,
 	))
 	return c.JSON(utils.HttpResError(msg, http.StatusBadRequest))
-}
-
-func normalizeClientIDs(raw string) []string {
-	values := strings.Split(raw, ",")
-	result := make([]string, 0, len(values))
-	for _, v := range values {
-		v = strings.TrimSpace(v)
-		if v == "" {
-			continue
-		}
-		result = append(result, v)
-	}
-	return result
 }
