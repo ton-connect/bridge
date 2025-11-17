@@ -119,14 +119,15 @@ func logDiscoveredNodes(ctx context.Context, client *redis.ClusterClient) {
 func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl int64) error {
 	log := log.WithField("prefix", "ValkeyStorage.Pub")
 
-	// Publish to Redis channel
-	channel := fmt.Sprintf("client:%s", message.To)
+	// Publish to Redis channel using Sharded Pub/Sub
+	// Use hash tag {client} to ensure all channels route to the same shard
+	channel := fmt.Sprintf("{client}:%s", message.To)
 	messageData, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	err = s.client.Publish(ctx, channel, messageData).Err()
+	err = s.client.SPublish(ctx, channel, messageData).Err()
 	if err != nil {
 		return fmt.Errorf("failed to publish message to channel %s: %w", channel, err)
 	}
@@ -167,7 +168,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	// Send historical messages for each key
 	now := time.Now().Unix()
 	for _, key := range keys {
-		clientKey := fmt.Sprintf("client:%s", key)
+		clientKey := fmt.Sprintf("{client}:%s", key)
 
 		// Remove expired messages first
 		// TODO support expired messages but not delivered log
@@ -205,16 +206,16 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	// Create channels list for subscription
 	channels := make([]string, len(keys))
 	for i, key := range keys {
-		channels[i] = fmt.Sprintf("client:%s", key)
+		channels[i] = fmt.Sprintf("{client}:%s", key)
 	}
 
 	// If this is the first subscription, start the pub-sub connection
 	if s.pubSubConn == nil {
-		s.pubSubConn = s.client.Subscribe(ctx, channels...)
+		s.pubSubConn = s.client.SSubscribe(ctx, channels...)
 		go s.handlePubSub()
 	} else {
-		// Subscribe to additional channels
-		err := s.pubSubConn.Subscribe(ctx, channels...)
+		// Subscribe to additional channels using Sharded Pub/Sub
+		err := s.pubSubConn.SSubscribe(ctx, channels...)
 		if err != nil {
 			log.Errorf("failed to subscribe to additional channels: %v", err)
 		}
@@ -250,7 +251,7 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 		if len(newSubscribers) == 0 {
 			// No more subscribers for this key, clean up
 			delete(s.subscribers, key)
-			channel := fmt.Sprintf("client:%s", key)
+			channel := fmt.Sprintf("{client}:%s", key)
 			channelsToUnsub = append(channelsToUnsub, channel)
 		} else {
 			// Still have subscribers, just update the list
@@ -260,7 +261,7 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 
 	// Only unsubscribe from Redis channels that have NO subscribers left
 	if s.pubSubConn != nil && len(channelsToUnsub) > 0 {
-		err := s.pubSubConn.Unsubscribe(ctx, channelsToUnsub...)
+		err := s.pubSubConn.SUnsubscribe(ctx, channelsToUnsub...)
 		if err != nil {
 			return fmt.Errorf("failed to unsubscribe from channels: %w", err)
 		}
@@ -276,10 +277,12 @@ func (s *ValkeyStorage) handlePubSub() {
 
 	for msg := range s.pubSubConn.Channel() {
 		// Parse channel name to get client key
+		// Channel format is {client}:clientId
 		var key string
-		if len(msg.Channel) > 7 && msg.Channel[:7] == "client:" {
-			key = msg.Channel[7:]
-		} else {
+		if len(msg.Channel) > 9 && msg.Channel[:9] == "{client}:" {
+			key = msg.Channel[9:]
+		}
+		if key == "" {
 			continue
 		}
 
