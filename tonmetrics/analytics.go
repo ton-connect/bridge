@@ -3,6 +3,7 @@ package tonmetrics
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -18,16 +19,14 @@ const (
 // AnalyticsClient defines the interface for analytics clients
 type AnalyticsClient interface {
 	SendEvent(event interface{})
-	CreateBridgeRequestReceivedEvent(clientID, traceID string) BridgeClientMessageReceivedEvent
-	CreateBridgeRequestSentEvent(clientID, traceID, requestType string) BridgeRequestSentEvent
 	CreateBridgeClientConnectStartedEvent(clientID, traceID string) BridgeClientConnectStartedEvent
 	CreateBridgeConnectEstablishedEvent(clientID, traceID string, durationMillis int) BridgeConnectEstablishedEvent
 	CreateBridgeClientConnectErrorEvent(clientID, traceID string, errorCode int, errorMessage string) BridgeClientConnectErrorEvent
 	CreateBridgeEventsClientSubscribedEvent(clientID, traceID string) BridgeEventsClientSubscribedEvent
 	CreateBridgeEventsClientUnsubscribedEvent(clientID, traceID string) BridgeEventsClientUnsubscribedEvent
 	CreateBridgeClientMessageDecodeErrorEvent(clientID, traceID string, encryptedMessageHash string, errorCode int, errorMessage string) BridgeClientMessageDecodeErrorEvent
-	CreateBridgeMessageSentEvent(clientID, traceID, requestType, messageID, encryptedMessageHash string) BridgeMessageSentEvent
-	CreateBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID string) BridgeMessageReceivedEvent
+	CreateBridgeMessageSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageSentEvent
+	CreateBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageReceivedEvent
 	CreateBridgeMessageExpiredEvent(clientID, traceID, requestType, messageID, encryptedMessageHash string) BridgeMessageExpiredEvent
 	CreateBridgeMessageValidationFailedEvent(clientID, traceID, requestType, encryptedMessageHash string) BridgeMessageValidationFailedEvent
 	CreateBridgeVerifyEvent(clientID, traceID, verificationResult string) BridgeVerifyEvent
@@ -48,17 +47,21 @@ func NewAnalyticsClient() AnalyticsClient {
 	if !config.Config.TFAnalyticsEnabled {
 		return &NoopMetricsClient{}
 	}
+	if config.Config.NetworkId != "-239" && config.Config.NetworkId != "-3" {
+		logrus.Fatalf("invalid NETWORK_ID '%s'. Allowed values: -239 (mainnet) and -3 (testnet)", config.Config.NetworkId)
+	}
 	return &TonMetricsClient{
 		client:      http.DefaultClient,
 		bridgeURL:   config.Config.BridgeURL,
 		subsystem:   "bridge",
-		environment: config.Config.Environment,
+		environment: "bridge",
 		version:     config.Config.BridgeVersion,
 		networkId:   config.Config.NetworkId,
 	}
 }
 
 // sendEvent sends an event to the analytics endpoint
+// TODO pass events in batches
 func (a *TonMetricsClient) SendEvent(event interface{}) {
 	log := logrus.WithField("prefix", "analytics")
 	analyticsData, err := json.Marshal(event)
@@ -72,6 +75,7 @@ func (a *TonMetricsClient) SendEvent(event interface{}) {
 	}
 
 	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-Client-Timestamp", fmt.Sprintf("%d", time.Now().Unix()))
 
 	_, err = a.client.Do(req)
 	if err != nil {
@@ -79,49 +83,6 @@ func (a *TonMetricsClient) SendEvent(event interface{}) {
 	}
 
 	// log.Debugf("analytics request sent successfully: %s", string(analyticsData))
-}
-
-// CreateBridgeRequestReceivedEvent creates a BridgeClientMessageReceivedEvent with common fields populated
-func (a *TonMetricsClient) CreateBridgeRequestReceivedEvent(clientID, traceID string) BridgeClientMessageReceivedEvent {
-	timestamp := int(time.Now().Unix())
-	eventName := BridgeClientMessageReceivedEventEventNameBridgeClientMessageReceived
-	environment := BridgeClientMessageReceivedEventClientEnvironment(a.environment)
-	subsystem := BridgeClientMessageReceivedEventSubsystem(a.subsystem)
-
-	return BridgeClientMessageReceivedEvent{
-		BridgeUrl:         &a.bridgeURL,
-		ClientEnvironment: &environment,
-		ClientId:          &clientID,
-		ClientTimestamp:   &timestamp,
-		EventId:           newAnalyticsEventID(),
-		EventName:         &eventName,
-		NetworkId:         &a.networkId,
-		Subsystem:         &subsystem,
-		TraceId:           &traceID,
-		Version:           &a.version,
-	}
-}
-
-// CreateBridgeRequestSentEvent creates a BridgeRequestSentEvent with common fields populated
-func (a *TonMetricsClient) CreateBridgeRequestSentEvent(clientID, traceID, requestType string) BridgeRequestSentEvent {
-	timestamp := int(time.Now().Unix())
-	eventName := BridgeRequestSentEventEventNameBridgeClientMessageSent
-	environment := BridgeRequestSentEventClientEnvironment(a.environment)
-	subsystem := BridgeRequestSentEventSubsystem(BridgeRequestSentEventSubsystemBridge)
-
-	return BridgeRequestSentEvent{
-		BridgeUrl:         &a.bridgeURL,
-		ClientEnvironment: &environment,
-		ClientId:          &clientID,
-		ClientTimestamp:   &timestamp,
-		EventId:           newAnalyticsEventID(),
-		EventName:         &eventName,
-		NetworkId:         &a.networkId,
-		RequestType:       &requestType,
-		Subsystem:         &subsystem,
-		TraceId:           &traceID,
-		Version:           &a.version,
-	}
 }
 
 // CreateBridgeClientConnectStartedEvent builds a bridge-client-connect-started event.
@@ -257,21 +218,22 @@ func (a *TonMetricsClient) CreateBridgeClientMessageDecodeErrorEvent(clientID, t
 }
 
 // CreateBridgeMessageSentEvent builds a bridge-message-sent event.
-func (a *TonMetricsClient) CreateBridgeMessageSentEvent(clientID, traceID, requestType, messageID, encryptedMessageHash string) BridgeMessageSentEvent {
+func (a *TonMetricsClient) CreateBridgeMessageSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageSentEvent {
 	timestamp := int(time.Now().Unix())
 	eventName := BridgeMessageSentEventEventNameBridgeMessageSent
 	environment := BridgeMessageSentEventClientEnvironment(a.environment)
 	subsystem := BridgeMessageSentEventSubsystem(a.subsystem)
+	messageIDStr := fmt.Sprintf("%d", messageID)
 
 	event := BridgeMessageSentEvent{
 		BridgeUrl:            &a.bridgeURL,
 		ClientEnvironment:    &environment,
 		ClientId:             &clientID,
 		ClientTimestamp:      &timestamp,
-		EncryptedMessageHash: optionalString(encryptedMessageHash),
+		EncryptedMessageHash: &messageHash,
 		EventId:              newAnalyticsEventID(),
 		EventName:            &eventName,
-		MessageId:            optionalString(messageID),
+		MessageId:            &messageIDStr,
 		NetworkId:            &a.networkId,
 		Subsystem:            &subsystem,
 		TraceId:              optionalString(traceID),
@@ -286,11 +248,12 @@ func (a *TonMetricsClient) CreateBridgeMessageSentEvent(clientID, traceID, reque
 }
 
 // CreateBridgeMessageReceivedEvent builds a bridge message received event (wallet-connect-request-received).
-func (a *TonMetricsClient) CreateBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID string) BridgeMessageReceivedEvent { // TODO wat?
+func (a *TonMetricsClient) CreateBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageReceivedEvent {
 	timestamp := int(time.Now().Unix())
 	eventName := BridgeMessageReceivedEventEventNameWalletConnectRequestReceived
 	environment := BridgeMessageReceivedEventClientEnvironment(a.environment)
 	subsystem := BridgeMessageReceivedEventSubsystem(a.subsystem)
+	messageIDStr := fmt.Sprintf("%d", messageID)
 
 	event := BridgeMessageReceivedEvent{
 		BridgeUrl:         &a.bridgeURL,
@@ -299,11 +262,13 @@ func (a *TonMetricsClient) CreateBridgeMessageReceivedEvent(clientID, traceID, r
 		ClientTimestamp:   &timestamp,
 		EventId:           newAnalyticsEventID(),
 		EventName:         &eventName,
-		MessageId:         optionalString(messageID),
+		MessageId:         &messageIDStr,
 		NetworkId:         &a.networkId,
 		Subsystem:         &subsystem,
 		TraceId:           optionalString(traceID),
 		Version:           &a.version,
+		// TODO BridgeMessageReceivedEvent misses MessageHash field
+		// MessageHash:      &messageHash,
 	}
 	if requestType != "" {
 		event.RequestType = &requestType
@@ -394,14 +359,6 @@ func (n *NoopMetricsClient) SendEvent(event interface{}) {
 	// No-op
 }
 
-func (n *NoopMetricsClient) CreateBridgeRequestReceivedEvent(clientID, traceID string) BridgeClientMessageReceivedEvent {
-	return BridgeClientMessageReceivedEvent{}
-}
-
-func (a *NoopMetricsClient) CreateBridgeRequestSentEvent(clientID, traceID, requestType string) BridgeRequestSentEvent {
-	return BridgeRequestSentEvent{}
-}
-
 func (n *NoopMetricsClient) CreateBridgeClientConnectStartedEvent(clientID, traceID string) BridgeClientConnectStartedEvent {
 	return BridgeClientConnectStartedEvent{}
 }
@@ -426,11 +383,11 @@ func (n *NoopMetricsClient) CreateBridgeClientMessageDecodeErrorEvent(clientID, 
 	return BridgeClientMessageDecodeErrorEvent{}
 }
 
-func (n *NoopMetricsClient) CreateBridgeMessageSentEvent(clientID, traceID, requestType, messageID, encryptedMessageHash string) BridgeMessageSentEvent {
+func (n *NoopMetricsClient) CreateBridgeMessageSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageSentEvent {
 	return BridgeMessageSentEvent{}
 }
 
-func (n *NoopMetricsClient) CreateBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID string) BridgeMessageReceivedEvent {
+func (n *NoopMetricsClient) CreateBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageReceivedEvent {
 	return BridgeMessageReceivedEvent{}
 }
 
