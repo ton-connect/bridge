@@ -268,16 +268,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			if modifiedMessage, err := json.Marshal(bridgeMsg); err == nil {
 				messageToSend = modifiedMessage
 			}
-		} else {
-			hash := sha256.Sum256(msg.Message)
-			messageHash := hex.EncodeToString(hash[:])
-			go h.analytics.SendEvent(h.analytics.CreateBridgeClientMessageDecodeErrorEvent(
-				msg.To,
-				"",
-				messageHash,
-				0,
-				err.Error(),
-			))
 		}
 
 		var sseMessage string
@@ -532,32 +522,20 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
 	if err != nil {
 		badRequestMetric.Inc()
-		go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
-			"",
-			"",
-			"bad_request",
-		))
+		// TODO send missing analytics event
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
 	clientId, ok := paramsStore.Get("client_id")
 	if !ok {
 		badRequestMetric.Inc()
-		go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
-			"",
-			"",
-			"bad_request",
-		))
+		// TODO send missing analytics event
 		return c.JSON(utils.HttpResError("param \"client_id\" not present", http.StatusBadRequest))
 	}
 	url, ok := paramsStore.Get("url")
 	if !ok {
 		badRequestMetric.Inc()
-		go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
-			clientId,
-			"",
-			"bad_request",
-		))
+		// TODO send missing analytics event
 		return c.JSON(utils.HttpResError("param \"url\" not present", http.StatusBadRequest))
 	}
 	qtype, ok := paramsStore.Get("type")
@@ -576,11 +554,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
 		badRequestMetric.Inc()
-		go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
-			clientId,
-			"",
-			"bad_request",
-		))
+		// TODO send missing analytics event
 		return c.JSON(utils.HttpResError("param \"type\" must be one of: connect, message", http.StatusBadRequest))
 	}
 }
