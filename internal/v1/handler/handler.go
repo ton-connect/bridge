@@ -381,8 +381,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return failValidation(err.Error())
 	}
-	// hash := sha256.Sum256(message)
-	// currentMessageHash = hex.EncodeToString(hash[:])
 
 	data := append(message, []byte(clientId[0])...)
 	sum := sha256.Sum256(data)

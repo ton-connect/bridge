@@ -370,8 +370,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		log.Error(err)
 		return failValidation(err.Error())
 	}
-	// hash := sha256.Sum256(message)
-	// currentMessageHash = hex.EncodeToString(hash[:])
+
 	if config.Config.CopyToURL != "" {
 		go func() {
 			u, err := url.Parse(config.Config.CopyToURL)
