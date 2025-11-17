@@ -91,7 +91,6 @@ func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor 
 
 func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	log := logrus.WithField("prefix", "EventRegistrationHandler")
-	connectStartedAt := time.Now()
 	_, ok := c.Response().Writer.(http.Flusher)
 	if !ok {
 		http.Error(c.Response().Writer, "streaming unsupported", http.StatusInternalServerError)
@@ -120,12 +119,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "invalid heartbeat type. Supported: legacy and message"
 		log.Error(errorMsg)
-		go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectErrorEvent(
-			"",
-			"",
-			http.StatusBadRequest,
-			errorMsg,
-		))
+		// TODO send analytics event
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -138,12 +132,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "Last-Event-ID should be int"
 			log.Error(errorMsg)
-			go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectErrorEvent(
-				"",
-				"",
-				http.StatusBadRequest,
-				errorMsg,
-			))
+			// TODO send analytics event
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -154,12 +143,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
 			log.Error(errorMsg)
-			go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectErrorEvent(
-				"",
-				"",
-				http.StatusBadRequest,
-				errorMsg,
-			))
+			// TODO send analytics event
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -168,12 +152,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectErrorEvent(
-			"",
-			"",
-			http.StatusBadRequest,
-			errorMsg,
-		))
+		// TODO send analytics event
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 	clientIds := normalizeClientIDs(clientId[0])
@@ -181,21 +160,11 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" must contain at least one value"
 		log.Error(errorMsg)
-		go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectErrorEvent(
-			"",
-			"",
-			http.StatusBadRequest,
-			errorMsg,
-		))
+		// TODO send analytics event
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
-	for _, id := range clientIds {
-		if id == "" {
-			continue
-		}
-		go h.analytics.SendEvent(h.analytics.CreateBridgeClientConnectStartedEvent(id, ""))
-	}
+
 	session := h.CreateSession(clientIds, lastEventId)
 
 	// Track connection for verification
@@ -228,22 +197,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	ticker := time.NewTicker(h.heartbeatInterval)
 	defer ticker.Stop()
 	session.Start()
-	if len(clientIds) > 0 {
-		duration := int(time.Since(connectStartedAt).Milliseconds())
-		if clientIds[0] != "" {
-			go h.analytics.SendEvent(h.analytics.CreateBridgeConnectEstablishedEvent(
-				clientIds[0],
-				"",
-				duration,
-			))
-		}
-	}
-	for _, id := range clientIds {
-		if id == "" {
-			continue
-		}
-		go h.analytics.SendEvent(h.analytics.CreateBridgeEventsClientSubscribedEvent(id, ""))
-	}
 loop:
 	for {
 		select {
