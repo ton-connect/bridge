@@ -28,7 +28,7 @@ type AnalyticsClient interface {
 	CreateBridgeMessageSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageSentEvent
 	CreateBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageReceivedEvent
 	CreateBridgeMessageExpiredEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageExpiredEvent
-	CreateBridgeMessageValidationFailedEvent(clientID, traceID, requestType, encryptedMessageHash string) BridgeMessageValidationFailedEvent
+	CreateBridgeMessageValidationFailedEvent(clientID, traceID, requestType, messageHash string) BridgeMessageValidationFailedEvent
 	CreateBridgeVerifyEvent(clientID, traceID, verificationResult string) BridgeVerifyEvent
 }
 
