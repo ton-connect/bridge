@@ -102,7 +102,7 @@ func TestMemStorage_watcher(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &MemStorage{db: tt.db}
+			s := &MemStorage{db: tt.db, tonAnalytics: &tonmetrics.NoopMetricsClient{}}
 			go s.watcher()
 			time.Sleep(500 * time.Millisecond)
 			s.lock.Lock()
