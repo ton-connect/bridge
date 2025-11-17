@@ -24,7 +24,7 @@ type AnalyticsClient interface {
 	CreateBridgeClientConnectErrorEvent(clientID, traceID string, errorCode int, errorMessage string) BridgeClientConnectErrorEvent
 	CreateBridgeEventsClientSubscribedEvent(clientID, traceID string) BridgeEventsClientSubscribedEvent
 	CreateBridgeEventsClientUnsubscribedEvent(clientID, traceID string) BridgeEventsClientUnsubscribedEvent
-	CreateBridgeClientMessageDecodeErrorEvent(clientID, traceID string, encryptedMessageHash string, errorCode int, errorMessage string) BridgeClientMessageDecodeErrorEvent
+	// CreateBridgeClientMessageDecodeErrorEvent(clientID, traceID string, encryptedMessageHash string, errorCode int, errorMessage string) BridgeClientMessageDecodeErrorEvent
 	CreateBridgeMessageSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageSentEvent
 	CreateBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageReceivedEvent
 	CreateBridgeMessageExpiredEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageExpiredEvent
@@ -193,30 +193,6 @@ func (a *TonMetricsClient) CreateBridgeEventsClientUnsubscribedEvent(clientID, t
 	}
 }
 
-// CreateBridgeClientMessageDecodeErrorEvent builds a bridge-client-message-decode-error event.
-func (a *TonMetricsClient) CreateBridgeClientMessageDecodeErrorEvent(clientID, traceID string, encryptedMessageHash string, errorCode int, errorMessage string) BridgeClientMessageDecodeErrorEvent {
-	timestamp := int(time.Now().Unix())
-	eventName := BridgeClientMessageDecodeErrorEventEventNameBridgeClientMessageDecodeError
-	environment := BridgeClientMessageDecodeErrorEventClientEnvironment(a.environment)
-	subsystem := BridgeClientMessageDecodeErrorEventSubsystem(a.subsystem)
-
-	return BridgeClientMessageDecodeErrorEvent{
-		BridgeUrl:            &a.bridgeURL,
-		ClientEnvironment:    &environment,
-		ClientId:             &clientID,
-		ClientTimestamp:      &timestamp,
-		EncryptedMessageHash: optionalString(encryptedMessageHash),
-		ErrorCode:            optionalInt(errorCode),
-		ErrorMessage:         optionalString(errorMessage),
-		EventId:              newAnalyticsEventID(),
-		EventName:            &eventName,
-		NetworkId:            &a.networkId,
-		Subsystem:            &subsystem,
-		TraceId:              optionalString(traceID),
-		Version:              &a.version,
-	}
-}
-
 // CreateBridgeMessageSentEvent builds a bridge-message-sent event.
 func (a *TonMetricsClient) CreateBridgeMessageSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageSentEvent {
 	timestamp := int(time.Now().Unix())
@@ -378,10 +354,6 @@ func (n *NoopMetricsClient) CreateBridgeEventsClientSubscribedEvent(clientID, tr
 
 func (n *NoopMetricsClient) CreateBridgeEventsClientUnsubscribedEvent(clientID, traceID string) BridgeEventsClientUnsubscribedEvent {
 	return BridgeEventsClientUnsubscribedEvent{}
-}
-
-func (n *NoopMetricsClient) CreateBridgeClientMessageDecodeErrorEvent(clientID, traceID string, encryptedMessageHash string, errorCode int, errorMessage string) BridgeClientMessageDecodeErrorEvent {
-	return BridgeClientMessageDecodeErrorEvent{}
 }
 
 func (n *NoopMetricsClient) CreateBridgeMessageSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageSentEvent {
