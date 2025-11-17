@@ -324,36 +324,23 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 func (h *handler) SendMessageHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 	log := logrus.WithContext(ctx).WithField("prefix", "SendMessageHandler")
-	currentClientID := ""
-	currentTraceID := ""
-	currentTopic := ""
-	currentMessageHash := ""
-	failValidation := func(msg string) error {
-		go h.analytics.SendEvent(h.analytics.CreateBridgeMessageValidationFailedEvent(
-			currentClientID,
-			currentTraceID,
-			currentTopic,
-			currentMessageHash,
-		))
-		return c.JSON(utils.HttpResError(msg, http.StatusBadRequest))
-	}
 
 	params := c.QueryParams()
-	clientId, ok := params["client_id"]
+	clientIdValues, ok := params["client_id"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		return failValidation(errorMsg)
+		return h.failValidation(c, errorMsg, "", "", "", "")
 	}
-	currentClientID = clientId[0]
+	clientID := clientIdValues[0]
 
 	toId, ok := params["to"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
 		log.Error(errorMsg)
-		return failValidation(errorMsg)
+		return h.failValidation(c, errorMsg, clientID, "", "", "")
 	}
 
 	ttlParam, ok := params["ttl"]
@@ -361,28 +348,28 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
 		log.Error(errorMsg)
-		return failValidation(errorMsg)
+		return h.failValidation(c, errorMsg, clientID, "", "", "")
 	}
 	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return failValidation(err.Error())
+		return h.failValidation(c, err.Error(), clientID, "", "", "")
 	}
 	if ttl > 300 { // TODO: config
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" too high"
 		log.Error(errorMsg)
-		return failValidation(errorMsg)
+		return h.failValidation(c, errorMsg, clientID, "", "", "")
 	}
 	message, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return failValidation(err.Error())
+		return h.failValidation(c, err.Error(), clientID, "", "", "")
 	}
 
-	data := append(message, []byte(clientId[0])...)
+	data := append(message, []byte(clientID)...)
 	sum := sha256.Sum256(data)
 	messageId := int64(binary.BigEndian.Uint64(sum[:8]))
 	if ok := storage.TransferedCache.MarkIfNotExists(messageId); ok {
@@ -407,10 +394,9 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	topic := ""
 	if ok {
 		topic = topicParam[0]
-		currentTopic = topic
 		go func(clientID, topic, message string) {
 			handler_common.SendWebhook(clientID, handler_common.WebhookData{Topic: topic, Hash: message})
-		}(clientId[0], topic, string(message))
+		}(clientID, topic, string(message))
 	}
 
 	traceIdParam, ok := params["trace_id"]
@@ -434,8 +420,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			traceId = uuids.String()
 		}
 	}
-	currentTraceID = traceId
-
 	var requestSource string
 	noRequestSourceParam, ok := params["no_request_source"]
 	enableRequestSource := !ok || len(noRequestSourceParam) == 0 || strings.ToLower(noRequestSourceParam[0]) != "true"
@@ -457,13 +441,20 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		if err != nil {
 			badRequestMetric.Inc()
 			log.Error(err)
-			return failValidation(fmt.Sprintf("failed to encrypt request source: %v", err))
+			return h.failValidation(
+				c,
+				fmt.Sprintf("failed to encrypt request source: %v", err),
+				clientID,
+				traceId,
+				topic,
+				"",
+			)
 		}
 		requestSource = encryptedRequestSource
 	}
 
 	mes, err := json.Marshal(models.BridgeMessage{
-		From:                clientId[0],
+		From:                clientID,
 		Message:             string(message),
 		BridgeRequestSource: requestSource,
 		TraceId:             traceId,
@@ -471,7 +462,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return failValidation(err.Error())
+		return h.failValidation(c, err.Error(), clientID, traceId, topic, "")
 	}
 
 	if topic == "disconnect" && len(mes) < config.Config.DisconnectEventMaxSize {
@@ -523,7 +514,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}).Debug("message received")
 
 	go h.analytics.SendEvent(h.analytics.CreateBridgeMessageReceivedEvent(
-		clientId[0],
+		clientID,
 		traceId,
 		topic,
 		sseMessage.EventId,
@@ -656,6 +647,23 @@ func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session 
 
 func (h *handler) nextID() int64 {
 	return atomic.AddInt64(&h._eventIDs, 1)
+}
+
+func (h *handler) failValidation(
+	c echo.Context,
+	msg string,
+	clientID string,
+	traceID string,
+	topic string,
+	messageHash string,
+) error {
+	go h.analytics.SendEvent(h.analytics.CreateBridgeMessageValidationFailedEvent(
+		clientID,
+		traceID,
+		topic,
+		messageHash,
+	))
+	return c.JSON(utils.HttpResError(msg, http.StatusBadRequest))
 }
 
 func normalizeClientIDs(raw string) []string {
