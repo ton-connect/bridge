@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ton-connect/bridge/internal/models"
+	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 func newMessage(expire time.Time, i int) message {
@@ -55,7 +56,7 @@ func Test_removeExpiredMessages(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := removeExpiredMessages(tt.ms, tt.now, "test-key"); !reflect.DeepEqual(got, tt.want) {
+			if got, _ := removeExpiredMessages(tt.ms, tt.now); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("removeExpiredMessages() = %v, want %v", got, tt.want)
 			}
 		})
@@ -115,7 +116,7 @@ func TestMemStorage_watcher(t *testing.T) {
 }
 
 func TestMemStorage_PubSub(t *testing.T) {
-	s := NewMemStorage()
+	s := NewMemStorage(&tonmetrics.NoopMetricsClient{})
 
 	// Create channels to receive messages
 	ch1 := make(chan models.SseMessage, 10)
@@ -196,7 +197,7 @@ func TestMemStorage_PubSub(t *testing.T) {
 }
 
 func TestMemStorage_LastEventId(t *testing.T) {
-	s := NewMemStorage()
+	s := NewMemStorage(&tonmetrics.NoopMetricsClient{})
 
 	// Store some messages first
 	_ = s.Pub(context.Background(), models.SseMessage{EventId: 1, To: "1"}, 60)

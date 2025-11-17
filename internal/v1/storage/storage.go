@@ -7,6 +7,7 @@ import (
 	"github.com/ton-connect/bridge/internal/config"
 	"github.com/ton-connect/bridge/internal/models"
 	common_storage "github.com/ton-connect/bridge/internal/storage"
+	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 var (
@@ -20,9 +21,9 @@ type Storage interface {
 	HealthCheck() error
 }
 
-func NewStorage(dbURI string) (Storage, error) {
+func NewStorage(dbURI string, tonAnalytics tonmetrics.AnalyticsClient) (Storage, error) {
 	if dbURI != "" {
-		return NewPgStorage(dbURI)
+		return NewPgStorage(dbURI, tonAnalytics)
 	}
-	return NewMemStorage(), nil
+	return NewMemStorage(tonAnalytics), nil
 }

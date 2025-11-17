@@ -27,7 +27,7 @@ type AnalyticsClient interface {
 	CreateBridgeClientMessageDecodeErrorEvent(clientID, traceID string, encryptedMessageHash string, errorCode int, errorMessage string) BridgeClientMessageDecodeErrorEvent
 	CreateBridgeMessageSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageSentEvent
 	CreateBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageReceivedEvent
-	CreateBridgeMessageExpiredEvent(clientID, traceID, requestType, messageID, encryptedMessageHash string) BridgeMessageExpiredEvent
+	CreateBridgeMessageExpiredEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageExpiredEvent
 	CreateBridgeMessageValidationFailedEvent(clientID, traceID, requestType, encryptedMessageHash string) BridgeMessageValidationFailedEvent
 	CreateBridgeVerifyEvent(clientID, traceID, verificationResult string) BridgeVerifyEvent
 }
@@ -277,21 +277,22 @@ func (a *TonMetricsClient) CreateBridgeMessageReceivedEvent(clientID, traceID, r
 }
 
 // CreateBridgeMessageExpiredEvent builds a bridge-message-expired event.
-func (a *TonMetricsClient) CreateBridgeMessageExpiredEvent(clientID, traceID, requestType, messageID, encryptedMessageHash string) BridgeMessageExpiredEvent {
+func (a *TonMetricsClient) CreateBridgeMessageExpiredEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageExpiredEvent {
 	timestamp := int(time.Now().Unix())
 	eventName := BridgeMessageExpiredEventEventNameBridgeMessageExpired
 	environment := BridgeMessageExpiredEventClientEnvironment(a.environment)
 	subsystem := BridgeMessageExpiredEventSubsystem(a.subsystem)
+	messageIdStr := fmt.Sprintf("%d", messageID)
 
 	event := BridgeMessageExpiredEvent{
 		BridgeUrl:            &a.bridgeURL,
 		ClientEnvironment:    &environment,
 		ClientId:             &clientID,
 		ClientTimestamp:      &timestamp,
-		EncryptedMessageHash: optionalString(encryptedMessageHash),
+		EncryptedMessageHash: &messageHash,
 		EventId:              newAnalyticsEventID(),
 		EventName:            &eventName,
-		MessageId:            optionalString(messageID),
+		MessageId:            &messageIdStr,
 		NetworkId:            &a.networkId,
 		Subsystem:            &subsystem,
 		TraceId:              optionalString(traceID),
@@ -391,7 +392,7 @@ func (n *NoopMetricsClient) CreateBridgeMessageReceivedEvent(clientID, traceID, 
 	return BridgeMessageReceivedEvent{}
 }
 
-func (n *NoopMetricsClient) CreateBridgeMessageExpiredEvent(clientID, traceID, requestType, messageID, encryptedMessageHash string) BridgeMessageExpiredEvent {
+func (n *NoopMetricsClient) CreateBridgeMessageExpiredEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageExpiredEvent {
 	return BridgeMessageExpiredEvent{}
 }
 
