@@ -313,36 +313,23 @@ loop:
 func (h *handler) SendMessageHandler(c echo.Context) error {
 	ctx := c.Request().Context()
 	log := logrus.WithContext(ctx).WithField("prefix", "SendMessageHandler")
-	currentClientID := ""
-	currentTraceID := ""
-	currentTopic := ""
-	currentMessageHash := ""
-	failValidation := func(msg string) error {
-		go h.analytics.SendEvent(h.analytics.CreateBridgeMessageValidationFailedEvent(
-			currentClientID,
-			currentTraceID,
-			currentTopic,
-			currentMessageHash,
-		))
-		return c.JSON(utils.HttpResError(msg, http.StatusBadRequest))
-	}
 
 	params := c.QueryParams()
-	clientId, ok := params["client_id"]
+	clientIdValues, ok := params["client_id"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		return failValidation(errorMsg)
+		return h.failValidation(c, errorMsg, "", "", "", "")
 	}
-	currentClientID = clientId[0]
+	clientID := clientIdValues[0]
 
 	toId, ok := params["to"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
 		log.Error(errorMsg)
-		return failValidation(errorMsg)
+		return h.failValidation(c, errorMsg, clientID, "", "", "")
 	}
 
 	ttlParam, ok := params["ttl"]
@@ -350,25 +337,25 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
 		log.Error(errorMsg)
-		return failValidation(errorMsg)
+		return h.failValidation(c, errorMsg, clientID, "", "", "")
 	}
 	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return failValidation(err.Error())
+		return h.failValidation(c, err.Error(), clientID, "", "", "")
 	}
 	if ttl > 300 { // TODO: config MaxTTL value
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" too high"
 		log.Error(errorMsg)
-		return failValidation(errorMsg)
+		return h.failValidation(c, errorMsg, clientID, "", "", "")
 	}
 	message, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return failValidation(err.Error())
+		return h.failValidation(c, err.Error(), clientID, "", "", "")
 	}
 
 	if config.Config.CopyToURL != "" {
@@ -389,10 +376,9 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	topic := ""
 	if ok {
 		topic = topicParam[0]
-		currentTopic = topic
 		go func(clientID, topic, message string) {
 			handler_common.SendWebhook(clientID, handler_common.WebhookData{Topic: topic, Hash: message})
-		}(clientId[0], topic, string(message))
+		}(clientID, topic, string(message))
 	}
 
 	traceIdParam, ok := params["trace_id"]
@@ -416,17 +402,16 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			traceId = uuids.String()
 		}
 	}
-	currentTraceID = traceId
 
 	mes, err := json.Marshal(models.BridgeMessage{
-		From:    clientId[0],
+		From:    clientID,
 		Message: string(message),
 		TraceId: traceId,
 	})
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return failValidation(err.Error())
+		return h.failValidation(c, err.Error(), clientID, traceId, topic, "")
 	}
 
 	sseMessage := models.SseMessage{
@@ -466,7 +451,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}).Debug("message received")
 
 	go h.analytics.SendEvent(h.analytics.CreateBridgeMessageReceivedEvent(
-		clientId[0],
+		clientID,
 		traceId,
 		topic,
 		sseMessage.EventId,
@@ -612,6 +597,23 @@ func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session 
 		activeSubscriptionsMetric.Inc()
 	}
 	return session
+}
+
+func (h *handler) failValidation(
+	c echo.Context,
+	msg string,
+	clientID string,
+	traceID string,
+	topic string,
+	messageHash string,
+) error {
+	go h.analytics.SendEvent(h.analytics.CreateBridgeMessageValidationFailedEvent(
+		clientID,
+		traceID,
+		topic,
+		messageHash,
+	))
+	return c.JSON(utils.HttpResError(msg, http.StatusBadRequest))
 }
 
 func normalizeClientIDs(raw string) []string {
