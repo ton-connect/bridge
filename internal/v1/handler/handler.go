@@ -308,12 +308,10 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			go h.analytics.SendEvent(h.analytics.CreateBridgeMessageSentEvent(
 				msg.To,
 				bridgeMsg.TraceId,
-				"",
-				"",
+				"", // TODO we don't know topic here
+				msg.EventId,
 				messageHash,
 			))
-			go h.analytics.SendEvent(h.analytics.CreateBridgeRequestReceivedEvent(msg.To, bridgeMsg.TraceId))
-
 			deliveredMessagesMetric.Inc()
 			storage.ExpiredCache.Mark(msg.EventId)
 		}
@@ -526,18 +524,12 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"trace_id": bridgeMsg.TraceId,
 	}).Debug("message received")
 
-	if clientId[0] != "" {
-		go h.analytics.SendEvent(h.analytics.CreateBridgeMessageReceivedEvent(
-			clientId[0],
-			traceId,
-			topic,
-			fmt.Sprintf("%d", messageId),
-		))
-	}
-	go h.analytics.SendEvent(h.analytics.CreateBridgeRequestSentEvent(
+	go h.analytics.SendEvent(h.analytics.CreateBridgeMessageReceivedEvent(
 		clientId[0],
 		traceId,
 		topic,
+		sseMessage.EventId,
+		messageHash,
 	))
 
 	transferedMessagesNumMetric.Inc()
