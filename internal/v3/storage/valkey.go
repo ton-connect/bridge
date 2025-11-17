@@ -119,7 +119,7 @@ func logDiscoveredNodes(ctx context.Context, client *redis.ClusterClient) {
 func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl int64) error {
 	log := log.WithField("prefix", "ValkeyStorage.Pub")
 
-	// Publish to Redis channel using Sharded Pub/Sub
+	// Publish to Redis channel
 	// Use hash tag {client} to ensure all channels route to the same shard
 	channel := fmt.Sprintf("{client}:%s", message.To)
 	messageData, err := json.Marshal(message)
@@ -214,7 +214,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		s.pubSubConn = s.client.SSubscribe(ctx, channels...)
 		go s.handlePubSub()
 	} else {
-		// Subscribe to additional channels using Sharded Pub/Sub
+		// Subscribe to additional channels
 		err := s.pubSubConn.SSubscribe(ctx, channels...)
 		if err != nil {
 			log.Errorf("failed to subscribe to additional channels: %v", err)
