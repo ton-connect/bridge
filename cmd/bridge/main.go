@@ -18,6 +18,7 @@ import (
 	"github.com/ton-connect/bridge/internal/utils"
 	handlerv1 "github.com/ton-connect/bridge/internal/v1/handler"
 	"github.com/ton-connect/bridge/internal/v1/storage"
+	"github.com/ton-connect/bridge/tonmetrics"
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 )
@@ -32,7 +33,9 @@ func main() {
 		app.SetBridgeInfo("bridgev1", "postgres")
 	}
 
-	dbConn, err := storage.NewStorage(config.Config.PostgresURI)
+	tonAnalytics := tonmetrics.NewAnalyticsClient()
+
+	dbConn, err := storage.NewStorage(config.Config.PostgresURI, tonAnalytics)
 	if err != nil {
 		log.Fatalf("db connection %v", err)
 	}

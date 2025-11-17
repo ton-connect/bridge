@@ -19,6 +19,7 @@ import (
 	"github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/config"
 	"github.com/ton-connect/bridge/internal/models"
+	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 var (
@@ -38,7 +39,8 @@ var (
 
 type Message []byte
 type PgStorage struct {
-	postgres *pgxpool.Pool
+	postgres     *pgxpool.Pool
+	tonAnalytics tonmetrics.AnalyticsClient
 }
 
 //go:embed migrations/*.sql
@@ -112,7 +114,7 @@ func configurePoolSettings(postgresURI string) (*pgxpool.Config, error) {
 	return poolConfig, nil
 }
 
-func NewPgStorage(postgresURI string) (*PgStorage, error) {
+func NewPgStorage(postgresURI string, tonAnalytics tonmetrics.AnalyticsClient) (*PgStorage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	log := logrus.WithField("prefix", "NewStorage")
 	defer cancel()
@@ -135,7 +137,8 @@ func NewPgStorage(postgresURI string) (*PgStorage, error) {
 		return nil, err
 	}
 	s := PgStorage{
-		postgres: c,
+		postgres:     c,
+		tonAnalytics: tonAnalytics,
 	}
 	go s.worker()
 	return &s, nil
@@ -203,7 +206,14 @@ func (s *PgStorage) worker() {
 						"event_id": eventID,
 						"trace_id": traceID,
 					}).Debug("message expired")
-					go sendBridgeMessageExpiredEvent(clientID, eventID, traceID, messageHash)
+
+					go s.tonAnalytics.SendEvent(s.tonAnalytics.CreateBridgeMessageExpiredEvent(
+						fromID,
+						traceID,
+						"", // TODO we don't know topic here
+						eventID,
+						messageHash,
+					))
 				}
 			}
 			rows.Close()
