@@ -437,8 +437,8 @@ func TestBridge_NoMessageAfterReconnectWithUpdatedLastEventID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open receiver1: %v", err)
 	}
-	if !r1.IsReady() {
-		t.Fatal("receiver1 not ready")
+	if err := r1.WaitReady(ctx); err != nil {
+		t.Fatalf("receiver1 not ready: %v", err)
 	}
 	if err := sender.Send(ctx, []byte("Hello!"), senderSession, session, nil); err != nil {
 		t.Fatalf("send: %v", err)
@@ -740,6 +740,94 @@ func TestBridge_MultipleMessagesInOrder(t *testing.T) {
 		exp := fmt.Sprintf("%d", i+1)
 		if v != exp {
 			t.Fatalf("order mismatch at %d: got %s want %s", i, v, exp)
+		}
+	}
+}
+
+func TestBridge_MultiClientSubscriptionReceivesMessages(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*testSSETimeout)
+	defer cancel()
+
+	// Subscribe to multiple client IDs over a single SSE connection
+	recipientSessions := []string{
+		randomSessionID(t),
+		randomSessionID(t),
+		randomSessionID(t),
+	}
+	multiClientParam := strings.Join(recipientSessions, ",")
+
+	receiver, err := OpenBridge(ctx, OpenOpts{BridgeURL: BRIDGE_URL, SessionID: multiClientParam})
+	if err != nil {
+		t.Fatalf("open multi-client receiver: %v", err)
+	}
+	defer func() {
+		if err = receiver.Close(); err != nil {
+			log.Println("error during receiver.Close():", err)
+		}
+	}()
+	if err := receiver.WaitReady(ctx); err != nil {
+		t.Fatalf("receiver not ready: %v", err)
+	}
+
+	type sender struct {
+		session string
+		gw      *BridgeGateway
+		target  string
+		payload string
+	}
+	senders := make([]sender, 0, len(recipientSessions))
+	for i, target := range recipientSessions {
+		sess := randomSessionID(t)
+		gw, err := OpenBridge(ctx, OpenOpts{BridgeURL: BRIDGE_URL, SessionID: sess})
+		if err != nil {
+			t.Fatalf("open sender %d: %v", i+1, err)
+		}
+		senders = append(senders, sender{
+			session: sess,
+			gw:      gw,
+			target:  target,
+			payload: fmt.Sprintf("msg-to-%s-from-%d", target, i+1),
+		})
+	}
+	defer func() {
+		for _, s := range senders {
+			if err = s.gw.Close(); err != nil {
+				log.Println("error during sender.Close():", err)
+			}
+		}
+	}()
+
+	// Send one message per target session; all should arrive on the multi-client stream.
+	for i, s := range senders {
+		if err := s.gw.Send(ctx, []byte(s.payload), s.session, s.target, nil); err != nil {
+			t.Fatalf("send from sender %d: %v", i+1, err)
+		}
+	}
+
+	received := make(map[string]string, len(recipientSessions)) // payload -> from
+	for len(received) < len(recipientSessions) {
+		ev, err := receiver.WaitMessage(ctx)
+		if err != nil {
+			t.Fatalf("wait receiver: %v", err)
+		}
+		var bm bridgeMessage
+		if err := json.Unmarshal([]byte(ev.Data), &bm); err != nil {
+			t.Fatalf("decode: %v", err)
+		}
+		raw, err := base64.StdEncoding.DecodeString(bm.Message)
+		if err != nil {
+			t.Fatalf("b64: %v", err)
+		}
+		received[string(raw)] = bm.From
+	}
+
+	for _, s := range senders {
+		from, ok := received[s.payload]
+		if !ok {
+			t.Fatalf("missing payload %q for target %s", s.payload, s.target)
+		}
+		if from != s.session {
+			t.Fatalf("unexpected from for payload %q: got %s want %s", s.payload, from, s.session)
 		}
 	}
 }
