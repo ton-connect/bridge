@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/models"
-	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 func newMessage(expire time.Time, i int) message {
@@ -63,7 +63,7 @@ func Test_removeExpiredMessages(t *testing.T) {
 }
 
 func TestStorage(t *testing.T) {
-	s := &MemStorage{db: map[string][]message{}, tonAnalytics: &tonmetrics.NoopMetricsClient{}}
+	s := &MemStorage{db: map[string][]message{}, analytics: analytics.NewRingCollector(10, false)}
 	_ = s.Add(context.Background(), models.SseMessage{EventId: 1, To: "1"}, 2)
 	_ = s.Add(context.Background(), models.SseMessage{EventId: 2, To: "2"}, 2)
 	_ = s.Add(context.Background(), models.SseMessage{EventId: 3, To: "2"}, 2)
@@ -145,7 +145,7 @@ func TestStorage_watcher(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &MemStorage{db: tt.db, tonAnalytics: &tonmetrics.NoopMetricsClient{}}
+			s := &MemStorage{db: tt.db, analytics: analytics.NewRingCollector(10, false)}
 			go s.watcher()
 			time.Sleep(500 * time.Millisecond)
 			s.lock.Lock()
