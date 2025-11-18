@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/pprof"
@@ -12,6 +13,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal"
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/app"
 	"github.com/ton-connect/bridge/internal/config"
 	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
@@ -48,7 +50,11 @@ func main() {
 		// No URI needed for memory storage
 	}
 
-	dbConn, err := storagev3.NewStorage(store, dbURI, tonAnalytics)
+	analyticsCollector := analytics.NewRingCollector(1024, true)
+	collector := analytics.NewCollector(analyticsCollector, analytics.NewTonMetricsSender(tonAnalytics), 500*time.Millisecond)
+	go collector.Run(context.Background())
+
+	dbConn, err := storagev3.NewStorage(store, dbURI, analyticsCollector)
 
 	if err != nil {
 		log.Fatalf("failed to create storage: %v", err)
@@ -119,7 +125,7 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor)
+	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, analyticsCollector)
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)

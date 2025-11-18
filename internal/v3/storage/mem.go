@@ -11,8 +11,8 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/models"
-	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
@@ -21,11 +21,11 @@ var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
 })
 
 type MemStorage struct {
-	db           map[string][]message
-	subscribers  map[string][]chan<- models.SseMessage
-	connections  map[string][]memConnection // clientID -> connections
-	lock         sync.Mutex
-	tonAnalytics tonmetrics.AnalyticsClient
+	db          map[string][]message
+	subscribers map[string][]chan<- models.SseMessage
+	connections map[string][]memConnection // clientID -> connections
+	lock        sync.Mutex
+	analytics   analytics.AnalyticCollector
 }
 
 type message struct {
@@ -44,12 +44,12 @@ func (m message) IsExpired(now time.Time) bool {
 	return m.expireAt.Before(now)
 }
 
-func NewMemStorage(tonAnalytics tonmetrics.AnalyticsClient) *MemStorage {
+func NewMemStorage(collector analytics.AnalyticCollector) *MemStorage {
 	s := MemStorage{
-		db:           map[string][]message{},
-		subscribers:  make(map[string][]chan<- models.SseMessage),
-		connections:  make(map[string][]memConnection),
-		tonAnalytics: tonAnalytics,
+		db:          map[string][]message{},
+		subscribers: make(map[string][]chan<- models.SseMessage),
+		connections: make(map[string][]memConnection),
+		analytics:   collector,
 	}
 	go s.watcher()
 	return &s
@@ -97,7 +97,7 @@ func (s *MemStorage) watcher() {
 					"trace_id": bridgeMsg.TraceId,
 				}).Debug("message expired")
 
-				go s.tonAnalytics.SendEvent(s.tonAnalytics.CreateBridgeMessageExpiredEvent(
+				_ = s.analytics.TryAdd(analytics.NewBridgeMessageExpiredEvent(
 					fromID,
 					bridgeMsg.TraceId,
 					"", // TODO we don't know topic here
