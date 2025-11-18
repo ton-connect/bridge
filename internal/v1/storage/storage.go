@@ -4,10 +4,10 @@ import (
 	"context"
 	"time"
 
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/config"
 	"github.com/ton-connect/bridge/internal/models"
 	common_storage "github.com/ton-connect/bridge/internal/storage"
-	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 var (
@@ -21,9 +21,9 @@ type Storage interface {
 	HealthCheck() error
 }
 
-func NewStorage(dbURI string, tonAnalytics tonmetrics.AnalyticsClient) (Storage, error) {
+func NewStorage(dbURI string, collector analytics.AnalyticCollector) (Storage, error) {
 	if dbURI != "" {
-		return NewPgStorage(dbURI, tonAnalytics)
+		return NewPgStorage(dbURI, collector)
 	}
-	return NewMemStorage(tonAnalytics), nil
+	return NewMemStorage(collector), nil
 }

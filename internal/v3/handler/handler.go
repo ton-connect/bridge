@@ -21,13 +21,13 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/config"
 	handler_common "github.com/ton-connect/bridge/internal/handler"
 	"github.com/ton-connect/bridge/internal/models"
 	"github.com/ton-connect/bridge/internal/ntp"
 	"github.com/ton-connect/bridge/internal/utils"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
-	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 var validHeartbeatTypes = map[string]string{
@@ -73,10 +73,10 @@ type handler struct {
 	eventIDGen        *EventIDGenerator
 	heartbeatInterval time.Duration
 	realIP            *utils.RealIPExtractor
-	analytics         tonmetrics.AnalyticsClient
+	analytics         analytics.AnalyticCollector
 }
 
-func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, timeProvider ntp.TimeProvider) *handler {
+func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, timeProvider ntp.TimeProvider, collector analytics.AnalyticCollector) *handler {
 	h := handler{
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
@@ -84,7 +84,7 @@ func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor 
 		eventIDGen:        NewEventIDGenerator(timeProvider),
 		realIP:            extractor,
 		heartbeatInterval: heartbeatInterval,
-		analytics:         tonmetrics.NewAnalyticsClient(),
+		analytics:         collector,
 	}
 	return &h
 }
@@ -227,13 +227,15 @@ loop:
 				"trace_id": bridgeMsg.TraceId,
 			}).Debug("message sent")
 
-			go h.analytics.SendEvent(h.analytics.CreateBridgeMessageSentEvent(
-				msg.To,
-				bridgeMsg.TraceId,
-				"", // TODO we don't know topic here
-				msg.EventId,
-				messageHash,
-			))
+			if h.analytics != nil {
+				_ = h.analytics.TryAdd(analytics.NewBridgeMessageSentEvent(
+					msg.To,
+					bridgeMsg.TraceId,
+					"", // TODO we don't know topic here
+					msg.EventId,
+					messageHash,
+				))
+			}
 			deliveredMessagesMetric.Inc()
 			storagev3.ExpiredCache.Mark(msg.EventId)
 		case <-ticker.C:
@@ -389,13 +391,15 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"trace_id": bridgeMsg.TraceId,
 	}).Debug("message received")
 
-	go h.analytics.SendEvent(h.analytics.CreateBridgeMessageReceivedEvent(
-		clientID,
-		traceId,
-		topic,
-		sseMessage.EventId,
-		messageHash,
-	))
+	if h.analytics != nil {
+		_ = h.analytics.TryAdd(analytics.NewBridgeMessageReceivedEvent(
+			clientID,
+			traceId,
+			topic,
+			sseMessage.EventId,
+			messageHash,
+		))
+	}
 
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, utils.HttpResOk())
@@ -445,12 +449,13 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 			// TODO send missing analytics event
 			return c.JSON(utils.HttpResError(err.Error(), http.StatusInternalServerError))
 		}
-		// TODO send missing analytics event
-		go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
-			clientId,
-			"", // TODO trace_id
-			status,
-		))
+		if h.analytics != nil {
+			_ = h.analytics.TryAdd(analytics.NewBridgeVerifyEvent(
+				clientId,
+				"", // TODO trace_id
+				status,
+			))
+		}
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
 		badRequestMetric.Inc()
@@ -486,7 +491,9 @@ func (h *handler) removeConnection(ses *Session) {
 			h.Mux.Unlock()
 		}
 		activeSubscriptionsMetric.Dec()
-		go h.analytics.SendEvent(h.analytics.CreateBridgeEventsClientUnsubscribedEvent(id, ""))
+		if h.analytics != nil {
+			_ = h.analytics.TryAdd(analytics.NewBridgeEventsClientUnsubscribedEvent(id, ""))
+		}
 	}
 }
 
@@ -525,11 +532,13 @@ func (h *handler) failValidation(
 	topic string,
 	messageHash string,
 ) error {
-	go h.analytics.SendEvent(h.analytics.CreateBridgeMessageValidationFailedEvent(
-		clientID,
-		traceID,
-		topic,
-		messageHash,
-	))
+	if h.analytics != nil {
+		_ = h.analytics.TryAdd(analytics.NewBridgeMessageValidationFailedEvent(
+			clientID,
+			traceID,
+			topic,
+			messageHash,
+		))
+	}
 	return c.JSON(utils.HttpResError(msg, http.StatusBadRequest))
 }

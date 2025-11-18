@@ -5,10 +5,10 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/config"
 	"github.com/ton-connect/bridge/internal/models"
 	common_storage "github.com/ton-connect/bridge/internal/storage"
-	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 var (
@@ -36,14 +36,14 @@ type Storage interface {
 	HealthCheck() error
 }
 
-func NewStorage(storageType string, uri string, tonMetrics tonmetrics.AnalyticsClient) (Storage, error) {
+func NewStorage(storageType string, uri string, collector analytics.AnalyticCollector) (Storage, error) {
 	switch storageType {
 	case "valkey", "redis":
 		return NewValkeyStorage(uri) // TODO implement message expiration
 	case "postgres":
 		return nil, fmt.Errorf("postgres storage does not support pub-sub functionality yet")
 	case "memory":
-		return NewMemStorage(tonMetrics), nil
+		return NewMemStorage(collector), nil
 	default:
 		return nil, fmt.Errorf("unsupported storage type: %s", storageType)
 	}

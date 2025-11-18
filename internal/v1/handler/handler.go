@@ -22,12 +22,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/config"
 	handler_common "github.com/ton-connect/bridge/internal/handler"
 	"github.com/ton-connect/bridge/internal/models"
 	"github.com/ton-connect/bridge/internal/utils"
 	"github.com/ton-connect/bridge/internal/v1/storage"
-	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 var validHeartbeatTypes = map[string]string{
@@ -82,10 +82,10 @@ type handler struct {
 	heartbeatInterval time.Duration
 	connectionCache   *ConnectionCache
 	realIP            *utils.RealIPExtractor
-	analytics         tonmetrics.AnalyticsClient
+	analytics         analytics.AnalyticCollector
 }
 
-func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor) *handler {
+func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, collector analytics.AnalyticCollector) *handler {
 	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
 	connectionCache.StartBackgroundCleanup(nil)
 
@@ -97,7 +97,7 @@ func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *
 		heartbeatInterval: heartbeatInterval,
 		connectionCache:   connectionCache,
 		realIP:            extractor,
-		analytics:         tonmetrics.NewAnalyticsClient(),
+		analytics:         collector,
 	}
 	return &h
 }
@@ -240,13 +240,15 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 				"trace_id": bridgeMsg.TraceId,
 			}).Debug("message sent")
 
-			go h.analytics.SendEvent(h.analytics.CreateBridgeMessageSentEvent(
-				clientId,
-				bridgeMsg.TraceId,
-				"", // TODO we don't know topic here
-				msg.EventId,
-				messageHash,
-			))
+			if h.analytics != nil {
+				_ = h.analytics.TryAdd(analytics.NewBridgeMessageSentEvent(
+					msg.To,
+					bridgeMsg.TraceId,
+					"", // TODO we don't know topic here
+					msg.EventId,
+					messageHash,
+				))
+			}
 			deliveredMessagesMetric.Inc()
 			storage.ExpiredCache.Mark(msg.EventId)
 		}
@@ -448,13 +450,15 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"trace_id": bridgeMsg.TraceId,
 	}).Debug("message received")
 
-	go h.analytics.SendEvent(h.analytics.CreateBridgeMessageReceivedEvent(
-		clientID,
-		traceId,
-		topic,
-		sseMessage.EventId,
-		messageHash,
-	))
+	if h.analytics != nil {
+		_ = h.analytics.TryAdd(analytics.NewBridgeMessageReceivedEvent(
+			clientID,
+			traceId,
+			topic,
+			sseMessage.EventId,
+			messageHash,
+		))
+	}
 
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, utils.HttpResOk())
@@ -491,11 +495,13 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	switch strings.ToLower(qtype) {
 	case "connect":
 		status := h.connectionCache.Verify(clientId, ip, utils.ExtractOrigin(url))
-		go h.analytics.SendEvent(h.analytics.CreateBridgeVerifyEvent(
-			clientId,
-			"",
-			status,
-		))
+		if h.analytics != nil {
+			_ = h.analytics.TryAdd(analytics.NewBridgeVerifyEvent(
+				clientId,
+				"",
+				status,
+			))
+		}
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
 		badRequestMetric.Inc()
@@ -531,7 +537,9 @@ func (h *handler) removeConnection(ses *Session) {
 			h.Mux.Unlock()
 		}
 		activeSubscriptionsMetric.Dec()
-		go h.analytics.SendEvent(h.analytics.CreateBridgeEventsClientUnsubscribedEvent(id, ""))
+		if h.analytics != nil {
+			_ = h.analytics.TryAdd(analytics.NewBridgeEventsClientUnsubscribedEvent(id, ""))
+		}
 	}
 }
 
@@ -574,11 +582,13 @@ func (h *handler) failValidation(
 	topic string,
 	messageHash string,
 ) error {
-	go h.analytics.SendEvent(h.analytics.CreateBridgeMessageValidationFailedEvent(
-		clientID,
-		traceID,
-		topic,
-		messageHash,
-	))
+	if h.analytics != nil {
+		_ = h.analytics.TryAdd(analytics.NewBridgeMessageValidationFailedEvent(
+			clientID,
+			traceID,
+			topic,
+			messageHash,
+		))
+	}
 	return c.JSON(utils.HttpResError(msg, http.StatusBadRequest))
 }
