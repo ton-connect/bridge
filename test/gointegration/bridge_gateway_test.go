@@ -377,8 +377,8 @@ func TestBridge_ReceiveMessageOverOpenConnection(t *testing.T) {
 			log.Println("error during sender.Close():", err)
 		}
 	}()
-	if !sender.IsReady() {
-		t.Fatal("sender not ready")
+	if err := sender.WaitReady(ctx); err != nil {
+		t.Fatalf("sender not ready: %v", err)
 	}
 
 	receiverSession := randomSessionID(t)
