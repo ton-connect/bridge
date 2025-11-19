@@ -11,7 +11,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/internal/models"
+	"github.com/ton-connect/bridge/internal/models"
 )
 
 var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{

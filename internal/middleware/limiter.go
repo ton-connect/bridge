@@ -2,7 +2,7 @@ package middleware
 
 import (
 	"fmt"
-	"github.com/tonkeeper/bridge/internal/utils"
+	"github.com/ton-connect/bridge/internal/utils"
 	"net/http"
 	"sync"
 )

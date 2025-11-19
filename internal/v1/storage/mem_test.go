@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tonkeeper/bridge/internal/models"
+	"github.com/ton-connect/bridge/internal/models"
 )
 
 func newMessage(expire time.Time, i int) message {

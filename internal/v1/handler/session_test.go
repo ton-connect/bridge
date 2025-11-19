@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/tonkeeper/bridge/internal/models"
+	"github.com/ton-connect/bridge/internal/models"
 )
 
 // mockDB implements the db interface for testing

@@ -3,7 +3,7 @@ package app
 import (
 	client_prometheus "github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/tonkeeper/bridge/internal"
+	"github.com/ton-connect/bridge/internal"
 )
 
 var (
