@@ -50,7 +50,7 @@ func NewShardedPubSubManager(clusterAddrs []string, username, password string) (
 		return nil, fmt.Errorf("failed to ping valkey cluster: %w", err)
 	}
 
-	log.Info("Successfully created valkey-go sharded pub/sub manager")
+	log.Info("successfully created valkey-go sharded pub/sub manager")
 
 	return &ShardedPubSubManager{
 		client:       client,
@@ -210,6 +210,6 @@ func (m *ShardedPubSubManager) Close() error {
 	// Close the valkey client
 	m.client.Close()
 
-	log.Info("ShardedPubSubManager closed")
+	log.Info("shardedPubSubManager closed")
 	return nil
 }

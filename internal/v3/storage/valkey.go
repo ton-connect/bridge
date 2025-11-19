@@ -63,7 +63,7 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		return nil, fmt.Errorf("redis server does not support sharded pub/sub; requires redis >= 7.0")
 	}
 
-	log.Info("Successfully connected to Valkey/Redis")
+	log.Info("successfully connected to Valkey/Redis")
 
 	// Create sharded pub/sub manager using valkey-go
 	// This solves the go-redis issue where SSUBSCRIBE only works with channels on the same shard
@@ -73,11 +73,13 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		opts.Password,
 	)
 	if err != nil {
-		clusterClient.Close()
+		if closeErr := clusterClient.Close(); closeErr != nil {
+			log.WithError(closeErr).Error("failed to close cluster client")
+		}
 		return nil, fmt.Errorf("failed to create sharded pub/sub manager: %w", err)
 	}
 
-	log.Info("Successfully created sharded pub/sub manager with valkey-go")
+	log.Info("successfully created sharded pub/sub manager with valkey-go")
 
 	return &ValkeyStorage{
 		client:        clusterClient,
@@ -372,7 +374,7 @@ func (s *ValkeyStorage) HealthCheck() error {
 		return fmt.Errorf("valkey health check failed: %w", err)
 	}
 
-	log.Info("Valkey is healthy")
+	log.Info("valkey is healthy")
 	return nil
 }
 
@@ -395,6 +397,6 @@ func (s *ValkeyStorage) Close() error {
 		}
 	}
 
-	log.Info("ValkeyStorage closed")
+	log.Info("valkeyStorage closed")
 	return nil
 }

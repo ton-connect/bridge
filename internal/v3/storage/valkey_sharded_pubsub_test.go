@@ -34,7 +34,11 @@ func TestShardedPubSubManager_MultipleShards(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
-	defer manager.Close()
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Errorf("failed to close manager: %v", err)
+		}
+	}()
 
 	ctx := context.Background()
 
@@ -126,7 +130,11 @@ func TestShardedPubSubManager_ConcurrentSubscribers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Failed to create manager: %v", err)
 	}
-	defer manager.Close()
+	defer func() {
+		if err := manager.Close(); err != nil {
+			t.Errorf("Failed to close manager: %v", err)
+		}
+	}()
 
 	ctx := context.Background()
 	channel := "client:test_multi_subscriber"
