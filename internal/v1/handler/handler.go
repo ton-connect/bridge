@@ -122,7 +122,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		// TODO send analytics event
+		h.logEventRegistrationValidationFailure("", "events/parameters")
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
@@ -136,7 +136,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "invalid heartbeat type. Supported: legacy and message"
 		log.Error(errorMsg)
-		// TODO send analytics event
+		h.logEventRegistrationValidationFailure("", "events/heartbeat")
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -153,7 +153,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "Last-Event-ID should be int"
 			log.Error(errorMsg)
-			// TODO send analytics event
+			h.logEventRegistrationValidationFailure("", "events/last-event-id-header")
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -164,7 +164,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
 			log.Error(errorMsg)
-			// TODO send analytics event
+			h.logEventRegistrationValidationFailure("", "events/last-event-id-query")
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -173,7 +173,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		// TODO send analytics event
+		h.logEventRegistrationValidationFailure("", "events/missing-client-id")
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -267,7 +267,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		return h.failValidation(c, errorMsg, "", "", "", "")
+		return h.logMessageSentValidationFailure(c, errorMsg, "", "", "", "")
 	}
 	clientID := clientIdValues[0]
 
@@ -276,7 +276,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
 		log.Error(errorMsg)
-		return h.failValidation(c, errorMsg, clientID, "", "", "")
+		return h.logMessageSentValidationFailure(c, errorMsg, clientID, "", "", "")
 	}
 
 	ttlParam, ok := params["ttl"]
@@ -284,25 +284,25 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
 		log.Error(errorMsg)
-		return h.failValidation(c, errorMsg, clientID, "", "", "")
+		return h.logMessageSentValidationFailure(c, errorMsg, clientID, "", "", "")
 	}
 	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return h.failValidation(c, err.Error(), clientID, "", "", "")
+		return h.logMessageSentValidationFailure(c, err.Error(), clientID, "", "", "")
 	}
 	if ttl > 300 { // TODO: config
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" too high"
 		log.Error(errorMsg)
-		return h.failValidation(c, errorMsg, clientID, "", "", "")
+		return h.logMessageSentValidationFailure(c, errorMsg, clientID, "", "", "")
 	}
 	message, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return h.failValidation(c, err.Error(), clientID, "", "", "")
+		return h.logMessageSentValidationFailure(c, err.Error(), clientID, "", "", "")
 	}
 
 	data := append(message, []byte(clientID)...)
@@ -377,7 +377,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		if err != nil {
 			badRequestMetric.Inc()
 			log.Error(err)
-			return h.failValidation(
+			return h.logMessageSentValidationFailure(
 				c,
 				fmt.Sprintf("failed to encrypt request source: %v", err),
 				clientID,
@@ -398,7 +398,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return h.failValidation(c, err.Error(), clientID, traceId, topic, "")
+		return h.logMessageSentValidationFailure(c, err.Error(), clientID, traceId, topic, "")
 	}
 
 	if topic == "disconnect" && len(mes) < config.Config.DisconnectEventMaxSize {
@@ -537,7 +537,7 @@ func (h *handler) removeConnection(ses *Session) {
 		}
 		activeSubscriptionsMetric.Dec()
 		if h.analytics != nil {
-			_ = h.analytics.TryAdd(analytics.NewBridgeEventsClientUnsubscribedEvent(id, ""))
+			_ = h.analytics.TryAdd(analytics.NewBridgeEventsClientUnsubscribedEvent(id, "")) // TODO trace_id
 		}
 	}
 }
@@ -565,6 +565,9 @@ func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session 
 		}
 
 		activeSubscriptionsMetric.Inc()
+		if h.analytics != nil {
+			_ = h.analytics.TryAdd(analytics.NewBridgeEventsClientSubscribedEvent(id, "")) // TODO trace_id
+		}
 	}
 	return session
 }
@@ -573,7 +576,19 @@ func (h *handler) nextID() int64 {
 	return atomic.AddInt64(&h._eventIDs, 1)
 }
 
-func (h *handler) failValidation(
+func (h *handler) logEventRegistrationValidationFailure(clientID, requestType string) {
+	if h.analytics == nil {
+		return
+	}
+	h.analytics.TryAdd(analytics.NewBridgeMessageValidationFailedEvent(
+		clientID,
+		"",
+		requestType,
+		"",
+	))
+}
+
+func (h *handler) logMessageSentValidationFailure(
 	c echo.Context,
 	msg string,
 	clientID string,
