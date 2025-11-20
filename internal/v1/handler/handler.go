@@ -124,7 +124,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		h.logEventRegistrationValidationFailure("", "events/parameters")
+		h.logEventRegistrationValidationFailure("", "NewParamsStorage error: ")
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
@@ -138,7 +138,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "invalid heartbeat type. Supported: legacy and message"
 		log.Error(errorMsg)
-		h.logEventRegistrationValidationFailure("", "events/heartbeat")
+		h.logEventRegistrationValidationFailure("", errorMsg)
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -155,7 +155,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "Last-Event-ID should be int"
 			log.Error(errorMsg)
-			h.logEventRegistrationValidationFailure("", "events/last-event-id-header")
+			h.logEventRegistrationValidationFailure("", errorMsg)
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -166,7 +166,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
 			log.Error(errorMsg)
-			h.logEventRegistrationValidationFailure("", "events/last-event-id-query")
+			h.logEventRegistrationValidationFailure("", errorMsg)
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -175,7 +175,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		h.logEventRegistrationValidationFailure("", "events/missing-client-id")
+		h.logEventRegistrationValidationFailure("", errorMsg)
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -606,15 +606,15 @@ func (h *handler) nextID() int64 {
 	return atomic.AddInt64(&h._eventIDs, 1)
 }
 
-func (h *handler) logEventRegistrationValidationFailure(clientID, requestType string) {
+func (h *handler) logEventRegistrationValidationFailure(clientID, errorMsg string) {
 	if h.eventCollector == nil {
 		return
 	}
 	h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageValidationFailedEvent(
 		clientID,
 		"",
-		requestType,
 		"",
+		errorMsg,
 	))
 }
 
