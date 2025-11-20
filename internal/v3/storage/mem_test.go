@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/ton-connect/bridge/internal/analytics"
+	"github.com/ton-connect/bridge/internal/config"
 	"github.com/ton-connect/bridge/internal/models"
 )
 
@@ -102,7 +103,12 @@ func TestMemStorage_watcher(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &MemStorage{db: tt.db, analytics: analytics.NewRingCollector(10, false)}
+			builder := analytics.NewEventBuilder("http://test", "test", "bridge", "1.0.0", "-239")
+			s := &MemStorage{
+				db:           tt.db,
+				analytics:    analytics.NewRingCollector(10, false),
+				eventBuilder: builder,
+			}
 			go s.watcher()
 			time.Sleep(500 * time.Millisecond)
 			s.lock.Lock()
@@ -116,7 +122,8 @@ func TestMemStorage_watcher(t *testing.T) {
 }
 
 func TestMemStorage_PubSub(t *testing.T) {
-	s := NewMemStorage(analytics.NewRingCollector(10, false))
+	builder := analytics.NewEventBuilder(config.Config.BridgeURL, "bridge", "bridge", config.Config.BridgeVersion, config.Config.NetworkId)
+	s := NewMemStorage(analytics.NewRingCollector(10, false), builder)
 
 	// Create channels to receive messages
 	ch1 := make(chan models.SseMessage, 10)
@@ -197,7 +204,8 @@ func TestMemStorage_PubSub(t *testing.T) {
 }
 
 func TestMemStorage_LastEventId(t *testing.T) {
-	s := NewMemStorage(analytics.NewRingCollector(10, false))
+	builder := analytics.NewEventBuilder(config.Config.BridgeURL, "bridge", "bridge", config.Config.BridgeVersion, config.Config.NetworkId)
+	s := NewMemStorage(analytics.NewRingCollector(10, false), builder)
 
 	// Store some messages first
 	_ = s.Pub(context.Background(), models.SseMessage{EventId: 1, To: "1"}, 60)
