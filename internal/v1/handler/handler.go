@@ -470,20 +470,41 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
 	if err != nil {
 		badRequestMetric.Inc()
-		// TODO send missing analytics event
+		if h.analytics != nil {
+			_ = h.analytics.TryAdd(analytics.NewBridgeVerifyValidationFailedEvent(
+				"",
+				"",
+				http.StatusBadRequest,
+				err.Error(),
+			))
+		}
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
 	clientId, ok := paramsStore.Get("client_id")
 	if !ok {
 		badRequestMetric.Inc()
-		// TODO send missing analytics event
+		if h.analytics != nil {
+			_ = h.analytics.TryAdd(analytics.NewBridgeVerifyValidationFailedEvent(
+				"",
+				"",
+				http.StatusBadRequest,
+				"param \"client_id\" not present",
+			))
+		}
 		return c.JSON(utils.HttpResError("param \"client_id\" not present", http.StatusBadRequest))
 	}
 	url, ok := paramsStore.Get("url")
 	if !ok {
 		badRequestMetric.Inc()
-		// TODO send missing analytics event
+		if h.analytics != nil {
+			_ = h.analytics.TryAdd(analytics.NewBridgeVerifyValidationFailedEvent(
+				clientId,
+				"",
+				http.StatusBadRequest,
+				"param \"url\" not present",
+			))
+		}
 		return c.JSON(utils.HttpResError("param \"url\" not present", http.StatusBadRequest))
 	}
 	qtype, ok := paramsStore.Get("type")
@@ -504,7 +525,14 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
 		badRequestMetric.Inc()
-		// TODO send missing analytics event
+		if h.analytics != nil {
+			_ = h.analytics.TryAdd(analytics.NewBridgeVerifyValidationFailedEvent(
+				clientId,
+				"",
+				http.StatusBadRequest,
+				"param \"type\" must be one of: connect, message",
+			))
+		}
 		return c.JSON(utils.HttpResError("param \"type\" must be one of: connect, message", http.StatusBadRequest))
 	}
 }
