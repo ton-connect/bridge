@@ -22,11 +22,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 
-	"github.com/tonkeeper/bridge/internal/config"
-	handler_common "github.com/tonkeeper/bridge/internal/handler"
-	"github.com/tonkeeper/bridge/internal/models"
-	"github.com/tonkeeper/bridge/internal/utils"
-	storagev3 "github.com/tonkeeper/bridge/internal/v3/storage"
+	"github.com/ton-connect/bridge/internal/config"
+	handler_common "github.com/ton-connect/bridge/internal/handler"
+	"github.com/ton-connect/bridge/internal/models"
+	"github.com/ton-connect/bridge/internal/utils"
+	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
 )
 
 var validHeartbeatTypes = map[string]string{

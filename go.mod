@@ -1,4 +1,4 @@
-module github.com/tonkeeper/bridge
+module github.com/ton-connect/bridge
 
 go 1.24.6
 

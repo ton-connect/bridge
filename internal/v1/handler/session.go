@@ -6,8 +6,8 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/internal/models"
-	"github.com/tonkeeper/bridge/internal/v1/storage"
+	"github.com/ton-connect/bridge/internal/models"
+	"github.com/ton-connect/bridge/internal/v1/storage"
 )
 
 type Session struct {

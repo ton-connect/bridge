@@ -14,7 +14,7 @@ import (
 	"math/big"
 	"time"
 
-	"github.com/tonkeeper/bridge/internal/models"
+	"github.com/ton-connect/bridge/internal/models"
 	"golang.org/x/crypto/nacl/box"
 )
 

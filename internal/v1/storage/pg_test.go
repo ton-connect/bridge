@@ -5,7 +5,7 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/tonkeeper/bridge/internal/config"
+	"github.com/ton-connect/bridge/internal/config"
 )
 
 func TestConfigurePoolSettings(t *testing.T) {

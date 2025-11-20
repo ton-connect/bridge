@@ -5,9 +5,9 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
-	"github.com/tonkeeper/bridge/internal/config"
-	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
-	"github.com/tonkeeper/bridge/internal/utils"
+	"github.com/ton-connect/bridge/internal/config"
+	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
+	"github.com/ton-connect/bridge/internal/utils"
 	"golang.org/x/exp/slices"
 )
 
