@@ -208,7 +208,7 @@ func (s *PgStorage) worker() {
 					}).Debug("message expired")
 
 					_ = s.analytics.TryAdd(analytics.NewBridgeMessageExpiredEvent(
-						fromID,
+						clientID,
 						traceID,
 						eventID,
 						messageHash,
