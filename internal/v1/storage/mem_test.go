@@ -63,7 +63,12 @@ func Test_removeExpiredMessages(t *testing.T) {
 }
 
 func TestStorage(t *testing.T) {
-	s := &MemStorage{db: map[string][]message{}, analytics: analytics.NewRingCollector(10, false)}
+	builder := analytics.NewEventBuilder("http://test", "test", "bridge", "1.0.0", "-239")
+	s := &MemStorage{
+		db:           map[string][]message{},
+		analytics:    analytics.NewRingCollector(10, false),
+		eventBuilder: builder,
+	}
 	_ = s.Add(context.Background(), models.SseMessage{EventId: 1, To: "1"}, 2)
 	_ = s.Add(context.Background(), models.SseMessage{EventId: 2, To: "2"}, 2)
 	_ = s.Add(context.Background(), models.SseMessage{EventId: 3, To: "2"}, 2)
@@ -145,7 +150,12 @@ func TestStorage_watcher(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &MemStorage{db: tt.db, analytics: analytics.NewRingCollector(10, false)}
+			builder := analytics.NewEventBuilder("http://test", "test", "bridge", "1.0.0", "-239")
+			s := &MemStorage{
+				db:           tt.db,
+				analytics:    analytics.NewRingCollector(10, false),
+				eventBuilder: builder,
+			}
 			go s.watcher()
 			time.Sleep(500 * time.Millisecond)
 			s.lock.Lock()

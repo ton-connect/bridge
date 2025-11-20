@@ -54,7 +54,15 @@ func main() {
 	collector := analytics.NewCollector(analyticsCollector, analytics.NewTonMetricsSender(tonAnalytics), 500*time.Millisecond)
 	go collector.Run(context.Background())
 
-	dbConn, err := storagev3.NewStorage(store, dbURI, analyticsCollector)
+	analyticsBuilder := analytics.NewEventBuilder(
+		config.Config.BridgeURL,
+		"bridge",
+		"bridge",
+		config.Config.BridgeVersion,
+		config.Config.NetworkId,
+	)
+
+	dbConn, err := storagev3.NewStorage(store, dbURI, analyticsCollector, analyticsBuilder)
 
 	if err != nil {
 		log.Fatalf("failed to create storage: %v", err)
@@ -125,7 +133,7 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, analyticsCollector)
+	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, analyticsCollector, analyticsBuilder)
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)

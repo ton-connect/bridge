@@ -21,11 +21,12 @@ var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
 })
 
 type MemStorage struct {
-	db          map[string][]message
-	subscribers map[string][]chan<- models.SseMessage
-	connections map[string][]memConnection // clientID -> connections
-	lock        sync.Mutex
-	analytics   analytics.EventCollector
+	db           map[string][]message
+	subscribers  map[string][]chan<- models.SseMessage
+	connections  map[string][]memConnection // clientID -> connections
+	lock         sync.Mutex
+	analytics    analytics.EventCollector
+	eventBuilder analytics.EventBuilder
 }
 
 type message struct {
@@ -44,12 +45,13 @@ func (m message) IsExpired(now time.Time) bool {
 	return m.expireAt.Before(now)
 }
 
-func NewMemStorage(collector analytics.EventCollector) *MemStorage {
+func NewMemStorage(collector analytics.EventCollector, builder analytics.EventBuilder) *MemStorage {
 	s := MemStorage{
-		db:          map[string][]message{},
-		subscribers: make(map[string][]chan<- models.SseMessage),
-		connections: make(map[string][]memConnection),
-		analytics:   collector,
+		db:           map[string][]message{},
+		subscribers:  make(map[string][]chan<- models.SseMessage),
+		connections:  make(map[string][]memConnection),
+		analytics:    collector,
+		eventBuilder: builder,
 	}
 	go s.watcher()
 	return &s
@@ -97,7 +99,7 @@ func (s *MemStorage) watcher() {
 					"trace_id": bridgeMsg.TraceId,
 				}).Debug("message expired")
 
-				_ = s.analytics.TryAdd(analytics.NewBridgeMessageExpiredEvent(
+				_ = s.analytics.TryAdd(s.eventBuilder.NewBridgeMessageExpiredEvent(
 					fromID,
 					bridgeMsg.TraceId,
 					m.EventId,

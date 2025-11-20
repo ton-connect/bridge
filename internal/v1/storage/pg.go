@@ -39,8 +39,9 @@ var (
 
 type Message []byte
 type PgStorage struct {
-	postgres  *pgxpool.Pool
-	analytics analytics.EventCollector
+	postgres     *pgxpool.Pool
+	analytics    analytics.EventCollector
+	eventBuilder analytics.EventBuilder
 }
 
 //go:embed migrations/*.sql
@@ -114,7 +115,7 @@ func configurePoolSettings(postgresURI string) (*pgxpool.Config, error) {
 	return poolConfig, nil
 }
 
-func NewPgStorage(postgresURI string, collector analytics.EventCollector) (*PgStorage, error) {
+func NewPgStorage(postgresURI string, collector analytics.EventCollector, builder analytics.EventBuilder) (*PgStorage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	log := logrus.WithField("prefix", "NewStorage")
 	defer cancel()
@@ -137,8 +138,9 @@ func NewPgStorage(postgresURI string, collector analytics.EventCollector) (*PgSt
 		return nil, err
 	}
 	s := PgStorage{
-		postgres:  c,
-		analytics: collector,
+		postgres:     c,
+		analytics:    collector,
+		eventBuilder: builder,
 	}
 	go s.worker()
 	return &s, nil
@@ -207,7 +209,7 @@ func (s *PgStorage) worker() {
 						"trace_id": traceID,
 					}).Debug("message expired")
 
-					_ = s.analytics.TryAdd(analytics.NewBridgeMessageExpiredEvent(
+					_ = s.analytics.TryAdd(s.eventBuilder.NewBridgeMessageExpiredEvent(
 						clientID,
 						traceID,
 						eventID,

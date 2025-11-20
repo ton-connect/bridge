@@ -41,7 +41,15 @@ func main() {
 	collector := analytics.NewCollector(analyticsCollector, analytics.NewTonMetricsSender(tonAnalytics), 500*time.Millisecond)
 	go collector.Run(context.Background())
 
-	dbConn, err := storage.NewStorage(config.Config.PostgresURI, analyticsCollector)
+	analyticsBuilder := analytics.NewEventBuilder(
+		config.Config.BridgeURL,
+		"bridge",
+		"bridge",
+		config.Config.BridgeVersion,
+		config.Config.NetworkId,
+	)
+
+	dbConn, err := storage.NewStorage(config.Config.PostgresURI, analyticsCollector, analyticsBuilder)
 	if err != nil {
 		log.Fatalf("db connection %v", err)
 	}
@@ -102,7 +110,7 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := handlerv1.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, analyticsCollector)
+	h := handlerv1.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, analyticsCollector, analyticsBuilder)
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)

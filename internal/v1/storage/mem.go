@@ -14,9 +14,10 @@ import (
 )
 
 type MemStorage struct {
-	db        map[string][]message
-	lock      sync.Mutex
-	analytics analytics.EventCollector
+	db           map[string][]message
+	lock         sync.Mutex
+	analytics    analytics.EventCollector
+	eventBuilder analytics.EventBuilder
 }
 
 type message struct {
@@ -28,10 +29,11 @@ func (m message) IsExpired(now time.Time) bool {
 	return m.expireAt.Before(now)
 }
 
-func NewMemStorage(collector analytics.EventCollector) *MemStorage {
+func NewMemStorage(collector analytics.EventCollector, builder analytics.EventBuilder) *MemStorage {
 	s := MemStorage{
-		db:        map[string][]message{},
-		analytics: collector,
+		db:           map[string][]message{},
+		analytics:    collector,
+		eventBuilder: builder,
 	}
 	go s.watcher()
 	return &s
@@ -78,7 +80,7 @@ func (s *MemStorage) watcher() {
 					"trace_id": bridgeMsg.TraceId,
 				}).Debug("message expired")
 
-				_ = s.analytics.TryAdd(analytics.NewBridgeMessageExpiredEvent(
+				_ = s.analytics.TryAdd(s.eventBuilder.NewBridgeMessageExpiredEvent(
 					key,
 					bridgeMsg.TraceId,
 					m.EventId,
