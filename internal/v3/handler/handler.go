@@ -480,11 +480,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 			return c.JSON(utils.HttpResError(err.Error(), http.StatusInternalServerError))
 		}
 		if h.eventCollector != nil {
-			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyEvent(
-				clientId,
-				"", // TODO trace_id
-				status,
-			))
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyEvent(clientId, status))
 		}
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
@@ -529,7 +525,7 @@ func (h *handler) removeConnection(ses *Session) {
 		}
 		activeSubscriptionsMetric.Dec()
 		if h.eventCollector != nil {
-			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientUnsubscribedEvent(id, "")) // TODO trace_id
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientUnsubscribedEvent(id))
 		}
 	}
 }
@@ -558,7 +554,7 @@ func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session 
 
 		activeSubscriptionsMetric.Inc()
 		if h.eventCollector != nil {
-			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientSubscribedEvent(id, "")) // TODO trace_id
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientSubscribedEvent(id))
 		}
 	}
 	return session
