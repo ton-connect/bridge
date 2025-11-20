@@ -72,10 +72,10 @@ type handler struct {
 	eventIDGen        *EventIDGenerator
 	heartbeatInterval time.Duration
 	realIP            *utils.RealIPExtractor
-	analytics         analytics.AnalyticCollector
+	analytics         analytics.EventCollector
 }
 
-func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, collector analytics.AnalyticCollector) *handler {
+func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, collector analytics.EventCollector) *handler {
 	// TODO support extractor in v3
 	h := handler{
 		Mux:               sync.RWMutex{},

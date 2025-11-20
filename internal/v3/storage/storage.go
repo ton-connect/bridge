@@ -36,7 +36,7 @@ type Storage interface {
 	HealthCheck() error
 }
 
-func NewStorage(storageType string, uri string, collector analytics.AnalyticCollector) (Storage, error) {
+func NewStorage(storageType string, uri string, collector analytics.EventCollector) (Storage, error) {
 	switch storageType {
 	case "valkey", "redis":
 		return NewValkeyStorage(uri) // TODO implement message expiration

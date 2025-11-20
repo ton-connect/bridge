@@ -2,8 +2,8 @@ package analytics
 
 import "sync"
 
-// AnalyticCollector is a non-blocking analytics producer API.
-type AnalyticCollector interface {
+// EventCollector is a non-blocking analytics producer API.
+type EventCollector interface {
 	// TryAdd attempts to enqueue the event. Returns true if enqueued, false if dropped.
 	TryAdd(Event) bool
 }

@@ -21,7 +21,7 @@ type Storage interface {
 	HealthCheck() error
 }
 
-func NewStorage(dbURI string, collector analytics.AnalyticCollector) (Storage, error) {
+func NewStorage(dbURI string, collector analytics.EventCollector) (Storage, error) {
 	if dbURI != "" {
 		return NewPgStorage(dbURI, collector)
 	}

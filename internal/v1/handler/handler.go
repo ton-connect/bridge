@@ -82,10 +82,10 @@ type handler struct {
 	heartbeatInterval time.Duration
 	connectionCache   *ConnectionCache
 	realIP            *utils.RealIPExtractor
-	analytics         analytics.AnalyticCollector
+	analytics         analytics.EventCollector
 }
 
-func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, collector analytics.AnalyticCollector) *handler {
+func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, collector analytics.EventCollector) *handler {
 	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
 	connectionCache.StartBackgroundCleanup(nil)
 
