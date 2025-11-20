@@ -25,7 +25,7 @@ type MemStorage struct {
 	subscribers map[string][]chan<- models.SseMessage
 	connections map[string][]memConnection // clientID -> connections
 	lock        sync.Mutex
-	analytics   analytics.AnalyticCollector
+	analytics   analytics.EventCollector
 }
 
 type message struct {
@@ -44,7 +44,7 @@ func (m message) IsExpired(now time.Time) bool {
 	return m.expireAt.Before(now)
 }
 
-func NewMemStorage(collector analytics.AnalyticCollector) *MemStorage {
+func NewMemStorage(collector analytics.EventCollector) *MemStorage {
 	s := MemStorage{
 		db:          map[string][]message{},
 		subscribers: make(map[string][]chan<- models.SseMessage),

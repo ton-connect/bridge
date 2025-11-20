@@ -40,7 +40,7 @@ var (
 type Message []byte
 type PgStorage struct {
 	postgres  *pgxpool.Pool
-	analytics analytics.AnalyticCollector
+	analytics analytics.EventCollector
 }
 
 //go:embed migrations/*.sql
@@ -114,7 +114,7 @@ func configurePoolSettings(postgresURI string) (*pgxpool.Config, error) {
 	return poolConfig, nil
 }
 
-func NewPgStorage(postgresURI string, collector analytics.AnalyticCollector) (*PgStorage, error) {
+func NewPgStorage(postgresURI string, collector analytics.EventCollector) (*PgStorage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	log := logrus.WithField("prefix", "NewStorage")
 	defer cancel()

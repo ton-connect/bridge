@@ -16,7 +16,7 @@ import (
 type MemStorage struct {
 	db        map[string][]message
 	lock      sync.Mutex
-	analytics analytics.AnalyticCollector
+	analytics analytics.EventCollector
 }
 
 type message struct {
@@ -28,7 +28,7 @@ func (m message) IsExpired(now time.Time) bool {
 	return m.expireAt.Before(now)
 }
 
-func NewMemStorage(collector analytics.AnalyticCollector) *MemStorage {
+func NewMemStorage(collector analytics.EventCollector) *MemStorage {
 	s := MemStorage{
 		db:        map[string][]message{},
 		analytics: collector,
