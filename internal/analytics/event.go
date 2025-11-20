@@ -1,134 +1,94 @@
 package analytics
 
-// EventType identifies the semantic meaning of an analytics signal.
-type EventType string
+import "github.com/ton-connect/bridge/tonmetrics"
 
-const (
-	// EventBridgeMessageExpired is emitted when a stored message expires before delivery.
-	EventBridgeMessageExpired           EventType = "bridge_message_expired"
-	EventBridgeMessageSent              EventType = "bridge_message_sent"
-	EventBridgeMessageReceived          EventType = "bridge_message_received"
-	EventBridgeMessageValidationFailed  EventType = "bridge_message_validation_failed"
-	EventBridgeVerify                   EventType = "bridge_verify"
-	EventBridgeEventsClientUnsubscribed EventType = "bridge_events_client_unsubscribed"
-)
-
-// Event represents a single analytics signal.
+// Event is a small command that knows how to emit itself via TonMetrics.
 type Event struct {
-	Type    EventType
-	Payload any
+	dispatch func(tonmetrics.AnalyticsClient)
 }
 
-// BridgeMessageExpiredPayload carries data for message-expired events.
-type BridgeMessageExpiredPayload struct {
-	ClientID    string
-	TraceID     string
-	RequestType string
-	MessageID   int64
-	MessageHash string
+// Dispatch sends the event through the provided client.
+func (e Event) Dispatch(client tonmetrics.AnalyticsClient) {
+	if e.dispatch != nil {
+		e.dispatch(client)
+	}
 }
 
 // NewBridgeMessageExpiredEvent builds an Event for a message expiration.
 func NewBridgeMessageExpiredEvent(clientID, traceID string, messageID int64, messageHash string) Event {
 	return Event{
-		Type: EventBridgeMessageExpired,
-		Payload: BridgeMessageExpiredPayload{
-			ClientID:    clientID,
-			TraceID:     traceID,
-			MessageID:   messageID,
-			MessageHash: messageHash,
+		dispatch: func(client tonmetrics.AnalyticsClient) {
+			client.SendEvent(client.CreateBridgeMessageExpiredEvent(
+				clientID,
+				traceID,
+				"",
+				messageID,
+				messageHash,
+			))
 		},
 	}
-}
-
-type BridgeMessageSentPayload struct {
-	ClientID    string
-	TraceID     string
-	RequestType string
-	MessageID   int64
-	MessageHash string
 }
 
 func NewBridgeMessageSentEvent(clientID, traceID string, messageID int64, messageHash string) Event {
 	return Event{
-		Type: EventBridgeMessageSent,
-		Payload: BridgeMessageSentPayload{
-			ClientID:    clientID,
-			TraceID:     traceID,
-			MessageID:   messageID,
-			MessageHash: messageHash,
+		dispatch: func(client tonmetrics.AnalyticsClient) {
+			client.SendEvent(client.CreateBridgeMessageSentEvent(
+				clientID,
+				traceID,
+				"",
+				messageID,
+				messageHash,
+			))
 		},
 	}
-}
-
-type BridgeMessageReceivedPayload struct {
-	ClientID    string
-	TraceID     string
-	RequestType string
-	MessageID   int64
-	MessageHash string
 }
 
 func NewBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) Event {
 	return Event{
-		Type: EventBridgeMessageReceived,
-		Payload: BridgeMessageReceivedPayload{
-			ClientID:    clientID,
-			TraceID:     traceID,
-			RequestType: requestType,
-			MessageID:   messageID,
-			MessageHash: messageHash,
+		dispatch: func(client tonmetrics.AnalyticsClient) {
+			client.SendEvent(client.CreateBridgeMessageReceivedEvent(
+				clientID,
+				traceID,
+				requestType,
+				messageID,
+				messageHash,
+			))
 		},
 	}
-}
-
-type BridgeMessageValidationFailedPayload struct {
-	ClientID    string
-	TraceID     string
-	RequestType string
-	MessageHash string
 }
 
 func NewBridgeMessageValidationFailedEvent(clientID, traceID, requestType, messageHash string) Event {
 	return Event{
-		Type: EventBridgeMessageValidationFailed,
-		Payload: BridgeMessageValidationFailedPayload{
-			ClientID:    clientID,
-			TraceID:     traceID,
-			RequestType: requestType,
-			MessageHash: messageHash,
+		dispatch: func(client tonmetrics.AnalyticsClient) {
+			client.SendEvent(client.CreateBridgeMessageValidationFailedEvent(
+				clientID,
+				traceID,
+				requestType,
+				messageHash,
+			))
 		},
 	}
-}
-
-type BridgeVerifyPayload struct {
-	ClientID           string
-	TraceID            string
-	VerificationResult string
 }
 
 func NewBridgeVerifyEvent(clientID, traceID, verificationResult string) Event {
 	return Event{
-		Type: EventBridgeVerify,
-		Payload: BridgeVerifyPayload{
-			ClientID:           clientID,
-			TraceID:            traceID,
-			VerificationResult: verificationResult,
+		dispatch: func(client tonmetrics.AnalyticsClient) {
+			client.SendEvent(client.CreateBridgeVerifyEvent(
+				clientID,
+				traceID,
+				verificationResult,
+			))
 		},
 	}
 }
 
-type BridgeEventsClientUnsubscribedPayload struct {
-	ClientID string
-	TraceID  string
-}
-
 func NewBridgeEventsClientUnsubscribedEvent(clientID, traceID string) Event {
 	return Event{
-		Type: EventBridgeEventsClientUnsubscribed,
-		Payload: BridgeEventsClientUnsubscribedPayload{
-			ClientID: clientID,
-			TraceID:  traceID,
+		dispatch: func(client tonmetrics.AnalyticsClient) {
+			client.SendEvent(client.CreateBridgeEventsClientUnsubscribedEvent(
+				clientID,
+				traceID,
+			))
 		},
 	}
 }
