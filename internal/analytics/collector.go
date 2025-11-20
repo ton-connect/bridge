@@ -10,7 +10,7 @@ import (
 
 // AnalyticSender delivers analytics events to a backend.
 type AnalyticSender interface {
-	Publish(context.Context, Event) error
+	SendBatch(context.Context, []interface{}) error
 }
 
 // TonMetricsSender adapts TonMetrics to the AnalyticSender interface.
@@ -23,8 +23,11 @@ func NewTonMetricsSender(client tonmetrics.AnalyticsClient) AnalyticSender {
 	return &TonMetricsSender{client: client}
 }
 
-func (t *TonMetricsSender) Publish(_ context.Context, event Event) error {
-	event.Dispatch(t.client)
+func (t *TonMetricsSender) SendBatch(ctx context.Context, events []interface{}) error {
+	if len(events) == 0 {
+		return nil
+	}
+	t.client.SendBatch(ctx, events)
 	return nil
 }
 
@@ -58,9 +61,9 @@ func (c *Collector) Run(ctx context.Context) {
 		}
 
 		events := c.collector.PopAll()
-		for _, event := range events {
-			if err := c.sender.Publish(ctx, event); err != nil {
-				logrus.WithError(err).Warn("analytics: failed to publish event")
+		if len(events) > 0 {
+			if err := c.sender.SendBatch(ctx, events); err != nil {
+				logrus.WithError(err).Warnf("analytics: failed to send batch of %d events", len(events))
 			}
 		}
 	}
