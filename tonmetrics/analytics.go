@@ -176,8 +176,6 @@ func (a *TonMetricsClient) CreateBridgeMessageReceivedEvent(clientID, traceID, r
 		Subsystem:         &subsystem,
 		TraceId:           optionalString(traceID),
 		Version:           &a.version,
-		// TODO BridgeMessageReceivedEvent misses MessageHash field
-		// MessageHash:      &messageHash,
 	}
 	if requestType != "" {
 		event.RequestType = &requestType

@@ -73,10 +73,10 @@ type handler struct {
 	eventIDGen        *EventIDGenerator
 	heartbeatInterval time.Duration
 	realIP            *utils.RealIPExtractor
-	analytics         analytics.AnalyticCollector
+	analytics         analytics.EventCollector
 }
 
-func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, timeProvider ntp.TimeProvider, collector analytics.AnalyticCollector) *handler {
+func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, timeProvider ntp.TimeProvider, collector analytics.AnalyticCollector, collector analytics.EventCollector) *handler {
 	h := handler{
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
