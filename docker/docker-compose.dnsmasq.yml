@@ -151,6 +151,8 @@ services:
       HEARTBEAT_INTERVAL: 10
       RPS_LIMIT: 1000
       CONNECTIONS_LIMIT: 200
+    ports:
+      - "9103:9103"  # pprof and metrics
     depends_on:
       valkey-cluster-init:
         condition: service_completed_successfully
