@@ -82,12 +82,65 @@ func NewBridgeVerifyEvent(clientID, traceID, verificationResult string) Event {
 	}
 }
 
+func NewBridgeEventsClientSubscribedEvent(clientID, traceID string) Event {
+	return Event{
+		dispatch: func(client tonmetrics.AnalyticsClient) {
+			client.SendEvent(client.CreateBridgeEventsClientSubscribedEvent(
+				clientID,
+				traceID,
+			))
+		},
+	}
+}
+
 func NewBridgeEventsClientUnsubscribedEvent(clientID, traceID string) Event {
 	return Event{
 		dispatch: func(client tonmetrics.AnalyticsClient) {
 			client.SendEvent(client.CreateBridgeEventsClientUnsubscribedEvent(
 				clientID,
 				traceID,
+			))
+		},
+	}
+}
+
+// NewBridgeConnectEstablishedEvent builds an Event for when connection is established.
+func NewBridgeConnectEstablishedEvent(clientID, traceID string, connectDuration int) Event {
+	return Event{
+		dispatch: func(client tonmetrics.AnalyticsClient) {
+			client.SendEvent(client.CreateBridgeConnectEstablishedEvent(
+				clientID,
+				traceID,
+				connectDuration,
+			))
+		},
+	}
+}
+
+// NewBridgeRequestSentEvent builds an Event for when request is posted to /message.
+func NewBridgeRequestSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) Event {
+	return Event{
+		dispatch: func(client tonmetrics.AnalyticsClient) {
+			client.SendEvent(client.CreateBridgeRequestSentEvent(
+				clientID,
+				traceID,
+				requestType,
+				messageID,
+				messageHash,
+			))
+		},
+	}
+}
+
+// NewBridgeVerifyValidationFailedEvent builds an Event for when verify validation fails.
+func NewBridgeVerifyValidationFailedEvent(clientID, traceID string, errorCode int, errorMessage string) Event {
+	return Event{
+		dispatch: func(client tonmetrics.AnalyticsClient) {
+			client.SendEvent(client.CreateBridgeVerifyValidationFailedEvent(
+				clientID,
+				traceID,
+				errorCode,
+				errorMessage,
 			))
 		},
 	}

@@ -119,7 +119,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "invalid heartbeat type. Supported: legacy and message"
 		log.Error(errorMsg)
-		// TODO send analytics event
+		h.logEventRegistrationValidationFailure("", "events/heartbeat")
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -132,7 +132,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "Last-Event-ID should be int"
 			log.Error(errorMsg)
-			// TODO send analytics event
+			h.logEventRegistrationValidationFailure("", "events/last-event-id-header")
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -143,7 +143,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
 			log.Error(errorMsg)
-			// TODO send analytics event
+			h.logEventRegistrationValidationFailure("", "events/last-event-id-query")
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -152,7 +152,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		// TODO send analytics event
+		h.logEventRegistrationValidationFailure("", "events/missing-client-id")
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -491,7 +491,7 @@ func (h *handler) removeConnection(ses *Session) {
 		}
 		activeSubscriptionsMetric.Dec()
 		if h.analytics != nil {
-			_ = h.analytics.TryAdd(analytics.NewBridgeEventsClientUnsubscribedEvent(id, ""))
+			_ = h.analytics.TryAdd(analytics.NewBridgeEventsClientUnsubscribedEvent(id, "")) // TODO trace_id
 		}
 	}
 }
@@ -519,8 +519,23 @@ func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session 
 		}
 
 		activeSubscriptionsMetric.Inc()
+		if h.analytics != nil {
+			_ = h.analytics.TryAdd(analytics.NewBridgeEventsClientSubscribedEvent(id, "")) // TODO trace_id
+		}
 	}
 	return session
+}
+
+func (h *handler) logEventRegistrationValidationFailure(clientID, requestType string) {
+	if h.analytics == nil {
+		return
+	}
+	h.analytics.TryAdd(analytics.NewBridgeMessageValidationFailedEvent(
+		clientID,
+		"",
+		requestType,
+		"",
+	))
 }
 
 func (h *handler) failValidation(

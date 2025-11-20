@@ -21,11 +21,14 @@ type AnalyticsClient interface {
 	SendEvent(event interface{})
 	CreateBridgeEventsClientSubscribedEvent(clientID, traceID string) BridgeEventsClientSubscribedEvent
 	CreateBridgeEventsClientUnsubscribedEvent(clientID, traceID string) BridgeEventsClientUnsubscribedEvent
+	CreateBridgeConnectEstablishedEvent(clientID, traceID string, connectDuration int) BridgeConnectEstablishedEvent
 	CreateBridgeMessageSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageSentEvent
 	CreateBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageReceivedEvent
 	CreateBridgeMessageExpiredEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeMessageExpiredEvent
 	CreateBridgeMessageValidationFailedEvent(clientID, traceID, requestType, messageHash string) BridgeMessageValidationFailedEvent
+	CreateBridgeRequestSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeRequestSentEvent
 	CreateBridgeVerifyEvent(clientID, traceID, verificationResult string) BridgeVerifyEvent
+	CreateBridgeVerifyValidationFailedEvent(clientID, traceID string, errorCode int, errorMessage string) BridgeVerifyValidationFailedEvent
 }
 
 // TonMetricsClient handles sending analytics events
@@ -239,9 +242,10 @@ func (a *TonMetricsClient) CreateBridgeMessageValidationFailedEvent(clientID, tr
 // CreateBridgeVerifyEvent builds a bridge-verify event.
 func (a *TonMetricsClient) CreateBridgeVerifyEvent(clientID, traceID, verificationResult string) BridgeVerifyEvent {
 	timestamp := int(time.Now().Unix())
-	eventName := BridgeVerifyEventEventName("") // TODO fix missing constant in specs
+	eventName := BridgeVerifyEventEventNameBridgeVerify
 	environment := BridgeVerifyEventClientEnvironment(a.environment)
 	subsystem := BridgeVerifyEventSubsystem(a.subsystem)
+	verifyType := BridgeVerifyEventVerifyTypeConnect
 
 	return BridgeVerifyEvent{
 		BridgeUrl:          &a.bridgeURL,
@@ -254,7 +258,85 @@ func (a *TonMetricsClient) CreateBridgeVerifyEvent(clientID, traceID, verificati
 		Subsystem:          &subsystem,
 		TraceId:            optionalString(traceID),
 		VerificationResult: optionalString(verificationResult),
+		VerifyType:         &verifyType,
 		Version:            &a.version,
+	}
+}
+
+// CreateBridgeConnectEstablishedEvent builds a bridge-client-connect-established event.
+func (a *TonMetricsClient) CreateBridgeConnectEstablishedEvent(clientID, traceID string, connectDuration int) BridgeConnectEstablishedEvent {
+	timestamp := int(time.Now().Unix())
+	eventName := BridgeConnectEstablishedEventEventNameBridgeClientConnectEstablished
+	environment := BridgeConnectEstablishedEventClientEnvironment(a.environment)
+	subsystem := BridgeConnectEstablishedEventSubsystem(a.subsystem)
+
+	return BridgeConnectEstablishedEvent{
+		BridgeConnectDuration: &connectDuration,
+		BridgeUrl:             &a.bridgeURL,
+		ClientEnvironment:     &environment,
+		ClientId:              &clientID,
+		ClientTimestamp:       &timestamp,
+		EventId:               newAnalyticsEventID(),
+		EventName:             &eventName,
+		NetworkId:             &a.networkId,
+		Subsystem:             &subsystem,
+		TraceId:               optionalString(traceID),
+		Version:               &a.version,
+	}
+}
+
+// CreateBridgeRequestSentEvent builds a bridge-client-message-sent event.
+func (a *TonMetricsClient) CreateBridgeRequestSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeRequestSentEvent {
+	timestamp := int(time.Now().Unix())
+	eventName := BridgeRequestSentEventEventNameBridgeClientMessageSent
+	environment := BridgeRequestSentEventClientEnvironment(a.environment)
+	subsystem := BridgeRequestSentEventSubsystem(a.subsystem)
+	messageIDStr := fmt.Sprintf("%d", messageID)
+
+	event := BridgeRequestSentEvent{
+		BridgeUrl:            &a.bridgeURL,
+		ClientEnvironment:    &environment,
+		ClientId:             &clientID,
+		ClientTimestamp:      &timestamp,
+		EncryptedMessageHash: &messageHash,
+		EventId:              newAnalyticsEventID(),
+		EventName:            &eventName,
+		MessageId:            &messageIDStr,
+		NetworkId:            &a.networkId,
+		Subsystem:            &subsystem,
+		TraceId:              optionalString(traceID),
+		Version:              &a.version,
+	}
+
+	if requestType != "" {
+		event.RequestType = &requestType
+	}
+
+	return event
+}
+
+// CreateBridgeVerifyValidationFailedEvent builds a bridge-verify-validation-failed event.
+func (a *TonMetricsClient) CreateBridgeVerifyValidationFailedEvent(clientID, traceID string, errorCode int, errorMessage string) BridgeVerifyValidationFailedEvent {
+	timestamp := int(time.Now().Unix())
+	eventName := BridgeVerifyValidationFailed
+	environment := BridgeVerifyValidationFailedEventClientEnvironment(a.environment)
+	subsystem := Bridge
+	verifyType := BridgeVerifyValidationFailedEventVerifyTypeConnect
+
+	return BridgeVerifyValidationFailedEvent{
+		BridgeUrl:         &a.bridgeURL,
+		ClientEnvironment: &environment,
+		ClientId:          &clientID,
+		ClientTimestamp:   &timestamp,
+		ErrorCode:         &errorCode,
+		ErrorMessage:      &errorMessage,
+		EventId:           newAnalyticsEventID(),
+		EventName:         &eventName,
+		NetworkId:         &a.networkId,
+		Subsystem:         &subsystem,
+		TraceId:           optionalString(traceID),
+		VerifyType:        &verifyType,
+		Version:           &a.version,
 	}
 }
 
@@ -292,6 +374,18 @@ func (n *NoopMetricsClient) CreateBridgeMessageValidationFailedEvent(clientID, t
 
 func (n *NoopMetricsClient) CreateBridgeVerifyEvent(clientID, traceID, verificationResult string) BridgeVerifyEvent {
 	return BridgeVerifyEvent{}
+}
+
+func (n *NoopMetricsClient) CreateBridgeConnectEstablishedEvent(clientID, traceID string, connectDuration int) BridgeConnectEstablishedEvent {
+	return BridgeConnectEstablishedEvent{}
+}
+
+func (n *NoopMetricsClient) CreateBridgeRequestSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) BridgeRequestSentEvent {
+	return BridgeRequestSentEvent{}
+}
+
+func (n *NoopMetricsClient) CreateBridgeVerifyValidationFailedEvent(clientID, traceID string, errorCode int, errorMessage string) BridgeVerifyValidationFailedEvent {
+	return BridgeVerifyValidationFailedEvent{}
 }
 
 func optionalString(value string) *string {
