@@ -231,7 +231,6 @@ loop:
 				_ = h.analytics.TryAdd(analytics.NewBridgeMessageSentEvent(
 					msg.To,
 					bridgeMsg.TraceId,
-					"", // TODO we don't know topic here
 					msg.EventId,
 					messageHash,
 				))

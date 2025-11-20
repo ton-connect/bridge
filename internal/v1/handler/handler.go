@@ -244,7 +244,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 				_ = h.analytics.TryAdd(analytics.NewBridgeMessageSentEvent(
 					msg.To,
 					bridgeMsg.TraceId,
-					"", // TODO we don't know topic here
 					msg.EventId,
 					messageHash,
 				))

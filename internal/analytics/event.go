@@ -29,13 +29,12 @@ type BridgeMessageExpiredPayload struct {
 }
 
 // NewBridgeMessageExpiredEvent builds an Event for a message expiration.
-func NewBridgeMessageExpiredEvent(clientID, traceID, requestType string, messageID int64, messageHash string) Event {
+func NewBridgeMessageExpiredEvent(clientID, traceID string, messageID int64, messageHash string) Event {
 	return Event{
 		Type: EventBridgeMessageExpired,
 		Payload: BridgeMessageExpiredPayload{
 			ClientID:    clientID,
 			TraceID:     traceID,
-			RequestType: requestType,
 			MessageID:   messageID,
 			MessageHash: messageHash,
 		},
@@ -50,13 +49,12 @@ type BridgeMessageSentPayload struct {
 	MessageHash string
 }
 
-func NewBridgeMessageSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) Event {
+func NewBridgeMessageSentEvent(clientID, traceID string, messageID int64, messageHash string) Event {
 	return Event{
 		Type: EventBridgeMessageSent,
 		Payload: BridgeMessageSentPayload{
 			ClientID:    clientID,
 			TraceID:     traceID,
-			RequestType: requestType,
 			MessageID:   messageID,
 			MessageHash: messageHash,
 		},

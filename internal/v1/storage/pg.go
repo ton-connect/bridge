@@ -210,7 +210,6 @@ func (s *PgStorage) worker() {
 					_ = s.analytics.TryAdd(analytics.NewBridgeMessageExpiredEvent(
 						fromID,
 						traceID,
-						"", // TODO we don't know topic here
 						eventID,
 						messageHash,
 					))
