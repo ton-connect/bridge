@@ -11,14 +11,14 @@ import (
 
 // EventBuilder defines methods to create various analytics events.
 type EventBuilder interface {
-	NewBridgeEventsClientSubscribedEvent(clientID, traceID string) tonmetrics.BridgeEventsClientSubscribedEvent
-	NewBridgeEventsClientUnsubscribedEvent(clientID, traceID string) tonmetrics.BridgeEventsClientUnsubscribedEvent
+	NewBridgeEventsClientSubscribedEvent(clientID string) tonmetrics.BridgeEventsClientSubscribedEvent
+	NewBridgeEventsClientUnsubscribedEvent(clientID string) tonmetrics.BridgeEventsClientUnsubscribedEvent
 	NewBridgeMessageSentEvent(clientID, traceID string, messageID int64, messageHash string) tonmetrics.BridgeMessageSentEvent
 	NewBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) tonmetrics.BridgeMessageReceivedEvent
 	NewBridgeMessageExpiredEvent(clientID, traceID string, messageID int64, messageHash string) tonmetrics.BridgeMessageExpiredEvent
 	NewBridgeMessageValidationFailedEvent(clientID, traceID, requestType, messageHash string) tonmetrics.BridgeMessageValidationFailedEvent
 	NewBridgeRequestSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) tonmetrics.BridgeRequestSentEvent
-	NewBridgeVerifyEvent(clientID, traceID, verificationResult string) tonmetrics.BridgeVerifyEvent
+	NewBridgeVerifyEvent(clientID, verificationResult string) tonmetrics.BridgeVerifyEvent
 	NewBridgeVerifyValidationFailedEvent(clientID, traceID string, errorCode int, errorMessage string) tonmetrics.BridgeVerifyValidationFailedEvent
 }
 
@@ -41,7 +41,7 @@ func NewEventBuilder(bridgeURL, environment, subsystem, version, networkId strin
 }
 
 // NewBridgeEventsClientSubscribedEvent builds a bridge-events-client-subscribed event.
-func (a *AnalyticEventBuilder) NewBridgeEventsClientSubscribedEvent(clientID, traceID string) tonmetrics.BridgeEventsClientSubscribedEvent {
+func (a *AnalyticEventBuilder) NewBridgeEventsClientSubscribedEvent(clientID string) tonmetrics.BridgeEventsClientSubscribedEvent {
 	timestamp := int(time.Now().Unix())
 	eventName := tonmetrics.BridgeEventsClientSubscribedEventEventNameBridgeEventsClientSubscribed
 	environment := tonmetrics.BridgeEventsClientSubscribedEventClientEnvironment(a.environment)
@@ -56,13 +56,12 @@ func (a *AnalyticEventBuilder) NewBridgeEventsClientSubscribedEvent(clientID, tr
 		EventName:         &eventName,
 		NetworkId:         &a.networkId,
 		Subsystem:         &subsystem,
-		TraceId:           optionalString(traceID),
 		Version:           &a.version,
 	}
 }
 
 // NewBridgeEventsClientUnsubscribedEvent builds a bridge-events-client-unsubscribed event.
-func (a *AnalyticEventBuilder) NewBridgeEventsClientUnsubscribedEvent(clientID, traceID string) tonmetrics.BridgeEventsClientUnsubscribedEvent {
+func (a *AnalyticEventBuilder) NewBridgeEventsClientUnsubscribedEvent(clientID string) tonmetrics.BridgeEventsClientUnsubscribedEvent {
 	timestamp := int(time.Now().Unix())
 	eventName := tonmetrics.BridgeEventsClientUnsubscribedEventEventNameBridgeEventsClientUnsubscribed
 	environment := tonmetrics.BridgeEventsClientUnsubscribedEventClientEnvironment(a.environment)
@@ -77,7 +76,6 @@ func (a *AnalyticEventBuilder) NewBridgeEventsClientUnsubscribedEvent(clientID, 
 		EventName:         &eventName,
 		NetworkId:         &a.networkId,
 		Subsystem:         &subsystem,
-		TraceId:           optionalString(traceID),
 		Version:           &a.version,
 	}
 }
@@ -214,7 +212,7 @@ func (a *AnalyticEventBuilder) NewBridgeRequestSentEvent(clientID, traceID, requ
 }
 
 // NewBridgeVerifyEvent builds a bridge-verify event.
-func (a *AnalyticEventBuilder) NewBridgeVerifyEvent(clientID, traceID, verificationResult string) tonmetrics.BridgeVerifyEvent {
+func (a *AnalyticEventBuilder) NewBridgeVerifyEvent(clientID, verificationResult string) tonmetrics.BridgeVerifyEvent {
 	timestamp := int(time.Now().Unix())
 	eventName := tonmetrics.BridgeVerifyEventEventNameBridgeVerify
 	environment := tonmetrics.BridgeVerifyEventClientEnvironment(a.environment)
@@ -230,7 +228,6 @@ func (a *AnalyticEventBuilder) NewBridgeVerifyEvent(clientID, traceID, verificat
 		EventName:          &eventName,
 		NetworkId:          &a.networkId,
 		Subsystem:          &subsystem,
-		TraceId:            optionalString(traceID),
 		VerificationResult: optionalString(verificationResult),
 		VerifyType:         &verifyType,
 		Version:            &a.version,

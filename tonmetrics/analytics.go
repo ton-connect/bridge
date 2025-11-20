@@ -43,7 +43,7 @@ func NewAnalyticsClient() AnalyticsClient {
 		client:      http.DefaultClient,
 		bridgeURL:   config.Config.BridgeURL,
 		subsystem:   "bridge",
-		environment: "bridge", // TODO this is client environment, e.g., "miniapp". No idea how to get it here
+		environment: "bridge",
 		version:     config.Config.BridgeVersion,
 		networkId:   config.Config.NetworkId,
 	}
