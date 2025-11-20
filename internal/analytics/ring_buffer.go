@@ -5,14 +5,14 @@ import "sync"
 // EventCollector is a non-blocking analytics producer API.
 type EventCollector interface {
 	// TryAdd attempts to enqueue the event. Returns true if enqueued, false if dropped.
-	TryAdd(Event) bool
+	TryAdd(interface{}) bool
 }
 
 // RingBuffer provides bounded, non-blocking storage for analytics events.
 // Writes never block; when full, events are dropped per policy.
 type RingBuffer struct {
 	mu         sync.Mutex
-	events     []Event
+	events     []interface{}
 	head       int
 	size       int
 	capacity   int
@@ -24,7 +24,7 @@ type RingBuffer struct {
 // If dropOldest is true, the oldest event is overwritten when full; otherwise new events are dropped.
 func NewRingBuffer(capacity int, dropOldest bool) *RingBuffer {
 	return &RingBuffer{
-		events:     make([]Event, capacity),
+		events:     make([]interface{}, capacity),
 		capacity:   capacity,
 		dropOldest: dropOldest,
 	}
@@ -32,7 +32,7 @@ func NewRingBuffer(capacity int, dropOldest bool) *RingBuffer {
 
 // add inserts event into the buffer according to the drop policy.
 // Returns true if the event was stored.
-func (r *RingBuffer) add(event Event) bool {
+func (r *RingBuffer) add(event interface{}) bool {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -58,7 +58,7 @@ func (r *RingBuffer) add(event Event) bool {
 }
 
 // popAll drains the buffer into a new slice.
-func (r *RingBuffer) popAll() []Event {
+func (r *RingBuffer) popAll() []interface{} {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 
@@ -66,7 +66,7 @@ func (r *RingBuffer) popAll() []Event {
 		return nil
 	}
 
-	result := make([]Event, 0, r.size)
+	result := make([]interface{}, 0, r.size)
 	for r.size > 0 {
 		result = append(result, r.events[r.head])
 		r.head = (r.head + 1) % r.capacity
@@ -97,7 +97,7 @@ func NewRingCollector(capacity int, dropOldest bool) *RingCollector {
 }
 
 // TryAdd enqueues without blocking. If full, returns false and increments drop count.
-func (e *RingCollector) TryAdd(event Event) bool {
+func (e *RingCollector) TryAdd(event interface{}) bool {
 	added := e.buffer.add(event)
 	if added {
 		select {
@@ -109,7 +109,7 @@ func (e *RingCollector) TryAdd(event Event) bool {
 }
 
 // PopAll drains all pending events.
-func (e *RingCollector) PopAll() []Event {
+func (e *RingCollector) PopAll() []interface{} {
 	return e.buffer.popAll()
 }
 
