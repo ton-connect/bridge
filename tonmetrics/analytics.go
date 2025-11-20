@@ -2,6 +2,7 @@ package tonmetrics
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -18,7 +19,7 @@ const (
 
 // AnalyticsClient defines the interface for analytics clients
 type AnalyticsClient interface {
-	SendEvent(event interface{})
+	SendBatch(ctx context.Context, events []interface{})
 	CreateBridgeEventsClientSubscribedEvent(clientID, traceID string) BridgeEventsClientSubscribedEvent
 	CreateBridgeEventsClientUnsubscribedEvent(clientID, traceID string) BridgeEventsClientUnsubscribedEvent
 	CreateBridgeConnectEstablishedEvent(clientID, traceID string, connectDuration int) BridgeConnectEstablishedEvent
@@ -59,29 +60,45 @@ func NewAnalyticsClient() AnalyticsClient {
 	}
 }
 
-// sendEvent sends an event to the analytics endpoint
-// TODO pass events in batches
-func (a *TonMetricsClient) SendEvent(event interface{}) {
-	log := logrus.WithField("prefix", "analytics")
-	analyticsData, err := json.Marshal(event)
-	if err != nil {
-		log.Errorf("failed to marshal analytics data: %v", err)
+// SendBatch sends a batch of events to the analytics endpoint in a single HTTP request.
+func (a *TonMetricsClient) SendBatch(ctx context.Context, events []interface{}) {
+	if len(events) == 0 {
+		return
 	}
 
-	req, err := http.NewRequest(http.MethodPost, analyticsURL, bytes.NewReader(analyticsData))
+	log := logrus.WithField("prefix", "analytics")
+
+	analyticsData, err := json.Marshal(events)
+	if err != nil {
+		log.Errorf("failed to marshal analytics batch: %v", err)
+		return
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, analyticsURL, bytes.NewReader(analyticsData))
 	if err != nil {
 		log.Errorf("failed to create analytics request: %v", err)
+		return
 	}
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Client-Timestamp", fmt.Sprintf("%d", time.Now().Unix()))
 
-	_, err = a.client.Do(req)
+	resp, err := a.client.Do(req)
 	if err != nil {
-		log.Errorf("failed to send analytics request: %v", err)
+		log.Errorf("failed to send analytics batch: %v", err)
+		return
+	}
+	defer func() {
+		if closeErr := resp.Body.Close(); closeErr != nil {
+			log.Errorf("failed to close response body: %v", closeErr)
+		}
+	}()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		log.Warnf("analytics batch request returned status %d", resp.StatusCode)
 	}
 
-	// log.Debugf("analytics request sent successfully: %s", string(analyticsData))
+	log.Debugf("analytics batch of %d events sent successfully", len(events))
 }
 
 // CreateBridgeEventsClientSubscribedEvent builds a bridge-events-client-subscribed event.
@@ -341,8 +358,8 @@ func (a *TonMetricsClient) CreateBridgeVerifyValidationFailedEvent(clientID, tra
 // NoopMetricsClient does nothing when analytics are disabled
 type NoopMetricsClient struct{}
 
-// SendEvent does nothing for NoopMetricsClient
-func (n *NoopMetricsClient) SendEvent(event interface{}) {
+// SendBatch does nothing for NoopMetricsClient
+func (n *NoopMetricsClient) SendBatch(ctx context.Context, events []interface{}) {
 	// No-op
 }
 
