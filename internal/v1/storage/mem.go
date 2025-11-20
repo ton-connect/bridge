@@ -81,7 +81,6 @@ func (s *MemStorage) watcher() {
 				_ = s.analytics.TryAdd(analytics.NewBridgeMessageExpiredEvent(
 					key,
 					bridgeMsg.TraceId,
-					"", // TODO we don't know topic here
 					m.EventId,
 					messageHash,
 				))
