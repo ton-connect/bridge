@@ -24,53 +24,7 @@ func NewTonMetricsSender(client tonmetrics.AnalyticsClient) AnalyticSender {
 }
 
 func (t *TonMetricsSender) Publish(_ context.Context, event Event) error {
-	switch payload := event.Payload.(type) {
-	case BridgeMessageExpiredPayload:
-		t.client.SendEvent(t.client.CreateBridgeMessageExpiredEvent(
-			payload.ClientID,
-			payload.TraceID,
-			payload.RequestType,
-			payload.MessageID,
-			payload.MessageHash,
-		))
-	case BridgeMessageSentPayload:
-		t.client.SendEvent(t.client.CreateBridgeMessageSentEvent(
-			payload.ClientID,
-			payload.TraceID,
-			payload.RequestType,
-			payload.MessageID,
-			payload.MessageHash,
-		))
-	case BridgeMessageReceivedPayload:
-		t.client.SendEvent(t.client.CreateBridgeMessageReceivedEvent(
-			payload.ClientID,
-			payload.TraceID,
-			payload.RequestType,
-			payload.MessageID,
-			payload.MessageHash,
-		))
-	case BridgeMessageValidationFailedPayload:
-		t.client.SendEvent(t.client.CreateBridgeMessageValidationFailedEvent(
-			payload.ClientID,
-			payload.TraceID,
-			payload.RequestType,
-			payload.MessageHash,
-		))
-	case BridgeVerifyPayload:
-		t.client.SendEvent(t.client.CreateBridgeVerifyEvent(
-			payload.ClientID,
-			payload.TraceID,
-			payload.VerificationResult,
-		))
-	case BridgeEventsClientUnsubscribedPayload:
-		t.client.SendEvent(t.client.CreateBridgeEventsClientUnsubscribedEvent(
-			payload.ClientID,
-			payload.TraceID,
-		))
-	default:
-		// Unknown event types are dropped to keep producers non-blocking.
-		logrus.WithField("event_type", event.Type).Debug("analytics: dropping unknown event type")
-	}
+	event.Dispatch(t.client)
 	return nil
 }
 
