@@ -36,14 +36,14 @@ type Storage interface {
 	HealthCheck() error
 }
 
-func NewStorage(storageType string, uri string, collector analytics.EventCollector) (Storage, error) {
+func NewStorage(storageType string, uri string, collector analytics.EventCollector, builder analytics.EventBuilder) (Storage, error) {
 	switch storageType {
 	case "valkey", "redis":
 		return NewValkeyStorage(uri) // TODO implement message expiration
 	case "postgres":
 		return nil, fmt.Errorf("postgres storage does not support pub-sub functionality yet")
 	case "memory":
-		return NewMemStorage(collector), nil
+		return NewMemStorage(collector, builder), nil
 	default:
 		return nil, fmt.Errorf("unsupported storage type: %s", storageType)
 	}

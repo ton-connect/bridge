@@ -82,10 +82,11 @@ type handler struct {
 	heartbeatInterval time.Duration
 	connectionCache   *ConnectionCache
 	realIP            *utils.RealIPExtractor
-	analytics         analytics.EventCollector
+	eventCollector    analytics.EventCollector
+	eventBuilder      analytics.EventBuilder
 }
 
-func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, collector analytics.EventCollector) *handler {
+func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, collector analytics.EventCollector, builder analytics.EventBuilder) *handler {
 	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
 	connectionCache.StartBackgroundCleanup(nil)
 
@@ -97,7 +98,8 @@ func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *
 		heartbeatInterval: heartbeatInterval,
 		connectionCache:   connectionCache,
 		realIP:            extractor,
-		analytics:         collector,
+		eventCollector:    collector,
+		eventBuilder:      builder,
 	}
 	return &h
 }
@@ -240,8 +242,8 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 				"trace_id": bridgeMsg.TraceId,
 			}).Debug("message sent")
 
-			if h.analytics != nil {
-				_ = h.analytics.TryAdd(analytics.NewBridgeMessageSentEvent(
+			if h.eventCollector != nil {
+				_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageSentEvent(
 					msg.To,
 					bridgeMsg.TraceId,
 					msg.EventId,
@@ -449,8 +451,8 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"trace_id": bridgeMsg.TraceId,
 	}).Debug("message received")
 
-	if h.analytics != nil {
-		_ = h.analytics.TryAdd(analytics.NewBridgeMessageReceivedEvent(
+	if h.eventCollector != nil {
+		_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageReceivedEvent(
 			clientID,
 			traceId,
 			topic,
@@ -470,8 +472,8 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
 	if err != nil {
 		badRequestMetric.Inc()
-		if h.analytics != nil {
-			_ = h.analytics.TryAdd(analytics.NewBridgeVerifyValidationFailedEvent(
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				"",
 				"",
 				http.StatusBadRequest,
@@ -484,8 +486,8 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	clientId, ok := paramsStore.Get("client_id")
 	if !ok {
 		badRequestMetric.Inc()
-		if h.analytics != nil {
-			_ = h.analytics.TryAdd(analytics.NewBridgeVerifyValidationFailedEvent(
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				"",
 				"",
 				http.StatusBadRequest,
@@ -497,8 +499,8 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	url, ok := paramsStore.Get("url")
 	if !ok {
 		badRequestMetric.Inc()
-		if h.analytics != nil {
-			_ = h.analytics.TryAdd(analytics.NewBridgeVerifyValidationFailedEvent(
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				clientId,
 				"",
 				http.StatusBadRequest,
@@ -515,8 +517,8 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	switch strings.ToLower(qtype) {
 	case "connect":
 		status := h.connectionCache.Verify(clientId, ip, utils.ExtractOrigin(url))
-		if h.analytics != nil {
-			_ = h.analytics.TryAdd(analytics.NewBridgeVerifyEvent(
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyEvent(
 				clientId,
 				"",
 				status,
@@ -525,8 +527,8 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
 		badRequestMetric.Inc()
-		if h.analytics != nil {
-			_ = h.analytics.TryAdd(analytics.NewBridgeVerifyValidationFailedEvent(
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				clientId,
 				"",
 				http.StatusBadRequest,
@@ -564,8 +566,8 @@ func (h *handler) removeConnection(ses *Session) {
 			h.Mux.Unlock()
 		}
 		activeSubscriptionsMetric.Dec()
-		if h.analytics != nil {
-			_ = h.analytics.TryAdd(analytics.NewBridgeEventsClientUnsubscribedEvent(id, "")) // TODO trace_id
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientUnsubscribedEvent(id, "")) // TODO trace_id
 		}
 	}
 }
@@ -593,8 +595,8 @@ func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session 
 		}
 
 		activeSubscriptionsMetric.Inc()
-		if h.analytics != nil {
-			_ = h.analytics.TryAdd(analytics.NewBridgeEventsClientSubscribedEvent(id, "")) // TODO trace_id
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientSubscribedEvent(id, "")) // TODO trace_id
 		}
 	}
 	return session
@@ -605,10 +607,10 @@ func (h *handler) nextID() int64 {
 }
 
 func (h *handler) logEventRegistrationValidationFailure(clientID, requestType string) {
-	if h.analytics == nil {
+	if h.eventCollector == nil {
 		return
 	}
-	h.analytics.TryAdd(analytics.NewBridgeMessageValidationFailedEvent(
+	h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageValidationFailedEvent(
 		clientID,
 		"",
 		requestType,
@@ -624,8 +626,8 @@ func (h *handler) logMessageSentValidationFailure(
 	topic string,
 	messageHash string,
 ) error {
-	if h.analytics != nil {
-		_ = h.analytics.TryAdd(analytics.NewBridgeMessageValidationFailedEvent(
+	if h.eventCollector != nil {
+		_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageValidationFailedEvent(
 			clientID,
 			traceID,
 			topic,
