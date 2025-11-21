@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	analyticsURL = "https://analytics.ton.org/events/"
+	analyticsURL = "https://analytics.ton.org/events"
 )
 
 // AnalyticsClient defines the interface for analytics clients
@@ -57,11 +57,15 @@ func (a *TonMetricsClient) SendBatch(ctx context.Context, events []interface{}) 
 
 	log := logrus.WithField("prefix", "analytics")
 
+	log.Debugf("preparing to send analytics batch of %d events to %s", len(events), analyticsURL)
+
 	analyticsData, err := json.Marshal(events)
 	if err != nil {
 		log.Errorf("failed to marshal analytics batch: %v", err)
 		return
 	}
+
+	log.Debugf("marshaled analytics data size: %d bytes", len(analyticsData))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, analyticsURL, bytes.NewReader(analyticsData))
 	if err != nil {
@@ -71,6 +75,8 @@ func (a *TonMetricsClient) SendBatch(ctx context.Context, events []interface{}) 
 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Client-Timestamp", fmt.Sprintf("%d", time.Now().Unix()))
+
+	log.Debugf("sending analytics batch request to %s", analyticsURL)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
@@ -85,9 +91,10 @@ func (a *TonMetricsClient) SendBatch(ctx context.Context, events []interface{}) 
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		log.Warnf("analytics batch request returned status %d", resp.StatusCode)
+		return
 	}
 
-	log.Debugf("analytics batch of %d events sent successfully", len(events))
+	log.Debugf("analytics batch of %d events sent successfully with status %d", len(events), resp.StatusCode)
 }
 
 // NoopMetricsClient does nothing when analytics are disabled

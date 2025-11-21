@@ -52,16 +52,22 @@ func (c *Collector) Run(ctx context.Context) {
 	ticker := time.NewTicker(c.flushInterval)
 	defer ticker.Stop()
 
+	logrus.WithField("prefix", "analytics").Debugf("analytics collector started with flush interval %v", c.flushInterval)
+
 	for {
 		select {
 		case <-ctx.Done():
+			logrus.WithField("prefix", "analytics").Debug("analytics collector stopped")
 			return
 		case <-c.collector.Notify():
+			logrus.WithField("prefix", "analytics").Debug("analytics collector notified")
 		case <-ticker.C:
+			logrus.WithField("prefix", "analytics").Debug("analytics collector ticker fired")
 		}
 
 		events := c.collector.PopAll()
 		if len(events) > 0 {
+			logrus.WithField("prefix", "analytics").Debugf("flushing %d events from collector", len(events))
 			if err := c.sender.SendBatch(ctx, events); err != nil {
 				logrus.WithError(err).Warnf("analytics: failed to send batch of %d events", len(events))
 			}
