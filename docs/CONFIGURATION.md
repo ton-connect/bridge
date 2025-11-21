@@ -15,8 +15,8 @@ Complete reference for all environment variables supported by TON Connect Bridge
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `STORAGE` | string | `memory` | `valkey` or `memory` |
-| `VALKEY_URI` | string | - | Format: `valkey://[:pass@]host:port[/db]`<br>Cluster: `rediss://default:@clustercfg.example.com:6379?skip_verify=true` |
+| `STORAGE` | string | `memory` | `valkey` (cluster required) or `memory` (dev only) |
+| `VALKEY_URI` | string | - | Cluster format: `rediss://default:@clustercfg.example.com:6379?skip_verify=true` |
 
 ## Performance & Limits
 
@@ -76,12 +76,12 @@ RPS_LIMIT=50
 CONNECTIONS_LIMIT=50
 ```
 
-### 🚀 Production (Redis/Valkey)
+### 🚀 Production (Redis/Valkey Cluster)
 
 ```bash
 LOG_LEVEL=info
 STORAGE=valkey
-VALKEY_URI="rediss://username:yourpassword@localhost:6380?skip_verify=true"
+VALKEY_URI="rediss://username:yourpassword@clustercfg.example.com:6379?skip_verify=true"
 CORS_ENABLE=true
 RPS_LIMIT=100000
 CONNECTIONS_LIMIT=500000
@@ -101,7 +101,7 @@ BRIDGE_URL="https://use-your-own-bridge.myapp.com"
 LOG_LEVEL=info
 PORT=8081
 STORAGE=valkey
-VALKEY_URI=valkey://localhost:6379
+VALKEY_URI=rediss://clustercfg.example.com:6379
 CORS_ENABLE=true
 RPS_LIMIT=100
 CONNECTIONS_LIMIT=200
