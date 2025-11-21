@@ -75,11 +75,11 @@ func main() {
 	go collector.Run(context.Background())
 
 	analyticsBuilder := analytics.NewEventBuilder(
-		config.Config.BridgeURL,
+		config.Config.TonAnalyticsBridgeURL,
 		"bridge",
 		"bridge",
-		config.Config.BridgeVersion,
-		config.Config.NetworkId,
+		config.Config.TonAnalyticsBridgeVersion,
+		config.Config.TonAnalyticsNetworkId,
 	)
 
 	dbConn, err := storagev3.NewStorage(store, dbURI, analyticsCollector, analyticsBuilder)

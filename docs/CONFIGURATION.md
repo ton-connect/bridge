@@ -54,14 +54,13 @@ Complete reference for all environment variables supported by TON Connect Bridge
 
 TODO where to read more about it?
 
-| Variable | Type | Default | Description |
-|----------|------|---------|-------------|
-| `TF_ANALYTICS_ENABLED` | bool | `false` | Enable TonConnect analytics |
-| `BRIDGE_NAME` | string | `ton-connect-bridge` | Instance name for metrics/logging |
-| `BRIDGE_VERSION` | string | `1.0.0` | Version (auto-set during build) |
-| `BRIDGE_URL` | string | `localhost` | Public bridge URL |
-| `ENVIRONMENT` | string | `production` | Environment name (`dev`, `staging`, `production`) |
-| `NETWORK_ID` | string | `-239` | TON network: `-239` (mainnet), `-3` (testnet) |
+| Variable                       |  Type  | Default | Description                                                  |
+|--------------------------------|--------|---------|--------------------------------------------------------------|
+| `TON_ANALYTICS_ENABLED`        | bool   | `false` | Enable TonConnect analytics                                  |
+| `TON_ANALYTICS_URL`            | string | `https://analytics.ton.org/events` | Instance name for metrics/logging |
+| `TON_ANALYTICS_BRIDGE_VERSION` | string | `1.0.0` | Version (auto-set during build)                              |
+| `TON_ANALYTICS_BRIDGE_URL`     | string | `localhost` | Public bridge URL                                        |
+| `TON_ANALYTICS_NETWORK_ID`     | string | `-239`  | TON network: `-239` (mainnet), `-3` (testnet)                |
 
 ## NTP Time Synchronization
 
