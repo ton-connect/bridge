@@ -100,7 +100,7 @@ func (s *MemStorage) watcher() {
 				}).Debug("message expired")
 
 				_ = s.analytics.TryAdd(s.eventBuilder.NewBridgeMessageExpiredEvent(
-					fromID,
+					key,
 					bridgeMsg.TraceId,
 					m.EventId,
 					messageHash,
