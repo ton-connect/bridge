@@ -17,6 +17,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/config"
 	"github.com/ton-connect/bridge/internal/models"
 )
@@ -38,7 +39,9 @@ var (
 
 type Message []byte
 type PgStorage struct {
-	postgres *pgxpool.Pool
+	postgres     *pgxpool.Pool
+	analytics    analytics.EventCollector
+	eventBuilder analytics.EventBuilder
 }
 
 //go:embed migrations/*.sql
@@ -112,7 +115,7 @@ func configurePoolSettings(postgresURI string) (*pgxpool.Config, error) {
 	return poolConfig, nil
 }
 
-func NewPgStorage(postgresURI string) (*PgStorage, error) {
+func NewPgStorage(postgresURI string, collector analytics.EventCollector, builder analytics.EventBuilder) (*PgStorage, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	log := logrus.WithField("prefix", "NewStorage")
 	defer cancel()
@@ -135,7 +138,9 @@ func NewPgStorage(postgresURI string) (*PgStorage, error) {
 		return nil, err
 	}
 	s := PgStorage{
-		postgres: c,
+		postgres:     c,
+		analytics:    collector,
+		eventBuilder: builder,
 	}
 	go s.worker()
 	return &s, nil
@@ -203,6 +208,13 @@ func (s *PgStorage) worker() {
 						"event_id": eventID,
 						"trace_id": traceID,
 					}).Debug("message expired")
+
+					_ = s.analytics.TryAdd(s.eventBuilder.NewBridgeMessageExpiredEvent(
+						clientID,
+						traceID,
+						eventID,
+						messageHash,
+					))
 				}
 			}
 			rows.Close()

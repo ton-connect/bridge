@@ -9,12 +9,15 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/models"
 )
 
 type MemStorage struct {
-	db   map[string][]message
-	lock sync.Mutex
+	db           map[string][]message
+	lock         sync.Mutex
+	analytics    analytics.EventCollector
+	eventBuilder analytics.EventBuilder
 }
 
 type message struct {
@@ -26,20 +29,39 @@ func (m message) IsExpired(now time.Time) bool {
 	return m.expireAt.Before(now)
 }
 
-func NewMemStorage() *MemStorage {
+func NewMemStorage(collector analytics.EventCollector, builder analytics.EventBuilder) *MemStorage {
 	s := MemStorage{
-		db: map[string][]message{},
+		db:           map[string][]message{},
+		analytics:    collector,
+		eventBuilder: builder,
 	}
 	go s.watcher()
 	return &s
 }
 
-func removeExpiredMessages(ms []message, now time.Time, clientID string) []message {
-	log := log.WithField("prefix", "removeExpiredMessages")
+func removeExpiredMessages(ms []message, now time.Time) ([]message, []message) {
 	results := make([]message, 0)
+	expired := make([]message, 0)
 	for _, m := range ms {
 		if m.IsExpired(now) {
 			if !ExpiredCache.IsMarked(m.EventId) {
+				expired = append(expired, m)
+			}
+		} else {
+			results = append(results, m)
+		}
+	}
+	return results, expired
+}
+
+func (s *MemStorage) watcher() {
+	for {
+		s.lock.Lock()
+		for key, msgs := range s.db {
+			actual, expired := removeExpiredMessages(msgs, time.Now())
+			s.db[key] = actual
+
+			for _, m := range expired {
 				var bridgeMsg models.BridgeMessage
 				fromID := "unknown"
 				hash := sha256.Sum256(m.Message)
@@ -50,27 +72,21 @@ func removeExpiredMessages(ms []message, now time.Time, clientID string) []messa
 					contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
 					messageHash = hex.EncodeToString(contentHash[:])
 				}
-
 				log.WithFields(map[string]interface{}{
 					"hash":     messageHash,
 					"from":     fromID,
-					"to":       clientID,
+					"to":       key,
 					"event_id": m.EventId,
 					"trace_id": bridgeMsg.TraceId,
 				}).Debug("message expired")
-			}
-		} else {
-			results = append(results, m)
-		}
-	}
-	return results
-}
 
-func (s *MemStorage) watcher() {
-	for {
-		s.lock.Lock()
-		for key, msgs := range s.db {
-			s.db[key] = removeExpiredMessages(msgs, time.Now(), key)
+				_ = s.analytics.TryAdd(s.eventBuilder.NewBridgeMessageExpiredEvent(
+					key,
+					bridgeMsg.TraceId,
+					m.EventId,
+					messageHash,
+				))
+			}
 		}
 		s.lock.Unlock()
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/config"
 	"github.com/ton-connect/bridge/internal/models"
 	common_storage "github.com/ton-connect/bridge/internal/storage"
@@ -20,9 +21,9 @@ type Storage interface {
 	HealthCheck() error
 }
 
-func NewStorage(dbURI string) (Storage, error) {
+func NewStorage(dbURI string, collector analytics.EventCollector, builder analytics.EventBuilder) (Storage, error) {
 	if dbURI != "" {
-		return NewPgStorage(dbURI)
+		return NewPgStorage(dbURI, collector, builder)
 	}
-	return NewMemStorage(), nil
+	return NewMemStorage(collector, builder), nil
 }

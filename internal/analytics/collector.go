@@ -1,0 +1,76 @@
+package analytics
+
+import (
+	"context"
+	"time"
+
+	"github.com/sirupsen/logrus"
+	"github.com/ton-connect/bridge/tonmetrics"
+)
+
+// AnalyticSender delivers analytics events to a backend.
+type AnalyticSender interface {
+	SendBatch(context.Context, []interface{}) error
+}
+
+// TonMetricsSender adapts TonMetrics to the AnalyticSender interface.
+type TonMetricsSender struct {
+	client tonmetrics.AnalyticsClient
+}
+
+// NewTonMetricsSender constructs a TonMetrics-backed sender.
+func NewTonMetricsSender(client tonmetrics.AnalyticsClient) AnalyticSender {
+	return &TonMetricsSender{client: client}
+}
+
+func (t *TonMetricsSender) SendBatch(ctx context.Context, events []interface{}) error {
+	if len(events) == 0 {
+		return nil
+	}
+	t.client.SendBatch(ctx, events)
+	return nil
+}
+
+// Collector drains events from a collector and forwards to a sender.
+type Collector struct {
+	collector     *RingCollector
+	sender        AnalyticSender
+	flushInterval time.Duration
+}
+
+// NewCollector builds a collector with a periodic flush.
+func NewCollector(collector *RingCollector, analyticsSender AnalyticSender, flushInterval time.Duration) *Collector {
+	return &Collector{
+		collector:     collector,
+		sender:        analyticsSender,
+		flushInterval: flushInterval,
+	}
+}
+
+// Run starts draining until the context is canceled.
+func (c *Collector) Run(ctx context.Context) {
+	ticker := time.NewTicker(c.flushInterval)
+	defer ticker.Stop()
+
+	logrus.WithField("prefix", "analytics").Debugf("analytics collector started with flush interval %v", c.flushInterval)
+
+	for {
+		select {
+		case <-ctx.Done():
+			logrus.WithField("prefix", "analytics").Debug("analytics collector stopped")
+			return
+		case <-c.collector.Notify():
+			logrus.WithField("prefix", "analytics").Debug("analytics collector notified")
+		case <-ticker.C:
+			logrus.WithField("prefix", "analytics").Debug("analytics collector ticker fired")
+		}
+
+		events := c.collector.PopAll()
+		if len(events) > 0 {
+			logrus.WithField("prefix", "analytics").Debugf("flushing %d events from collector", len(events))
+			if err := c.sender.SendBatch(ctx, events); err != nil {
+				logrus.WithError(err).Warnf("analytics: failed to send batch of %d events", len(events))
+			}
+		}
+	}
+}
