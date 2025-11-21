@@ -122,7 +122,7 @@ func TestMemStorage_watcher(t *testing.T) {
 }
 
 func TestMemStorage_PubSub(t *testing.T) {
-	builder := analytics.NewEventBuilder(config.Config.BridgeURL, "bridge", "bridge", config.Config.BridgeVersion, config.Config.NetworkId)
+	builder := analytics.NewEventBuilder(config.Config.TonAnalyticsBridgeURL, "bridge", "bridge", config.Config.TonAnalyticsBridgeVersion, config.Config.TonAnalyticsNetworkId)
 	s := NewMemStorage(analytics.NewRingCollector(10, false), builder)
 
 	// Create channels to receive messages
@@ -204,7 +204,7 @@ func TestMemStorage_PubSub(t *testing.T) {
 }
 
 func TestMemStorage_LastEventId(t *testing.T) {
-	builder := analytics.NewEventBuilder(config.Config.BridgeURL, "bridge", "bridge", config.Config.BridgeVersion, config.Config.NetworkId)
+	builder := analytics.NewEventBuilder(config.Config.TonAnalyticsBridgeURL, "bridge", "bridge", config.Config.TonAnalyticsBridgeVersion, config.Config.TonAnalyticsNetworkId)
 	s := NewMemStorage(analytics.NewRingCollector(10, false), builder)
 
 	// Store some messages first

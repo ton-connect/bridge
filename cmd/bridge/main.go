@@ -42,11 +42,11 @@ func main() {
 	go collector.Run(context.Background())
 
 	analyticsBuilder := analytics.NewEventBuilder(
-		config.Config.BridgeURL,
+		config.Config.TonAnalyticsBridgeURL,
 		"bridge",
 		"bridge",
-		config.Config.BridgeVersion,
-		config.Config.NetworkId,
+		config.Config.TonAnalyticsBridgeVersion,
+		config.Config.TonAnalyticsNetworkId,
 	)
 
 	dbConn, err := storage.NewStorage(config.Config.PostgresURI, analyticsCollector, analyticsBuilder)
