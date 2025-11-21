@@ -1,4 +1,3 @@
-package bridge
 package bridge_test
 
 import (
@@ -13,10 +12,10 @@ import (
 
 // AnalyticsMock is a mock analytics server for testing
 type AnalyticsMock struct {
-	Server       *httptest.Server
-	mu           sync.RWMutex
+	Server         *httptest.Server
+	mu             sync.RWMutex
 	receivedEvents []map[string]interface{}
-	totalEvents  int
+	totalEvents    int
 }
 
 // NewAnalyticsMock creates a new mock analytics server
@@ -74,7 +73,7 @@ func (m *AnalyticsMock) Close() {
 func (m *AnalyticsMock) GetEvents() []map[string]interface{} {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
-	
+
 	events := make([]map[string]interface{}, len(m.receivedEvents))
 	copy(events, m.receivedEvents)
 	return events
