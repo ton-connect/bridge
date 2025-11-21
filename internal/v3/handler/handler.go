@@ -83,7 +83,7 @@ func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor 
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
 		storage:           s,
-		eventIDGen:        NewEventIDGenerator(),
+		eventIDGen:        NewEventIDGenerator(timeProvider),
 		realIP:            extractor,
 		heartbeatInterval: heartbeatInterval,
 		eventCollector:    collector,
