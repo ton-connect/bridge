@@ -11,9 +11,9 @@ import (
 // are sent to the configured analytics endpoint during bridge operations
 func TestBridgeAnalytics_EventsSentToMockServer(t *testing.T) {
 	// Check if analytics is enabled in test environment
-	analyticsEnabled := os.Getenv("TON_ANALYTICS_URL")
+	analyticsEnabled := os.Getenv("TON_ANALYTICS_ENABLED")
 	if analyticsEnabled != "true" {
-		t.Skip("Analytics not enabled, set TON_ANALYTICS_URL=true")
+		t.Skip("Analytics not enabled, set TON_ANALYTICS_ENABLED=true")
 	}
 
 	// Create mock analytics server
@@ -105,9 +105,9 @@ func TestBridgeAnalytics_EventsSentToMockServer(t *testing.T) {
 
 // TestBridgeAnalytics_MessageLifecycle tests that message lifecycle events are tracked
 func TestBridgeAnalytics_MessageLifecycle(t *testing.T) {
-	analyticsEnabled := os.Getenv("TON_ANALYTICS_URL")
+	analyticsEnabled := os.Getenv("TON_ANALYTICS_ENABLED")
 	if analyticsEnabled != "true" {
-		t.Skip("Analytics not enabled, set TON_ANALYTICS_URL=true")
+		t.Skip("Analytics not enabled, set TON_ANALYTICS_ENABLED=true")
 	}
 
 	mockServer := NewAnalyticsMock()
