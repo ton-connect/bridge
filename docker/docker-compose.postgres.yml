@@ -29,7 +29,7 @@ services:
       RPS_LIMIT: 1000
       CONNECTIONS_LIMIT: 200
       TON_ANALYTICS_ENABLED: "true"
-      TON_ANALYTICS_URL: "https://analytics.ton.org/events"
+      TON_ANALYTICS_URL: "http://analytics-mock:9090/events"
       TON_ANALYTICS_NETWORK_ID: "-239"
       TON_ANALYTICS_BRIDGE_VERSION: "test-1.0.0"
       TON_ANALYTICS_BRIDGE_URL: "http://bridge-instance1:8080"
