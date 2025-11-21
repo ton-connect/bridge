@@ -14,7 +14,7 @@ jobs:
      steps:
 
      - name: Check out code
-       uses: actions/checkout@v5
+       uses: actions/checkout@v6
 
      - name: unit tests
        run: make test
@@ -27,7 +27,7 @@ jobs:
         storage: [memory, postgres, nginx, dnsmasq, cluster-valkey]
 
     steps:
-    - uses: actions/checkout@v5
+    - uses: actions/checkout@v6
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v3
