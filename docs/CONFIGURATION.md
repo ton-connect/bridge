@@ -63,6 +63,19 @@ TODO where to read more about it?
 | `ENVIRONMENT` | string | `production` | Environment name (`dev`, `staging`, `production`) |
 | `NETWORK_ID` | string | `-239` | TON network: `-239` (mainnet), `-3` (testnet) |
 
+## NTP Time Synchronization
+
+Bridge v3 supports NTP time synchronization for consistent `event_id` generation across multiple instances. This ensures monotonic event ordering even when bridge instances run on different servers.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `NTP_ENABLED` | bool | `true` | Enable NTP time synchronization |
+| `NTP_SERVERS` | string | `time.google.com,time.cloudflare.com,pool.ntp.org` | Comma-separated NTP server list |
+| `NTP_SYNC_INTERVAL` | int | `300` | NTP sync interval (seconds) |
+| `NTP_QUERY_TIMEOUT` | int | `5` | NTP query timeout (seconds) |
+
+**Note:** NTP synchronization is only available in bridge v3. Bridge v1 uses local system time.
+
 ## Configuration Presets
 
 ### 🧪 Development (Memory)
@@ -74,6 +87,7 @@ CORS_ENABLE=true
 HEARTBEAT_INTERVAL=10
 RPS_LIMIT=50
 CONNECTIONS_LIMIT=50
+NTP_ENABLED=true
 ```
 
 ### 🚀 Production (Redis/Valkey)
@@ -89,6 +103,9 @@ CONNECT_CACHE_SIZE=500000
 TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,{use_your_own_please}"
 ENVIRONMENT=production
 BRIDGE_URL="https://use-your-own-bridge.myapp.com"
+NTP_ENABLED=true
+NTP_SERVERS=time.google.com,time.cloudflare.com,pool.ntp.org
+NTP_SYNC_INTERVAL=300
 ```
 
 ## Using Environment Files
