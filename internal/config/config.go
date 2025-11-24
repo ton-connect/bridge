@@ -60,6 +60,12 @@ var Config = struct {
 	BridgeURL          string `env:"BRIDGE_URL" envDefault:"localhost"`
 	Environment        string `env:"ENVIRONMENT" envDefault:"production"`
 	NetworkId          string `env:"NETWORK_ID" envDefault:"-239"`
+
+	// NTP Configuration
+	NTPEnabled      bool     `env:"NTP_ENABLED" envDefault:"true"`
+	NTPServers      []string `env:"NTP_SERVERS" envSeparator:"," envDefault:"time.google.com,time.cloudflare.com,pool.ntp.org"`
+	NTPSyncInterval int      `env:"NTP_SYNC_INTERVAL" envDefault:"300"`
+	NTPQueryTimeout int      `env:"NTP_QUERY_TIMEOUT" envDefault:"5"`
 }{}
 
 func LoadConfig() {

@@ -3,6 +3,7 @@ module github.com/ton-connect/bridge
 go 1.24.6
 
 require (
+	github.com/beevik/ntp v1.5.0
 	github.com/caarlos0/env/v6 v6.10.1
 	github.com/golang-migrate/migrate/v4 v4.19.0
 	github.com/google/uuid v1.6.0

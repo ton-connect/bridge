@@ -6,7 +6,7 @@ import (
 )
 
 func TestEventIDGenerator_NextID(t *testing.T) {
-	gen := NewEventIDGenerator()
+	gen := NewEventIDGenerator(nil)
 
 	id1 := gen.NextID()
 	id2 := gen.NextID()
@@ -20,8 +20,8 @@ func TestEventIDGenerator_NextID(t *testing.T) {
 }
 
 func TestEventIDGenerator_RandomOffset(t *testing.T) {
-	gen1 := NewEventIDGenerator()
-	gen2 := NewEventIDGenerator()
+	gen1 := NewEventIDGenerator(nil)
+	gen2 := NewEventIDGenerator(nil)
 
 	// Generators should have different offsets
 	if gen1.offset == gen2.offset {
@@ -38,7 +38,7 @@ func TestEventIDGenerator_RandomOffset(t *testing.T) {
 }
 
 func TestEventIDGenerator_SingleGenerators_Ordering(t *testing.T) {
-	gen := NewEventIDGenerator()
+	gen := NewEventIDGenerator(nil)
 	const numIDs = 1000
 
 	idsChan := make(chan int64, numIDs)

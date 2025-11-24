@@ -25,6 +25,7 @@ import (
 	"github.com/ton-connect/bridge/internal/config"
 	handler_common "github.com/ton-connect/bridge/internal/handler"
 	"github.com/ton-connect/bridge/internal/models"
+	"github.com/ton-connect/bridge/internal/ntp"
 	"github.com/ton-connect/bridge/internal/utils"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
 )
@@ -74,13 +75,12 @@ type handler struct {
 	realIP            *utils.RealIPExtractor
 }
 
-func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor) *handler {
-	// TODO support extractor in v3
+func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, ntpClient *ntp.Client) *handler {
 	h := handler{
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
 		storage:           s,
-		eventIDGen:        NewEventIDGenerator(),
+		eventIDGen:        NewEventIDGenerator(ntpClient),
 		realIP:            extractor,
 		heartbeatInterval: heartbeatInterval,
 	}
