@@ -75,12 +75,12 @@ type handler struct {
 	realIP            *utils.RealIPExtractor
 }
 
-func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, ntpClient *ntp.Client) *handler {
+func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, timeProvider ntp.TimeProvider) *handler {
 	h := handler{
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
 		storage:           s,
-		eventIDGen:        NewEventIDGenerator(ntpClient),
+		eventIDGen:        NewEventIDGenerator(timeProvider),
 		realIP:            extractor,
 		heartbeatInterval: heartbeatInterval,
 	}

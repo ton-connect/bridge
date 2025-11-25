@@ -3,16 +3,9 @@ package handlerv3
 import (
 	"math/rand"
 	"sync/atomic"
-	"time"
 
 	"github.com/ton-connect/bridge/internal/ntp"
 )
-
-// TimeProvider provides the current time in milliseconds.
-// This interface allows using either local time or NTP-synchronized time.
-type TimeProvider interface {
-	NowUnixMilli() int64
-}
 
 // EventIDGenerator generates monotonically increasing event IDs across multiple bridge instances.
 // Uses time-based ID generation with local sequence counter to ensure uniqueness and ordering.
@@ -23,28 +16,16 @@ type TimeProvider interface {
 // up to 5% of events may not be in strict monotonic sequence, which is acceptable
 // for the bridge's event ordering requirements.
 type EventIDGenerator struct {
-	counter      int64        // Local sequence counter, incremented atomically
-	offset       int64        // Random offset per instance to avoid collisions
-	timeProvider TimeProvider // Time source (local or NTP-synchronized)
-}
-
-type localTimeProvider struct{}
-
-func (l *localTimeProvider) NowUnixMilli() int64 {
-	return time.Now().UnixMilli()
+	counter      int64            // Local sequence counter, incremented atomically
+	offset       int64            // Random offset per instance to avoid collisions
+	timeProvider ntp.TimeProvider // Time source (local or NTP-synchronized)
 }
 
 // NewEventIDGenerator creates a new event ID generator with counter starting from 0.
-// If ntpClient is provided, uses NTP-synchronized time for better consistency across instances.
-// If ntpClient is nil, falls back to local system time.
-func NewEventIDGenerator(ntpClient *ntp.Client) *EventIDGenerator {
-	var timeProvider TimeProvider
-	if ntpClient != nil {
-		timeProvider = ntpClient
-	} else {
-		timeProvider = &localTimeProvider{}
-	}
-
+// The timeProvider parameter determines the time source:
+// - Use ntp.Client for NTP-synchronized time (better consistency across bridge instances)
+// - Use ntp.LocalTimeProvider for local system time (fallback when NTP is unavailable)
+func NewEventIDGenerator(timeProvider ntp.TimeProvider) *EventIDGenerator {
 	return &EventIDGenerator{
 		counter:      0,
 		offset:       rand.Int63() & 0xFFFF, // Random offset to avoid collisions between instances

@@ -13,7 +13,7 @@ type Client struct {
 	servers      []string
 	syncInterval time.Duration
 	queryTimeout time.Duration
-	offset       atomic.Int64
+	offset       atomic.Int64 // stored as nanoseconds (time.Duration)
 	lastSync     atomic.Int64
 	stopCh       chan struct{}
 	stopped      atomic.Bool
@@ -127,15 +127,14 @@ func (c *Client) trySyncWithServer(server string) bool {
 		return false
 	}
 
-	offsetMs := response.ClockOffset.Milliseconds()
-	c.offset.Store(offsetMs)
+	c.offset.Store(int64(response.ClockOffset))
 	c.lastSync.Store(time.Now().Unix())
 
 	logrus.WithFields(logrus.Fields{
-		"server":       server,
-		"offset_ms":    offsetMs,
-		"precision_ms": response.RTT.Milliseconds() / 2,
-		"rtt_ms":       response.RTT.Milliseconds(),
+		"server":    server,
+		"offset":    response.ClockOffset,
+		"precision": response.RTT / 2,
+		"rtt":       response.RTT,
 	}).Info("Successfully synchronized with NTP server")
 
 	select {
@@ -147,8 +146,8 @@ func (c *Client) trySyncWithServer(server string) bool {
 }
 
 func (c *Client) now() time.Time {
-	offsetMs := c.offset.Load()
-	return time.Now().Add(time.Duration(offsetMs) * time.Millisecond)
+	offset := time.Duration(c.offset.Load())
+	return time.Now().Add(offset)
 }
 
 func (c *Client) NowUnixMilli() int64 {

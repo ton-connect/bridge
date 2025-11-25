@@ -29,9 +29,9 @@ func main() {
 	config.LoadConfig()
 	app.InitMetrics()
 
-	var ntpClient *ntp.Client
+	var timeProvider ntp.TimeProvider
 	if config.Config.NTPEnabled {
-		ntpClient = ntp.NewClient(ntp.Options{
+		ntpClient := ntp.NewClient(ntp.Options{
 			Servers:      config.Config.NTPServers,
 			SyncInterval: time.Duration(config.Config.NTPSyncInterval) * time.Second,
 			QueryTimeout: time.Duration(config.Config.NTPQueryTimeout) * time.Second,
@@ -39,11 +39,13 @@ func main() {
 		ctx := context.Background()
 		ntpClient.Start(ctx)
 		defer ntpClient.Stop()
+		timeProvider = ntpClient
 		log.WithFields(log.Fields{
 			"servers":       config.Config.NTPServers,
 			"sync_interval": config.Config.NTPSyncInterval,
 		}).Info("NTP synchronization enabled")
 	} else {
+		timeProvider = ntp.NewLocalTimeProvider()
 		log.Info("NTP synchronization disabled, using local time")
 	}
 
@@ -136,7 +138,7 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, ntpClient)
+	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider)
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)
