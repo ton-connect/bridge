@@ -211,6 +211,7 @@ loop:
 
 			fromId := "unknown"
 			toId := msg.To
+			traceID := ""
 
 			hash := sha256.Sum256(msg.Message)
 			messageHash := hex.EncodeToString(hash[:])
@@ -218,6 +219,7 @@ loop:
 			var bridgeMsg models.BridgeMessage
 			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
 				fromId = bridgeMsg.From
+				traceID = bridgeMsg.TraceId
 				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
 				messageHash = hex.EncodeToString(contentHash[:])
 			}
@@ -227,13 +229,13 @@ loop:
 				"from":     fromId,
 				"to":       toId,
 				"event_id": msg.EventId,
-				"trace_id": bridgeMsg.TraceId,
+				"trace_id": traceID,
 			}).Debug("message sent")
 
 			if h.eventCollector != nil {
 				_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageSentEvent(
 					msg.To,
-					bridgeMsg.TraceId,
+					traceID,
 					msg.EventId,
 					messageHash,
 				))
@@ -390,7 +392,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"from":     fromId,
 		"to":       toId[0],
 		"event_id": sseMessage.EventId,
-		"trace_id": bridgeMsg.TraceId,
+		"trace_id": traceId,
 	}).Debug("message received")
 
 	if h.eventCollector != nil {

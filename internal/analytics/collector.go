@@ -57,6 +57,15 @@ func (c *Collector) Run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
+			logrus.WithField("prefix", "analytics").Debug("analytics collector stopping, performing final flush")
+			events := c.collector.PopAll()
+			if len(events) > 0 {
+				logrus.WithField("prefix", "analytics").Debugf("final flush: sending %d events from collector", len(events))
+				// Use background context for final flush since original context is done
+				if err := c.sender.SendBatch(context.Background(), events); err != nil {
+					logrus.WithError(err).Warnf("analytics: failed to send final batch of %d events", len(events))
+				}
+			}
 			logrus.WithField("prefix", "analytics").Debug("analytics collector stopped")
 			return
 		case <-c.collector.Notify():

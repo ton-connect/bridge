@@ -207,8 +207,12 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 
 		// Parse the message, add BridgeConnectSource, keep it for later logging
 		var bridgeMsg models.BridgeMessage
+		fromID := "unknown"
+		traceID := ""
 		messageToSend := msg.Message
 		if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+			fromID = bridgeMsg.From
+			traceID = bridgeMsg.TraceId
 			bridgeMsg.BridgeConnectSource = models.BridgeConnectSource{
 				IP: connectIP,
 			}
@@ -236,16 +240,16 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 
 			logrus.WithFields(logrus.Fields{
 				"hash":     messageHash,
-				"from":     bridgeMsg.From,
+				"from":     fromID,
 				"to":       msg.To,
 				"event_id": msg.EventId,
-				"trace_id": bridgeMsg.TraceId,
+				"trace_id": traceID,
 			}).Debug("message sent")
 
 			if h.eventCollector != nil {
 				_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageSentEvent(
 					msg.To,
-					bridgeMsg.TraceId,
+					traceID,
 					msg.EventId,
 					messageHash,
 				))
@@ -448,7 +452,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"from":     fromId,
 		"to":       toId[0],
 		"event_id": sseMessage.EventId,
-		"trace_id": bridgeMsg.TraceId,
+		"trace_id": traceId,
 	}).Debug("message received")
 
 	if h.eventCollector != nil {
