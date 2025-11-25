@@ -104,10 +104,10 @@ func (a *AnalyticEventBuilder) NewBridgeMessageSentEvent(clientID, traceID strin
 	}
 }
 
-// NewBridgeMessageReceivedEvent builds a bridge message received event (wallet-connect-request-received).
+// NewBridgeMessageReceivedEvent builds a bridge message received event.
 func (a *AnalyticEventBuilder) NewBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) tonmetrics.BridgeMessageReceivedEvent {
 	timestamp := int(time.Now().Unix())
-	eventName := tonmetrics.BridgeMessageReceivedEventEventNameWalletConnectRequestReceived
+	eventName := tonmetrics.BridgeMessageReceivedEventEventNameBridgeMessageReceived
 	environment := tonmetrics.BridgeMessageReceivedEventClientEnvironment(a.environment)
 	subsystem := tonmetrics.BridgeMessageReceivedEventSubsystem(a.subsystem)
 	messageIDStr := fmt.Sprintf("%d", messageID)
