@@ -3,7 +3,7 @@ FROM golang:1.24-alpine AS builder
 WORKDIR /app
 
 # Copy the standalone mock server
-COPY docker/analytics-mock-server.go ./main.go
+COPY cmd/analytics-mock/main.go ./main.go
 
 # Build the server
 RUN go build -o analytics-mock main.go
