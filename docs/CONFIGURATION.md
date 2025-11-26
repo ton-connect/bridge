@@ -57,9 +57,9 @@ TODO where to read more about it?
 | Variable                       |  Type  | Default | Description                                                  |
 |--------------------------------|--------|---------|--------------------------------------------------------------|
 | `TON_ANALYTICS_ENABLED`        | bool   | `false` | Enable TonConnect analytics                                  |
-| `TON_ANALYTICS_URL`            | string | `https://analytics.ton.org/events` | Instance name for metrics/logging |
-| `TON_ANALYTICS_BRIDGE_VERSION` | string | `1.0.0` | Version (auto-set during build)                              |
-| `TON_ANALYTICS_BRIDGE_URL`     | string | `localhost` | Public bridge URL                                        |
+| `TON_ANALYTICS_URL`            | string | `https://analytics.ton.org/events` | TON Analytics endpoint URL |
+| `TON_ANALYTICS_BRIDGE_VERSION` | string | `1.0.0` | Bridge version for analytics tracking (auto-set during build) |
+| `TON_ANALYTICS_BRIDGE_URL`     | string | `localhost` | Public bridge URL for analytics                          |
 | `TON_ANALYTICS_NETWORK_ID`     | string | `-239`  | TON network: `-239` (mainnet), `-3` (testnet)                |
 
 ## NTP Time Synchronization
