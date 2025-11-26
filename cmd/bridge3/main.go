@@ -70,7 +70,7 @@ func main() {
 		// No URI needed for memory storage
 	}
 
-	analyticsCollector := analytics.NewRingCollector(1024, true)
+	analyticsCollector := analytics.NewRingCollector(1024)
 	collector := analytics.NewCollector(analyticsCollector, analytics.NewTonMetricsSender(tonAnalytics), 500*time.Millisecond)
 	go collector.Run(context.Background())
 
