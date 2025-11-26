@@ -70,8 +70,7 @@ func main() {
 		// No URI needed for memory storage
 	}
 
-	analyticsCollector := analytics.NewRingCollector(1024)
-	collector := analytics.NewCollector(analyticsCollector, analytics.NewTonMetricsSender(tonAnalytics), 500*time.Millisecond)
+	collector := analytics.NewCollector(1024, analytics.NewTonMetricsSender(tonAnalytics), 500*time.Millisecond)
 	go collector.Run(context.Background())
 
 	analyticsBuilder := analytics.NewEventBuilder(
@@ -82,7 +81,7 @@ func main() {
 		config.Config.TonAnalyticsNetworkId,
 	)
 
-	dbConn, err := storagev3.NewStorage(store, dbURI, analyticsCollector, analyticsBuilder)
+	dbConn, err := storagev3.NewStorage(store, dbURI, collector, analyticsBuilder)
 
 	if err != nil {
 		log.Fatalf("failed to create storage: %v", err)
@@ -153,7 +152,7 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, analyticsCollector, analyticsBuilder)
+	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, collector, analyticsBuilder)
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)

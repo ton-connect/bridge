@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-func TestRingCollector_TryAdd_Basic(t *testing.T) {
-	rc := NewRingCollector(3)
+func TestCollector_TryAdd_Basic(t *testing.T) {
+	rc := NewCollector(3, nil, 0)
 
 	// First add should succeed
 	if !rc.TryAdd("event1") {
@@ -62,8 +62,8 @@ func TestRingCollector_TryAdd_Basic(t *testing.T) {
 	}
 }
 
-func TestRingCollector_TryAdd_DropNewest(t *testing.T) {
-	rc := NewRingCollector(2)
+func TestCollector_TryAdd_DropNewest(t *testing.T) {
+	rc := NewCollector(2, nil, 0)
 
 	// Fill the buffer
 	rc.TryAdd("event1")
@@ -96,8 +96,8 @@ func TestRingCollector_TryAdd_DropNewest(t *testing.T) {
 	}
 }
 
-func TestRingCollector_ZeroCapacity(t *testing.T) {
-	rc := NewRingCollector(0)
+func TestCollector_ZeroCapacity(t *testing.T) {
+	rc := NewCollector(0, nil, 0)
 
 	// All adds should fail
 	if rc.TryAdd("event1") {
@@ -122,8 +122,8 @@ func TestRingCollector_ZeroCapacity(t *testing.T) {
 	}
 }
 
-func TestRingCollector_PopAll(t *testing.T) {
-	rc := NewRingCollector(5)
+func TestCollector_PopAll(t *testing.T) {
+	rc := NewCollector(5, nil, 0)
 
 	// Add events
 	for i := 1; i <= 5; i++ {
@@ -154,8 +154,8 @@ func TestRingCollector_PopAll(t *testing.T) {
 	}
 }
 
-func TestRingCollector_IsFull(t *testing.T) {
-	rc := NewRingCollector(2)
+func TestCollector_IsFull(t *testing.T) {
+	rc := NewCollector(2, nil, 0)
 
 	if rc.IsFull() {
 		t.Error("expected buffer not to be full initially")
@@ -178,8 +178,8 @@ func TestRingCollector_IsFull(t *testing.T) {
 	}
 }
 
-func TestRingCollector_Dropped(t *testing.T) {
-	rc := NewRingCollector(2)
+func TestCollector_Dropped(t *testing.T) {
+	rc := NewCollector(2, nil, 0)
 
 	if rc.Dropped() != 0 {
 		t.Errorf("expected initial dropped count 0, got %d", rc.Dropped())
@@ -201,8 +201,8 @@ func TestRingCollector_Dropped(t *testing.T) {
 	}
 }
 
-func TestRingCollector_Concurrent(t *testing.T) {
-	rc := NewRingCollector(1000)
+func TestCollector_Concurrent(t *testing.T) {
+	rc := NewCollector(1000, nil, 0)
 	var wg sync.WaitGroup
 
 	// Spawn multiple goroutines to add events
@@ -232,8 +232,8 @@ func TestRingCollector_Concurrent(t *testing.T) {
 	}
 }
 
-func TestRingCollector_ConcurrentPopAndAdd(t *testing.T) {
-	rc := NewRingCollector(100)
+func TestCollector_ConcurrentPopAndAdd(t *testing.T) {
+	rc := NewCollector(100, nil, 0)
 	var wg sync.WaitGroup
 
 	// Goroutine adding events

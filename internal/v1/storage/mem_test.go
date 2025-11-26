@@ -66,7 +66,7 @@ func TestStorage(t *testing.T) {
 	builder := analytics.NewEventBuilder("http://test", "test", "bridge", "1.0.0", "-239")
 	s := &MemStorage{
 		db:           map[string][]message{},
-		analytics:    analytics.NewRingCollector(10),
+		analytics:    analytics.NewCollector(10, nil, 0),
 		eventBuilder: builder,
 	}
 	_ = s.Add(context.Background(), models.SseMessage{EventId: 1, To: "1"}, 2)
@@ -153,7 +153,7 @@ func TestStorage_watcher(t *testing.T) {
 			builder := analytics.NewEventBuilder("http://test", "test", "bridge", "1.0.0", "-239")
 			s := &MemStorage{
 				db:           tt.db,
-				analytics:    analytics.NewRingCollector(10),
+				analytics:    analytics.NewCollector(10, nil, 0),
 				eventBuilder: builder,
 			}
 			go s.watcher()
