@@ -106,7 +106,7 @@ func TestMemStorage_watcher(t *testing.T) {
 			builder := analytics.NewEventBuilder("http://test", "test", "bridge", "1.0.0", "-239")
 			s := &MemStorage{
 				db:           tt.db,
-				analytics:    analytics.NewRingCollector(10, false),
+				analytics:    analytics.NewRingCollector(10),
 				eventBuilder: builder,
 			}
 			go s.watcher()
@@ -123,7 +123,7 @@ func TestMemStorage_watcher(t *testing.T) {
 
 func TestMemStorage_PubSub(t *testing.T) {
 	builder := analytics.NewEventBuilder(config.Config.TonAnalyticsBridgeURL, "bridge", "bridge", config.Config.TonAnalyticsBridgeVersion, config.Config.TonAnalyticsNetworkId)
-	s := NewMemStorage(analytics.NewRingCollector(10, false), builder)
+	s := NewMemStorage(analytics.NewRingCollector(10), builder)
 
 	// Create channels to receive messages
 	ch1 := make(chan models.SseMessage, 10)
@@ -205,7 +205,7 @@ func TestMemStorage_PubSub(t *testing.T) {
 
 func TestMemStorage_LastEventId(t *testing.T) {
 	builder := analytics.NewEventBuilder(config.Config.TonAnalyticsBridgeURL, "bridge", "bridge", config.Config.TonAnalyticsBridgeVersion, config.Config.TonAnalyticsNetworkId)
-	s := NewMemStorage(analytics.NewRingCollector(10, false), builder)
+	s := NewMemStorage(analytics.NewRingCollector(10), builder)
 
 	// Store some messages first
 	_ = s.Pub(context.Background(), models.SseMessage{EventId: 1, To: "1"}, 60)
