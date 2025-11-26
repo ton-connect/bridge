@@ -3,7 +3,8 @@ package handlerv3
 import (
 	"math/rand"
 	"sync/atomic"
-	"time"
+
+	"github.com/ton-connect/bridge/internal/ntp"
 )
 
 // EventIDGenerator generates monotonically increasing event IDs across multiple bridge instances.
@@ -15,15 +16,20 @@ import (
 // up to 5% of events may not be in strict monotonic sequence, which is acceptable
 // for the bridge's event ordering requirements.
 type EventIDGenerator struct {
-	counter int64 // Local sequence counter, incremented atomically
-	offset  int64 // Random offset per instance to avoid collisions
+	counter      int64            // Local sequence counter, incremented atomically
+	offset       int64            // Random offset per instance to avoid collisions
+	timeProvider ntp.TimeProvider // Time source (local or NTP-synchronized)
 }
 
 // NewEventIDGenerator creates a new event ID generator with counter starting from 0.
-func NewEventIDGenerator() *EventIDGenerator {
+// The timeProvider parameter determines the time source:
+// - Use ntp.Client for NTP-synchronized time (better consistency across bridge instances)
+// - Use ntp.LocalTimeProvider for local system time (fallback when NTP is unavailable)
+func NewEventIDGenerator(timeProvider ntp.TimeProvider) *EventIDGenerator {
 	return &EventIDGenerator{
-		counter: 0,
-		offset:  rand.Int63() & 0xFFFF, // Random offset to avoid collisions between instances
+		counter:      0,
+		offset:       rand.Int63() & 0xFFFF, // Random offset to avoid collisions between instances
+		timeProvider: timeProvider,
 	}
 }
 
@@ -39,7 +45,7 @@ func NewEventIDGenerator() *EventIDGenerator {
 // - Unique IDs even with high event rates (65K events/ms per instance)
 // - Works well with SSE last_event_id for client reconnection
 func (g *EventIDGenerator) NextID() int64 {
-	timestamp := time.Now().UnixMilli()
+	timestamp := g.timeProvider.NowUnixMilli()
 	counter := atomic.AddInt64(&g.counter, 1)
 	return (timestamp << 16) | ((counter + g.offset) & 0xFFFF)
 }

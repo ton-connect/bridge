@@ -3,10 +3,12 @@ package handlerv3
 import (
 	"sync"
 	"testing"
+
+	"github.com/ton-connect/bridge/internal/ntp"
 )
 
 func TestEventIDGenerator_NextID(t *testing.T) {
-	gen := NewEventIDGenerator()
+	gen := NewEventIDGenerator(ntp.NewLocalTimeProvider())
 
 	id1 := gen.NextID()
 	id2 := gen.NextID()
@@ -20,8 +22,8 @@ func TestEventIDGenerator_NextID(t *testing.T) {
 }
 
 func TestEventIDGenerator_RandomOffset(t *testing.T) {
-	gen1 := NewEventIDGenerator()
-	gen2 := NewEventIDGenerator()
+	gen1 := NewEventIDGenerator(ntp.NewLocalTimeProvider())
+	gen2 := NewEventIDGenerator(ntp.NewLocalTimeProvider())
 
 	// Generators should have different offsets
 	if gen1.offset == gen2.offset {
@@ -38,7 +40,7 @@ func TestEventIDGenerator_RandomOffset(t *testing.T) {
 }
 
 func TestEventIDGenerator_SingleGenerators_Ordering(t *testing.T) {
-	gen := NewEventIDGenerator()
+	gen := NewEventIDGenerator(ntp.NewLocalTimeProvider())
 	const numIDs = 1000
 
 	idsChan := make(chan int64, numIDs)
