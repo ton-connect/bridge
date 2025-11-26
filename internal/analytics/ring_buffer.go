@@ -1,6 +1,9 @@
 package analytics
 
-import "sync"
+import (
+	"sync"
+	"sync/atomic"
+)
 
 // EventCollector is a non-blocking analytics producer API.
 type EventCollector interface {
@@ -14,7 +17,7 @@ type RingCollector struct {
 	mu       sync.Mutex
 	events   []interface{}
 	capacity int
-	dropped  uint64
+	dropped  atomic.Uint64
 }
 
 // NewRingCollector builds a simple analytics collector with a capped slice.
@@ -32,7 +35,7 @@ func (c *RingCollector) TryAdd(event interface{}) bool {
 	defer c.mu.Unlock()
 
 	if len(c.events) >= c.capacity {
-		c.dropped++
+		c.dropped.Add(1)
 		return false
 	}
 
@@ -57,9 +60,7 @@ func (c *RingCollector) PopAll() []interface{} {
 
 // Dropped returns the number of events that were dropped due to buffer being full.
 func (c *RingCollector) Dropped() uint64 {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.dropped
+	return c.dropped.Load()
 }
 
 // IsFull returns true if the buffer is at capacity.
