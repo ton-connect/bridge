@@ -14,7 +14,7 @@ import (
 
 // AnalyticsClient defines the interface for analytics clients
 type AnalyticsClient interface {
-	SendBatch(ctx context.Context, events []interface{})
+	SendBatch(ctx context.Context, events []interface{}) error
 }
 
 // TonMetricsClient handles sending analytics events
@@ -49,13 +49,13 @@ func NewAnalyticsClient() AnalyticsClient {
 }
 
 // SendBatch sends a batch of events to the analytics endpoint in a single HTTP request.
-func (a *TonMetricsClient) SendBatch(ctx context.Context, events []interface{}) {
-	a.send(ctx, events, a.analyticsURL, "analytics")
+func (a *TonMetricsClient) SendBatch(ctx context.Context, events []interface{}) error {
+	return a.send(ctx, events, a.analyticsURL, "analytics")
 }
 
-func (a *TonMetricsClient) send(ctx context.Context, events []interface{}, endpoint string, prefix string) {
+func (a *TonMetricsClient) send(ctx context.Context, events []interface{}, endpoint string, prefix string) error {
 	if len(events) == 0 {
-		return
+		return nil
 	}
 
 	log := logrus.WithField("prefix", prefix)
@@ -64,16 +64,14 @@ func (a *TonMetricsClient) send(ctx context.Context, events []interface{}, endpo
 
 	analyticsData, err := json.Marshal(events)
 	if err != nil {
-		log.Errorf("failed to marshal analytics batch: %v", err)
-		return
+		return fmt.Errorf("failed to marshal analytics batch: %w", err)
 	}
 
 	log.Debugf("marshaled analytics data size: %d bytes", len(analyticsData))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(analyticsData))
 	if err != nil {
-		log.Errorf("failed to create analytics request: %v", err)
-		return
+		return fmt.Errorf("failed to create analytics request: %w", err)
 	}
 
 	req.Header.Set("Content-Type", "application/json")
@@ -83,8 +81,7 @@ func (a *TonMetricsClient) send(ctx context.Context, events []interface{}, endpo
 
 	resp, err := a.client.Do(req)
 	if err != nil {
-		log.Errorf("failed to send analytics batch: %v", err)
-		return
+		return fmt.Errorf("failed to send analytics batch: %w", err)
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
@@ -93,11 +90,11 @@ func (a *TonMetricsClient) send(ctx context.Context, events []interface{}, endpo
 	}()
 
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		log.Warnf("analytics batch request to %s returned status %d", endpoint, resp.StatusCode)
-		return
+		return fmt.Errorf("analytics batch request to %s returned status %d", endpoint, resp.StatusCode)
 	}
 
 	log.Debugf("analytics batch of %d events sent successfully with status %d", len(events), resp.StatusCode)
+	return nil
 }
 
 // NoopMetricsClient forwards analytics to a mock endpoint when analytics are disabled.
@@ -115,14 +112,6 @@ func NewNoopMetricsClient(mockURL string) *NoopMetricsClient {
 }
 
 // SendBatch forwards analytics to the configured mock endpoint to aid testing.
-func (n *NoopMetricsClient) SendBatch(ctx context.Context, events []interface{}) {
-	if n.mockURL == "" {
-		logrus.WithField("prefix", "analytics").Debug("analytics disabled and no mock URL configured, skipping send")
-		return
-	}
-	if len(events) == 0 {
-		return
-	}
-	logrus.WithField("prefix", "analytics").Debugf("analytics disabled, forwarding batch to mock server at %s", n.mockURL)
-	(&TonMetricsClient{client: n.client}).send(ctx, events, n.mockURL, "analytics-mock")
+func (n *NoopMetricsClient) SendBatch(ctx context.Context, events []interface{}) error {
+	return nil
 }

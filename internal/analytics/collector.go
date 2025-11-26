@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/sirupsen/logrus"
+	"github.com/ton-connect/bridge/tonmetrics"
 )
 
 // EventCollector is a non-blocking analytics producer API.
@@ -25,16 +26,16 @@ type Collector struct {
 	dropped  atomic.Uint64
 
 	// Sender fields
-	sender        AnalyticSender
+	sender        tonmetrics.AnalyticsClient
 	flushInterval time.Duration
 }
 
 // NewCollector builds a collector with a periodic flush.
-func NewCollector(capacity int, analyticsSender AnalyticSender, flushInterval time.Duration) *Collector {
+func NewCollector(capacity int, client tonmetrics.AnalyticsClient, flushInterval time.Duration) *Collector {
 	return &Collector{
 		events:        make([]interface{}, 0, capacity),
 		capacity:      capacity,
-		sender:        analyticsSender,
+		sender:        client,
 		flushInterval: flushInterval,
 	}
 }
