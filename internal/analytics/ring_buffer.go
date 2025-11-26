@@ -15,7 +15,6 @@ type RingCollector struct {
 	events   []interface{}
 	capacity int
 	dropped  uint64
-	notify   chan struct{}
 }
 
 // NewRingCollector builds a simple analytics collector with a capped slice.
@@ -24,7 +23,6 @@ func NewRingCollector(capacity int) *RingCollector {
 	return &RingCollector{
 		events:   make([]interface{}, 0, capacity),
 		capacity: capacity,
-		notify:   make(chan struct{}, 1),
 	}
 }
 
@@ -39,21 +37,6 @@ func (c *RingCollector) TryAdd(event interface{}) bool {
 	}
 
 	c.events = append(c.events, event)
-
-	// Signal that buffer is getting full or has new data
-	if len(c.events) >= c.capacity {
-		// Buffer is full, notify immediately for flush
-		select {
-		case c.notify <- struct{}{}:
-		default:
-		}
-	} else {
-		// Buffer has space, notify for timer-based flush
-		select {
-		case c.notify <- struct{}{}:
-		default:
-		}
-	}
 
 	return true
 }
@@ -70,11 +53,6 @@ func (c *RingCollector) PopAll() []interface{} {
 	result := c.events
 	c.events = make([]interface{}, 0, c.capacity)
 	return result
-}
-
-// Notify returns a channel signaled when new events arrive.
-func (c *RingCollector) Notify() <-chan struct{} {
-	return c.notify
 }
 
 // Dropped returns the number of events that were dropped due to buffer being full.

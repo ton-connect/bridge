@@ -154,35 +154,6 @@ func TestRingCollector_PopAll(t *testing.T) {
 	}
 }
 
-func TestRingCollector_Notify(t *testing.T) {
-	rc := NewRingCollector(5)
-
-	// Add event and check notification
-	rc.TryAdd("event1")
-
-	select {
-	case <-rc.Notify():
-		// Good, we got notified
-	default:
-		t.Error("expected notification after add")
-	}
-
-	// Drain notification channel
-	for len(rc.Notify()) > 0 {
-		<-rc.Notify()
-	}
-
-	// Add another event
-	rc.TryAdd("event2")
-
-	select {
-	case <-rc.Notify():
-		// Good, we got notified
-	default:
-		t.Error("expected notification after second add")
-	}
-}
-
 func TestRingCollector_IsFull(t *testing.T) {
 	rc := NewRingCollector(2)
 

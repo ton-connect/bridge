@@ -68,8 +68,6 @@ func (c *Collector) Run(ctx context.Context) {
 			}
 			logrus.WithField("prefix", "analytics").Debug("analytics collector stopped")
 			return
-		case <-c.collector.Notify():
-			logrus.WithField("prefix", "analytics").Debug("analytics collector notified")
 		case <-ticker.C:
 			logrus.WithField("prefix", "analytics").Debug("analytics collector ticker fired")
 		}
