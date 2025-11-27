@@ -72,8 +72,7 @@ TON Connect Bridge uses pub/sub architecture to synchronize state across multipl
 - Redis 7.0+ (or Valkey, or any Redis-compatible database) for production deployments
 
 **Redis Deployment Options:**
-- Single-node Redis (small deployments)
-- Redis Cluster (high availability and scale)
+- Redis Cluster (required for Bridge v3 - high availability and scale)
 - Managed services: AWS ElastiCache, GCP Memorystore, Azure Cache for Redis
 
 **Bridge Instances:**
@@ -83,9 +82,9 @@ TON Connect Bridge uses pub/sub architecture to synchronize state across multipl
 
 ## Storage Options
 
-Bridge supports:
+Bridge v3 supports:
 
-- **Redis/Valkey** (recommended for production) - Full pub/sub support, horizontal scaling
-- **Memory** (development/testing) - No persistence, single instance only
+- **Redis/Valkey Cluster** (required for production) - Full pub/sub support, horizontal scaling
+- **Memory** (development/testing only) - No persistence, single instance only
 
-For production deployments, **always use Redis or Valkey** to enable high availability.
+For production deployments, **always use Redis or Valkey in cluster mode** to enable high availability.
