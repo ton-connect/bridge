@@ -350,6 +350,9 @@ func TestBridgeProvider_ReconnectToAnotherWalletAndReceive(t *testing.T) {
 		}
 	}()
 
+	// Give the server-side subscription time to be established
+	time.Sleep(100 * time.Millisecond)
+
 	// send to wallet1
 	if err := app.Send(context.Background(),
 		JSONRPC{Method: "sendTransaction", Params: []string{"abc"}, ID: "1"},
