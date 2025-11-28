@@ -17,7 +17,6 @@ type EventBuilder interface {
 	NewBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) tonmetrics.BridgeMessageReceivedEvent
 	NewBridgeMessageExpiredEvent(clientID, traceID string, messageID int64, messageHash string) tonmetrics.BridgeMessageExpiredEvent
 	NewBridgeMessageValidationFailedEvent(clientID, traceID, requestType, messageHash string) tonmetrics.BridgeMessageValidationFailedEvent
-	NewBridgeRequestSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) tonmetrics.BridgeRequestSentEvent
 	NewBridgeVerifyEvent(clientID, verificationResult string) tonmetrics.BridgeVerifyEvent
 	NewBridgeVerifyValidationFailedEvent(clientID, traceID string, errorCode int, errorMessage string) tonmetrics.BridgeVerifyValidationFailedEvent
 }
@@ -113,17 +112,18 @@ func (a *AnalyticEventBuilder) NewBridgeMessageReceivedEvent(clientID, traceID, 
 	messageIDStr := fmt.Sprintf("%d", messageID)
 
 	event := tonmetrics.BridgeMessageReceivedEvent{
-		BridgeUrl:         &a.bridgeURL,
-		ClientEnvironment: &environment,
-		ClientId:          &clientID,
-		ClientTimestamp:   &timestamp,
-		EventId:           newAnalyticsEventID(),
-		EventName:         &eventName,
-		MessageId:         &messageIDStr,
-		NetworkId:         &a.networkId,
-		Subsystem:         &subsystem,
-		TraceId:           optionalString(traceID),
-		Version:           &a.version,
+		BridgeUrl:            &a.bridgeURL,
+		ClientEnvironment:    &environment,
+		ClientId:             &clientID,
+		ClientTimestamp:      &timestamp,
+		EventId:              newAnalyticsEventID(),
+		EventName:            &eventName,
+		MessageId:            &messageIDStr,
+		EncryptedMessageHash: &messageHash,
+		NetworkId:            &a.networkId,
+		Subsystem:            &subsystem,
+		TraceId:              optionalString(traceID),
+		Version:              &a.version,
 	}
 	if requestType != "" {
 		event.RequestType = &requestType
@@ -178,36 +178,6 @@ func (a *AnalyticEventBuilder) NewBridgeMessageValidationFailedEvent(clientID, t
 	if requestType != "" {
 		event.RequestType = &requestType
 	}
-	return event
-}
-
-// NewBridgeRequestSentEvent builds a bridge-client-message-sent event.
-func (a *AnalyticEventBuilder) NewBridgeRequestSentEvent(clientID, traceID, requestType string, messageID int64, messageHash string) tonmetrics.BridgeRequestSentEvent {
-	timestamp := int(time.Now().Unix())
-	eventName := tonmetrics.BridgeRequestSentEventEventNameBridgeClientMessageSent
-	environment := tonmetrics.BridgeRequestSentEventClientEnvironment(a.environment)
-	subsystem := tonmetrics.BridgeRequestSentEventSubsystem(a.subsystem)
-	messageIDStr := fmt.Sprintf("%d", messageID)
-
-	event := tonmetrics.BridgeRequestSentEvent{
-		BridgeUrl:            &a.bridgeURL,
-		ClientEnvironment:    &environment,
-		ClientId:             &clientID,
-		ClientTimestamp:      &timestamp,
-		EncryptedMessageHash: &messageHash,
-		EventId:              newAnalyticsEventID(),
-		EventName:            &eventName,
-		MessageId:            &messageIDStr,
-		NetworkId:            &a.networkId,
-		Subsystem:            &subsystem,
-		TraceId:              optionalString(traceID),
-		Version:              &a.version,
-	}
-
-	if requestType != "" {
-		event.RequestType = &requestType
-	}
-
 	return event
 }
 
