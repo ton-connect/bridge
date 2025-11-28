@@ -16,7 +16,6 @@ import (
 
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -112,6 +111,9 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().Flush()
 	params := c.QueryParams()
 
+	traceIdParam, ok := params["trace_id"]
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam[0], ok)
+
 	heartbeatType := "legacy"
 	if heartbeatParam, exists := params["heartbeat"]; exists && len(heartbeatParam) > 0 {
 		heartbeatType = heartbeatParam[0]
@@ -122,7 +124,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "invalid heartbeat type. Supported: legacy and message"
 		log.Error(errorMsg)
-		h.logEventRegistrationValidationFailure("", "events/heartbeat")
+		h.logEventRegistrationValidationFailure("", traceId, "events/heartbeat")
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -135,7 +137,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "Last-Event-ID should be int"
 			log.Error(errorMsg)
-			h.logEventRegistrationValidationFailure("", "events/last-event-id-header")
+			h.logEventRegistrationValidationFailure("", traceId, "events/last-event-id-header")
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -146,7 +148,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
 			log.Error(errorMsg)
-			h.logEventRegistrationValidationFailure("", "events/last-event-id-query")
+			h.logEventRegistrationValidationFailure("", traceId, "events/last-event-id-query")
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -155,14 +157,14 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		h.logEventRegistrationValidationFailure("", "events/missing-client-id")
+		h.logEventRegistrationValidationFailure("", traceId, "events/missing-client-id")
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
 	clientIds := strings.Split(clientId[0], ",")
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
 
-	session := h.CreateSession(clientIds, lastEventId)
+	session := h.CreateSession(clientIds, lastEventId, traceId)
 
 	// Track connection for verification
 	if len(clientIds) > 0 {
@@ -188,7 +190,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	go func() {
 		<-notify
 		session.Close()
-		h.removeConnection(session)
+		h.removeConnection(session, traceId)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
 	}()
 	ticker := time.NewTicker(h.heartbeatInterval)
@@ -260,12 +262,16 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	log := logrus.WithContext(ctx).WithField("prefix", "SendMessageHandler")
 
 	params := c.QueryParams()
+
+	traceIdParam, ok := params["trace_id"]
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam[0], ok)
+
 	clientIdValues, ok := params["client_id"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		return h.failValidation(c, errorMsg, "", "", "", "")
+		return h.failValidation(c, errorMsg, "", traceId, "", "")
 	}
 	clientID := clientIdValues[0]
 
@@ -274,7 +280,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
 		log.Error(errorMsg)
-		return h.failValidation(c, errorMsg, clientID, "", "", "")
+		return h.failValidation(c, errorMsg, clientID, traceId, "", "")
 	}
 
 	ttlParam, ok := params["ttl"]
@@ -282,25 +288,25 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
 		log.Error(errorMsg)
-		return h.failValidation(c, errorMsg, clientID, "", "", "")
+		return h.failValidation(c, errorMsg, clientID, traceId, "", "")
 	}
 	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return h.failValidation(c, err.Error(), clientID, "", "", "")
+		return h.failValidation(c, err.Error(), clientID, traceId, "", "")
 	}
 	if ttl > 300 { // TODO: config MaxTTL value
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" too high"
 		log.Error(errorMsg)
-		return h.failValidation(c, errorMsg, clientID, "", "", "")
+		return h.failValidation(c, errorMsg, clientID, traceId, "", "")
 	}
 	message, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return h.failValidation(c, err.Error(), clientID, "", "", "")
+		return h.failValidation(c, err.Error(), clientID, traceId, "", "")
 	}
 
 	if config.Config.CopyToURL != "" {
@@ -324,28 +330,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		go func(clientID, topic, message string) {
 			handler_common.SendWebhook(clientID, handler_common.WebhookData{Topic: topic, Hash: message})
 		}(clientID, topic, string(message))
-	}
-
-	traceIdParam, ok := params["trace_id"]
-	traceId := "unknown"
-	if ok {
-		uuids, err := uuid.Parse(traceIdParam[0])
-		if err != nil {
-			log.WithFields(logrus.Fields{
-				"error":            err,
-				"invalid_trace_id": traceIdParam[0],
-			}).Warn("generating a new trace_id")
-		} else {
-			traceId = uuids.String()
-		}
-	}
-	if traceId == "unknown" {
-		uuids, err := uuid.NewV7()
-		if err != nil {
-			log.Error(err)
-		} else {
-			traceId = uuids.String()
-		}
 	}
 
 	mes, err := json.Marshal(models.BridgeMessage{
@@ -431,13 +415,16 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
+	traceIdParam, ok := paramsStore.Get("trace_id")
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam, ok)
+
 	clientId, ok := paramsStore.Get("client_id")
 	if !ok {
 		badRequestMetric.Inc()
 		if h.eventCollector != nil {
 			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				"",
-				"",
+				traceId,
 				http.StatusBadRequest,
 				"param \"client_id\" not present",
 			))
@@ -450,7 +437,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		if h.eventCollector != nil {
 			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				clientId,
-				"",
+				traceId,
 				http.StatusBadRequest,
 				"param \"url\" not present",
 			))
@@ -474,7 +461,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 			if h.eventCollector != nil {
 				_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 					clientId,
-					"",
+					traceId,
 					http.StatusInternalServerError,
 					err.Error(),
 				))
@@ -482,7 +469,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 			return c.JSON(utils.HttpResError(err.Error(), http.StatusInternalServerError))
 		}
 		if h.eventCollector != nil {
-			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyEvent(clientId, status))
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyEvent(clientId, traceId, status))
 		}
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
@@ -490,7 +477,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		if h.eventCollector != nil {
 			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				clientId,
-				"",
+				traceId,
 				http.StatusBadRequest,
 				"param \"type\" must be: connect",
 			))
@@ -499,7 +486,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	}
 }
 
-func (h *handler) removeConnection(ses *Session) {
+func (h *handler) removeConnection(ses *Session, traceID string) {
 	log := logrus.WithField("prefix", "removeConnection")
 	log.Infof("remove session: %v", ses.ClientIds)
 	for _, id := range ses.ClientIds {
@@ -527,12 +514,12 @@ func (h *handler) removeConnection(ses *Session) {
 		}
 		activeSubscriptionsMetric.Dec()
 		if h.eventCollector != nil {
-			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientUnsubscribedEvent(id))
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientUnsubscribedEvent(id, traceID))
 		}
 	}
 }
 
-func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session {
+func (h *handler) CreateSession(clientIds []string, lastEventId int64, traceID string) *Session {
 	log := logrus.WithField("prefix", "CreateSession")
 	log.Infof("make new session with ids: %v", clientIds)
 	session := NewSession(h.storage, clientIds, lastEventId)
@@ -556,19 +543,19 @@ func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session 
 
 		activeSubscriptionsMetric.Inc()
 		if h.eventCollector != nil {
-			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientSubscribedEvent(id))
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientSubscribedEvent(id, traceID))
 		}
 	}
 	return session
 }
 
-func (h *handler) logEventRegistrationValidationFailure(clientID, requestType string) {
+func (h *handler) logEventRegistrationValidationFailure(clientID, traceID, requestType string) {
 	if h.eventCollector == nil {
 		return
 	}
 	h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageValidationFailedEvent(
 		clientID,
-		"",
+		traceID,
 		requestType,
 		"",
 	))

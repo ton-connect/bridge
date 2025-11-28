@@ -17,7 +17,6 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
@@ -121,10 +120,13 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().Flush()
 
 	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
+	traceIdParam, ok := paramsStore.Get("trace_id")
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam, ok)
+
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		h.logEventRegistrationValidationFailure("", "NewParamsStorage error: ")
+		h.logEventRegistrationValidationFailure("", traceId, "NewParamsStorage error: ")
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
 
@@ -138,7 +140,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "invalid heartbeat type. Supported: legacy and message"
 		log.Error(errorMsg)
-		h.logEventRegistrationValidationFailure("", errorMsg)
+		h.logEventRegistrationValidationFailure("", traceId, errorMsg)
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -155,7 +157,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "Last-Event-ID should be int"
 			log.Error(errorMsg)
-			h.logEventRegistrationValidationFailure("", errorMsg)
+			h.logEventRegistrationValidationFailure("", traceId, errorMsg)
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -166,7 +168,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
 			log.Error(errorMsg)
-			h.logEventRegistrationValidationFailure("", errorMsg)
+			h.logEventRegistrationValidationFailure("", traceId, errorMsg)
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -175,7 +177,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		h.logEventRegistrationValidationFailure("", errorMsg)
+		h.logEventRegistrationValidationFailure("", traceId, errorMsg)
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -183,7 +185,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
 
 	connectIP := h.realIP.Extract(c.Request())
-	session := h.CreateSession(clientIds, lastEventId)
+	session := h.CreateSession(clientIds, lastEventId, traceId)
 
 	ip := h.realIP.Extract(c.Request())
 	origin := utils.ExtractOrigin(c.Request().Header.Get("Origin"))
@@ -197,7 +199,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	go func() {
 		<-notify
 		close(session.Closer)
-		h.removeConnection(session)
+		h.removeConnection(session, traceId)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
 	}()
 
@@ -268,12 +270,16 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	log := logrus.WithContext(ctx).WithField("prefix", "SendMessageHandler")
 
 	params := c.QueryParams()
+
+	traceIdParam, ok := params["trace_id"]
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam[0], ok)
+
 	clientIdValues, ok := params["client_id"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		return h.logMessageSentValidationFailure(c, errorMsg, "", "", "", "")
+		return h.logMessageSentValidationFailure(c, errorMsg, "", traceId, "", "")
 	}
 	clientID := clientIdValues[0]
 
@@ -282,7 +288,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
 		log.Error(errorMsg)
-		return h.logMessageSentValidationFailure(c, errorMsg, clientID, "", "", "")
+		return h.logMessageSentValidationFailure(c, errorMsg, clientID, traceId, "", "")
 	}
 
 	ttlParam, ok := params["ttl"]
@@ -290,25 +296,25 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
 		log.Error(errorMsg)
-		return h.logMessageSentValidationFailure(c, errorMsg, clientID, "", "", "")
+		return h.logMessageSentValidationFailure(c, errorMsg, clientID, traceId, "", "")
 	}
 	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return h.logMessageSentValidationFailure(c, err.Error(), clientID, "", "", "")
+		return h.logMessageSentValidationFailure(c, err.Error(), clientID, traceId, "", "")
 	}
 	if ttl > 300 { // TODO: config
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" too high"
 		log.Error(errorMsg)
-		return h.logMessageSentValidationFailure(c, errorMsg, clientID, "", "", "")
+		return h.logMessageSentValidationFailure(c, errorMsg, clientID, traceId, "", "")
 	}
 	message, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return h.logMessageSentValidationFailure(c, err.Error(), clientID, "", "", "")
+		return h.logMessageSentValidationFailure(c, err.Error(), clientID, traceId, "", "")
 	}
 
 	data := append(message, []byte(clientID)...)
@@ -341,27 +347,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}(clientID, topic, string(message))
 	}
 
-	traceIdParam, ok := params["trace_id"]
-	traceId := "unknown"
-	if ok {
-		uuids, err := uuid.Parse(traceIdParam[0])
-		if err != nil {
-			log.WithFields(logrus.Fields{
-				"error":            err,
-				"invalid_trace_id": traceIdParam[0],
-			}).Warn("generating a new trace_id")
-		} else {
-			traceId = uuids.String()
-		}
-	}
-	if traceId == "unknown" {
-		uuids, err := uuid.NewV7()
-		if err != nil {
-			log.Error(err)
-		} else {
-			traceId = uuids.String()
-		}
-	}
 	var requestSource string
 	noRequestSourceParam, ok := params["no_request_source"]
 	enableRequestSource := !ok || len(noRequestSourceParam) == 0 || strings.ToLower(noRequestSourceParam[0]) != "true"
@@ -474,12 +459,14 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	ip := h.realIP.Extract(c.Request())
 
 	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
+	traceIdParam, ok := paramsStore.Get("trace_id")
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam, ok)
 	if err != nil {
 		badRequestMetric.Inc()
 		if h.eventCollector != nil {
 			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				"",
-				"",
+				traceId,
 				http.StatusBadRequest,
 				err.Error(),
 			))
@@ -493,7 +480,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		if h.eventCollector != nil {
 			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				"",
-				"",
+				traceId,
 				http.StatusBadRequest,
 				"param \"client_id\" not present",
 			))
@@ -506,7 +493,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		if h.eventCollector != nil {
 			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				clientId,
-				"",
+				traceId,
 				http.StatusBadRequest,
 				"param \"url\" not present",
 			))
@@ -522,7 +509,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	case "connect":
 		status := h.connectionCache.Verify(clientId, ip, utils.ExtractOrigin(url))
 		if h.eventCollector != nil {
-			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyEvent(clientId, status))
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyEvent(clientId, traceId, status))
 		}
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
@@ -530,7 +517,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		if h.eventCollector != nil {
 			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				clientId,
-				"",
+				traceId,
 				http.StatusBadRequest,
 				"param \"type\" must be one of: connect, message",
 			))
@@ -539,7 +526,7 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	}
 }
 
-func (h *handler) removeConnection(ses *Session) {
+func (h *handler) removeConnection(ses *Session, traceID string) {
 	log := logrus.WithField("prefix", "removeConnection")
 	log.Infof("remove session: %v", ses.ClientIds)
 	for _, id := range ses.ClientIds {
@@ -567,12 +554,12 @@ func (h *handler) removeConnection(ses *Session) {
 		}
 		activeSubscriptionsMetric.Dec()
 		if h.eventCollector != nil {
-			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientUnsubscribedEvent(id))
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientUnsubscribedEvent(id, traceID))
 		}
 	}
 }
 
-func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session {
+func (h *handler) CreateSession(clientIds []string, lastEventId int64, traceId string) *Session {
 	log := logrus.WithField("prefix", "CreateSession")
 	log.Infof("make new session with ids: %v", clientIds)
 	session := NewSession(h.storage, clientIds, lastEventId)
@@ -596,7 +583,7 @@ func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session 
 
 		activeSubscriptionsMetric.Inc()
 		if h.eventCollector != nil {
-			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientSubscribedEvent(id))
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientSubscribedEvent(id, traceId))
 		}
 	}
 	return session
@@ -606,13 +593,13 @@ func (h *handler) nextID() int64 {
 	return atomic.AddInt64(&h._eventIDs, 1)
 }
 
-func (h *handler) logEventRegistrationValidationFailure(clientID, errorMsg string) {
+func (h *handler) logEventRegistrationValidationFailure(clientID, traceID, errorMsg string) {
 	if h.eventCollector == nil {
 		return
 	}
 	h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageValidationFailedEvent(
 		clientID,
-		"",
+		traceID,
 		"",
 		errorMsg,
 	))

@@ -11,13 +11,13 @@ import (
 
 // EventBuilder defines methods to create various analytics events.
 type EventBuilder interface {
-	NewBridgeEventsClientSubscribedEvent(clientID string) tonmetrics.BridgeEventsClientSubscribedEvent
-	NewBridgeEventsClientUnsubscribedEvent(clientID string) tonmetrics.BridgeEventsClientUnsubscribedEvent
+	NewBridgeEventsClientSubscribedEvent(clientID, traceID string) tonmetrics.BridgeEventsClientSubscribedEvent
+	NewBridgeEventsClientUnsubscribedEvent(clientID, traceID string) tonmetrics.BridgeEventsClientUnsubscribedEvent
 	NewBridgeMessageSentEvent(clientID, traceID string, messageID int64, messageHash string) tonmetrics.BridgeMessageSentEvent
 	NewBridgeMessageReceivedEvent(clientID, traceID, requestType string, messageID int64, messageHash string) tonmetrics.BridgeMessageReceivedEvent
 	NewBridgeMessageExpiredEvent(clientID, traceID string, messageID int64, messageHash string) tonmetrics.BridgeMessageExpiredEvent
 	NewBridgeMessageValidationFailedEvent(clientID, traceID, requestType, messageHash string) tonmetrics.BridgeMessageValidationFailedEvent
-	NewBridgeVerifyEvent(clientID, verificationResult string) tonmetrics.BridgeVerifyEvent
+	NewBridgeVerifyEvent(clientID, traceID, verificationResult string) tonmetrics.BridgeVerifyEvent
 	NewBridgeVerifyValidationFailedEvent(clientID, traceID string, errorCode int, errorMessage string) tonmetrics.BridgeVerifyValidationFailedEvent
 }
 
@@ -40,7 +40,7 @@ func NewEventBuilder(bridgeURL, environment, subsystem, version, networkId strin
 }
 
 // NewBridgeEventsClientSubscribedEvent builds a bridge-events-client-subscribed event.
-func (a *AnalyticEventBuilder) NewBridgeEventsClientSubscribedEvent(clientID string) tonmetrics.BridgeEventsClientSubscribedEvent {
+func (a *AnalyticEventBuilder) NewBridgeEventsClientSubscribedEvent(clientID, traceID string) tonmetrics.BridgeEventsClientSubscribedEvent {
 	timestamp := int(time.Now().Unix())
 	eventName := tonmetrics.BridgeEventsClientSubscribedEventEventNameBridgeEventsClientSubscribed
 	environment := tonmetrics.BridgeEventsClientSubscribedEventClientEnvironment(a.environment)
@@ -50,6 +50,7 @@ func (a *AnalyticEventBuilder) NewBridgeEventsClientSubscribedEvent(clientID str
 		BridgeUrl:         &a.bridgeURL,
 		ClientEnvironment: &environment,
 		ClientId:          &clientID,
+		TraceId:           &traceID,
 		ClientTimestamp:   &timestamp,
 		EventId:           newAnalyticsEventID(),
 		EventName:         &eventName,
@@ -60,7 +61,7 @@ func (a *AnalyticEventBuilder) NewBridgeEventsClientSubscribedEvent(clientID str
 }
 
 // NewBridgeEventsClientUnsubscribedEvent builds a bridge-events-client-unsubscribed event.
-func (a *AnalyticEventBuilder) NewBridgeEventsClientUnsubscribedEvent(clientID string) tonmetrics.BridgeEventsClientUnsubscribedEvent {
+func (a *AnalyticEventBuilder) NewBridgeEventsClientUnsubscribedEvent(clientID, traceID string) tonmetrics.BridgeEventsClientUnsubscribedEvent {
 	timestamp := int(time.Now().Unix())
 	eventName := tonmetrics.BridgeEventsClientUnsubscribedEventEventNameBridgeEventsClientUnsubscribed
 	environment := tonmetrics.BridgeEventsClientUnsubscribedEventClientEnvironment(a.environment)
@@ -70,6 +71,7 @@ func (a *AnalyticEventBuilder) NewBridgeEventsClientUnsubscribedEvent(clientID s
 		BridgeUrl:         &a.bridgeURL,
 		ClientEnvironment: &environment,
 		ClientId:          &clientID,
+		TraceId:           &traceID,
 		ClientTimestamp:   &timestamp,
 		EventId:           newAnalyticsEventID(),
 		EventName:         &eventName,
@@ -182,7 +184,7 @@ func (a *AnalyticEventBuilder) NewBridgeMessageValidationFailedEvent(clientID, t
 }
 
 // NewBridgeVerifyEvent builds a bridge-verify event.
-func (a *AnalyticEventBuilder) NewBridgeVerifyEvent(clientID, verificationResult string) tonmetrics.BridgeVerifyEvent {
+func (a *AnalyticEventBuilder) NewBridgeVerifyEvent(clientID, traceID, verificationResult string) tonmetrics.BridgeVerifyEvent {
 	timestamp := int(time.Now().Unix())
 	eventName := tonmetrics.BridgeVerifyEventEventNameBridgeVerify
 	environment := tonmetrics.BridgeVerifyEventClientEnvironment(a.environment)
