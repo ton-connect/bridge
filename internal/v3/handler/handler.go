@@ -112,7 +112,11 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	params := c.QueryParams()
 
 	traceIdParam, ok := params["trace_id"]
-	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam[0], ok)
+	traceIdValue := ""
+	if ok && len(traceIdParam) > 0 {
+		traceIdValue = traceIdParam[0]
+	}
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdValue, ok && len(traceIdParam) > 0)
 
 	heartbeatType := "legacy"
 	if heartbeatParam, exists := params["heartbeat"]; exists && len(heartbeatParam) > 0 {
@@ -264,7 +268,11 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	params := c.QueryParams()
 
 	traceIdParam, ok := params["trace_id"]
-	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam[0], ok)
+	traceIdValue := ""
+	if ok && len(traceIdParam) > 0 {
+		traceIdValue = traceIdParam[0]
+	}
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdValue, ok && len(traceIdParam) > 0)
 
 	clientIdValues, ok := params["client_id"]
 	if !ok {
