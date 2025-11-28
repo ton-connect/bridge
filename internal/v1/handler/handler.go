@@ -120,15 +120,15 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().Flush()
 
 	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
-	traceIdParam, ok := paramsStore.Get("trace_id")
-	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam, ok)
-
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		h.logEventRegistrationValidationFailure("", traceId, "NewParamsStorage error: ")
+		h.logEventRegistrationValidationFailure("", "", "NewParamsStorage error: ")
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
+
+	traceIdParam, ok := paramsStore.Get("trace_id")
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam, ok)
 
 	heartbeatType := "legacy"
 	if heartbeatParam, exists := paramsStore.Get("heartbeat"); exists {
@@ -272,7 +272,11 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	params := c.QueryParams()
 
 	traceIdParam, ok := params["trace_id"]
-	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam[0], ok)
+	traceIdValue := ""
+	if ok && len(traceIdParam) > 0 {
+		traceIdValue = traceIdParam[0]
+	}
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdValue, ok && len(traceIdParam) > 0)
 
 	clientIdValues, ok := params["client_id"]
 	if !ok {
@@ -459,20 +463,21 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	ip := h.realIP.Extract(c.Request())
 
 	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
-	traceIdParam, ok := paramsStore.Get("trace_id")
-	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam, ok)
 	if err != nil {
 		badRequestMetric.Inc()
 		if h.eventCollector != nil {
 			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
 				"",
-				traceId,
+				"",
 				http.StatusBadRequest,
 				err.Error(),
 			))
 		}
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
+
+	traceIdParam, ok := paramsStore.Get("trace_id")
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam, ok)
 
 	clientId, ok := paramsStore.Get("client_id")
 	if !ok {
