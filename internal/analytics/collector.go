@@ -88,7 +88,7 @@ func (c *Collector) Len() int {
 	return len(c.events)
 }
 
-// Run starts draining until the context is canceled.
+// Run periodically flushes events until the context is canceled.
 func (c *Collector) Run(ctx context.Context) {
 	ticker := time.NewTicker(c.flushInterval)
 	defer ticker.Stop()
@@ -99,26 +99,25 @@ func (c *Collector) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			logrus.WithField("prefix", "analytics").Debug("analytics collector stopping, performing final flush")
-			events := c.PopAll()
-			if len(events) > 0 {
-				logrus.WithField("prefix", "analytics").Debugf("final flush: sending %d events from collector", len(events))
-				// Use background context for final flush since original context is done
-				if err := c.sender.SendBatch(context.Background(), events); err != nil {
-					logrus.WithError(err).Warnf("analytics: failed to send final batch of %d events", len(events))
-				}
-			}
+			// Use fresh context for final flush since ctx is already cancelled
+			flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+			c.Flush(flushCtx)
+			cancel()
 			logrus.WithField("prefix", "analytics").Debug("analytics collector stopped")
 			return
 		case <-ticker.C:
 			logrus.WithField("prefix", "analytics").Debug("analytics collector ticker fired")
+			c.Flush(ctx)
+		}
+	}
 		}
 
+func (c *Collector) Flush(ctx context.Context) {
 		events := c.PopAll()
 		if len(events) > 0 {
 			logrus.WithField("prefix", "analytics").Debugf("flushing %d events from collector", len(events))
 			if err := c.sender.SendBatch(ctx, events); err != nil {
 				logrus.WithError(err).Warnf("analytics: failed to send batch of %d events", len(events))
-			}
 		}
 	}
 }
