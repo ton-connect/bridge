@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/models"
 )
 
@@ -17,7 +18,6 @@ func newMessage(expire time.Time, i int) message {
 }
 
 func Test_removeExpiredMessages(t *testing.T) {
-
 	now := time.Now()
 	tests := []struct {
 		name string
@@ -55,7 +55,7 @@ func Test_removeExpiredMessages(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := removeExpiredMessages(tt.ms, tt.now, "test-key"); !reflect.DeepEqual(got, tt.want) {
+			if got, _ := removeExpiredMessages(tt.ms, tt.now); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("removeExpiredMessages() = %v, want %v", got, tt.want)
 			}
 		})
@@ -63,7 +63,12 @@ func Test_removeExpiredMessages(t *testing.T) {
 }
 
 func TestStorage(t *testing.T) {
-	s := &MemStorage{db: map[string][]message{}}
+	builder := analytics.NewEventBuilder("http://test", "test", "bridge", "1.0.0", "-239")
+	s := &MemStorage{
+		db:           map[string][]message{},
+		analytics:    analytics.NewCollector(10, nil, 0),
+		eventBuilder: builder,
+	}
 	_ = s.Add(context.Background(), models.SseMessage{EventId: 1, To: "1"}, 2)
 	_ = s.Add(context.Background(), models.SseMessage{EventId: 2, To: "2"}, 2)
 	_ = s.Add(context.Background(), models.SseMessage{EventId: 3, To: "2"}, 2)
@@ -145,7 +150,12 @@ func TestStorage_watcher(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &MemStorage{db: tt.db}
+			builder := analytics.NewEventBuilder("http://test", "test", "bridge", "1.0.0", "-239")
+			s := &MemStorage{
+				db:           tt.db,
+				analytics:    analytics.NewCollector(10, nil, 0),
+				eventBuilder: builder,
+			}
 			go s.watcher()
 			time.Sleep(500 * time.Millisecond)
 			s.lock.Lock()

@@ -6,6 +6,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/ton-connect/bridge/internal/analytics"
+	"github.com/ton-connect/bridge/internal/config"
 	"github.com/ton-connect/bridge/internal/models"
 )
 
@@ -55,7 +57,7 @@ func Test_removeExpiredMessages(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := removeExpiredMessages(tt.ms, tt.now, "test-key"); !reflect.DeepEqual(got, tt.want) {
+			if got, _ := removeExpiredMessages(tt.ms, tt.now); !reflect.DeepEqual(got, tt.want) {
 				t.Errorf("removeExpiredMessages() = %v, want %v", got, tt.want)
 			}
 		})
@@ -101,7 +103,12 @@ func TestMemStorage_watcher(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			s := &MemStorage{db: tt.db}
+			builder := analytics.NewEventBuilder("http://test", "test", "bridge", "1.0.0", "-239")
+			s := &MemStorage{
+				db:           tt.db,
+				analytics:    analytics.NewCollector(10, nil, 0),
+				eventBuilder: builder,
+			}
 			go s.watcher()
 			time.Sleep(500 * time.Millisecond)
 			s.lock.Lock()
@@ -115,7 +122,8 @@ func TestMemStorage_watcher(t *testing.T) {
 }
 
 func TestMemStorage_PubSub(t *testing.T) {
-	s := NewMemStorage()
+	builder := analytics.NewEventBuilder(config.Config.TonAnalyticsBridgeURL, "bridge", "bridge", config.Config.TonAnalyticsBridgeVersion, config.Config.TonAnalyticsNetworkId)
+	s := NewMemStorage(analytics.NewCollector(10, nil, 0), builder)
 
 	// Create channels to receive messages
 	ch1 := make(chan models.SseMessage, 10)
@@ -196,7 +204,8 @@ func TestMemStorage_PubSub(t *testing.T) {
 }
 
 func TestMemStorage_LastEventId(t *testing.T) {
-	s := NewMemStorage()
+	builder := analytics.NewEventBuilder(config.Config.TonAnalyticsBridgeURL, "bridge", "bridge", config.Config.TonAnalyticsBridgeVersion, config.Config.TonAnalyticsNetworkId)
+	s := NewMemStorage(analytics.NewCollector(10, nil, 0), builder)
 
 	// Store some messages first
 	_ = s.Pub(context.Background(), models.SseMessage{EventId: 1, To: "1"}, 60)
