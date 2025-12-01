@@ -37,7 +37,7 @@ func main() {
 
 	tonAnalytics := tonmetrics.NewAnalyticsClient()
 
-	collector := analytics.NewCollector(1024, tonAnalytics, 500*time.Millisecond)
+	collector := analytics.NewCollector(200, tonAnalytics, 500*time.Millisecond)
 	go collector.Run(context.Background())
 
 	analyticsBuilder := analytics.NewEventBuilder(

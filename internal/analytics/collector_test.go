@@ -221,10 +221,23 @@ func TestCollector_Concurrent(t *testing.T) {
 
 	wg.Wait()
 
-	// All events should be added
-	events := rc.PopAll()
-	if len(events) != numGoroutines*eventsPerGoroutine {
-		t.Errorf("expected %d events, got %d", numGoroutines*eventsPerGoroutine, len(events))
+	// PopAll should return at most 100 events per call when buffer has >= 100
+	// So we need to call it multiple times to drain all 1000 events
+	totalEvents := 0
+	for {
+		events := rc.PopAll()
+		if events == nil {
+			break
+		}
+		totalEvents += len(events)
+		// Each batch should be at most 100 events
+		if len(events) > 100 {
+			t.Errorf("expected at most 100 events per batch, got %d", len(events))
+		}
+	}
+
+	if totalEvents != numGoroutines*eventsPerGoroutine {
+		t.Errorf("expected %d total events, got %d", numGoroutines*eventsPerGoroutine, totalEvents)
 	}
 
 	if rc.Dropped() != 0 {
