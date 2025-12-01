@@ -2,7 +2,6 @@ package analytics
 
 import (
 	"context"
-	"sync"
 	"sync/atomic"
 	"time"
 
@@ -20,8 +19,7 @@ type EventCollector interface {
 // periodically flushes them to a backend. When buffer is full, new events are dropped.
 type Collector struct {
 	// Buffer fields
-	mu       sync.Mutex
-	events   []interface{}
+	eventCh  chan interface{}
 	capacity int
 	dropped  atomic.Uint64
 
@@ -33,7 +31,7 @@ type Collector struct {
 // NewCollector builds a collector with a periodic flush.
 func NewCollector(capacity int, client tonmetrics.AnalyticsClient, flushInterval time.Duration) *Collector {
 	return &Collector{
-		events:        make([]interface{}, 0, capacity),
+		eventCh:       make(chan interface{}, capacity),
 		capacity:      capacity,
 		sender:        client,
 		flushInterval: flushInterval,
@@ -42,31 +40,26 @@ func NewCollector(capacity int, client tonmetrics.AnalyticsClient, flushInterval
 
 // TryAdd enqueues without blocking. If full, returns false and increments drop count.
 func (c *Collector) TryAdd(event interface{}) bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if len(c.events) >= c.capacity {
+	select {
+	case c.eventCh <- event:
+		return true
+	default:
 		c.dropped.Add(1)
 		return false
 	}
-
-	c.events = append(c.events, event)
-
-	return true
 }
 
 // PopAll drains all pending events.
 func (c *Collector) PopAll() []interface{} {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	if len(c.events) == 0 {
-		return nil
+	var result []interface{}
+	for {
+		select {
+		case event := <-c.eventCh:
+			result = append(result, event)
+		default:
+			return result
+		}
 	}
-
-	result := c.events
-	c.events = make([]interface{}, 0, c.capacity)
-	return result
 }
 
 // Dropped returns the number of events that were dropped due to buffer being full.
@@ -76,16 +69,12 @@ func (c *Collector) Dropped() uint64 {
 
 // IsFull returns true if the buffer is at capacity.
 func (c *Collector) IsFull() bool {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.events) >= c.capacity
+	return len(c.eventCh) >= c.capacity
 }
 
 // Len returns the current number of events in the buffer.
 func (c *Collector) Len() int {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return len(c.events)
+	return len(c.eventCh)
 }
 
 // Run periodically flushes events until the context is canceled.
@@ -110,14 +99,14 @@ func (c *Collector) Run(ctx context.Context) {
 			c.Flush(ctx)
 		}
 	}
-		}
+}
 
 func (c *Collector) Flush(ctx context.Context) {
-		events := c.PopAll()
-		if len(events) > 0 {
-			logrus.WithField("prefix", "analytics").Debugf("flushing %d events from collector", len(events))
-			if err := c.sender.SendBatch(ctx, events); err != nil {
-				logrus.WithError(err).Warnf("analytics: failed to send batch of %d events", len(events))
+	events := c.PopAll()
+	if len(events) > 0 {
+		logrus.WithField("prefix", "analytics").Debugf("flushing %d events from collector", len(events))
+		if err := c.sender.SendBatch(ctx, events); err != nil {
+			logrus.WithError(err).Warnf("analytics: failed to send batch of %d events", len(events))
 		}
 	}
 }
