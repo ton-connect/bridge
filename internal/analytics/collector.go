@@ -50,9 +50,20 @@ func (c *Collector) TryAdd(event interface{}) bool {
 }
 
 // PopAll drains all pending events.
+// If there are 100 or more events, only reads 100 elements.
 func (c *Collector) PopAll() []interface{} {
-	var result []interface{}
-	for {
+	channelLen := len(c.eventCh)
+	if channelLen == 0 {
+		return nil
+	}
+
+	limit := channelLen
+	if channelLen >= 100 {
+		limit = 100
+	}
+
+	result := make([]interface{}, 0, limit)
+	for i := 0; i < limit; i++ {
 		select {
 		case event := <-c.eventCh:
 			result = append(result, event)
@@ -60,6 +71,7 @@ func (c *Collector) PopAll() []interface{} {
 			return result
 		}
 	}
+	return result
 }
 
 // Dropped returns the number of events that were dropped due to buffer being full.
@@ -78,9 +90,16 @@ func (c *Collector) Len() int {
 }
 
 // Run periodically flushes events until the context is canceled.
+// Flushes occur when:
+// 1. The flush interval (500ms) has elapsed and there are events
+// 2. The buffer has 100 or more events (checked every 50ms)
 func (c *Collector) Run(ctx context.Context) {
-	ticker := time.NewTicker(c.flushInterval)
-	defer ticker.Stop()
+	flushTicker := time.NewTicker(c.flushInterval)
+	defer flushTicker.Stop()
+
+	// Check buffer size more frequently for proactive flushing
+	checkTicker := time.NewTicker(50 * time.Millisecond)
+	defer checkTicker.Stop()
 
 	logrus.WithField("prefix", "analytics").Debugf("analytics collector started with flush interval %v", c.flushInterval)
 
@@ -94,9 +113,16 @@ func (c *Collector) Run(ctx context.Context) {
 			cancel()
 			logrus.WithField("prefix", "analytics").Debug("analytics collector stopped")
 			return
-		case <-ticker.C:
-			logrus.WithField("prefix", "analytics").Debug("analytics collector ticker fired")
-			c.Flush(ctx)
+		case <-flushTicker.C:
+			if c.Len() > 0 {
+				logrus.WithField("prefix", "analytics").Debug("analytics collector ticker fired")
+				c.Flush(ctx)
+			}
+		case <-checkTicker.C:
+			if c.Len() >= 100 {
+				logrus.WithField("prefix", "analytics").Debugf("analytics collector buffer reached %d events, flushing", c.Len())
+				c.Flush(ctx)
+			}
 		}
 	}
 }
