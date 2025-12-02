@@ -53,7 +53,9 @@ TON Connect Bridge uses pub/sub architecture to synchronize state across multipl
 
 **Event ID Generation:**
 - Bridge uses time-based event IDs to ensure monotonic ordering across instances
-- Format: `(timestamp_ms << 16) | local_counter` provides ~65K events per millisecond per instance
+- Format: `(timestamp_ms << 11) | local_counter` (53 bits total for JavaScript compatibility)
+- 42 bits for timestamp (supports dates up to year 2100), 11 bits for counter
+- Provides ~2K events per millisecond per instance
 
 **NTP Synchronization (Optional):**
 - When enabled, all bridge instances synchronize their clocks with NTP servers
