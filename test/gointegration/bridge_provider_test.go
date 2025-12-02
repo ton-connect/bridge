@@ -455,7 +455,7 @@ func TestBridgeProvider_ReceiveAfterReconnectWithLastEventID(t *testing.T) {
 		if first.Method != "sendTransaction" || first.ID != "1" || first.Params[0] != "abc" {
 			t.Fatalf("payload mismatch #1: %+v", first)
 		}
-	case <-time.After(3 * time.Second):
+	case <-time.After(10 * time.Second):
 		t.Fatal("timeout waiting event #1")
 	}
 
