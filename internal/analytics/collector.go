@@ -20,8 +20,11 @@ type EventCollector interface {
 type Collector struct {
 	// Buffer fields
 	eventCh  chan interface{}
-	capacity int
-	dropped  atomic.Uint64
+	notifyCh chan struct{}
+
+	capacity        int
+	triggerCapacity int
+	dropped         atomic.Uint64
 
 	// Sender fields
 	sender        tonmetrics.AnalyticsClient
@@ -30,23 +33,38 @@ type Collector struct {
 
 // NewCollector builds a collector with a periodic flush.
 func NewCollector(capacity int, client tonmetrics.AnalyticsClient, flushInterval time.Duration) *Collector {
+	triggerCapacity := capacity
+	if capacity > 10 {
+		triggerCapacity = capacity - 10
+	}
 	return &Collector{
-		eventCh:       make(chan interface{}, capacity),
-		capacity:      capacity,
-		sender:        client,
-		flushInterval: flushInterval,
+		eventCh:         make(chan interface{}, capacity), // channel for events
+		notifyCh:        make(chan struct{}, 1),           // channel to trigger flushing
+		capacity:        capacity,
+		triggerCapacity: triggerCapacity,
+		sender:          client,
+		flushInterval:   flushInterval,
 	}
 }
 
 // TryAdd enqueues without blocking. If full, returns false and increments drop count.
 func (c *Collector) TryAdd(event interface{}) bool {
+	result := false
 	select {
 	case c.eventCh <- event:
-		return true
+		result = true
 	default:
 		c.dropped.Add(1)
-		return false
+		result = false
 	}
+
+	if len(c.eventCh) >= c.triggerCapacity {
+		select {
+		case c.notifyCh <- struct{}{}:
+		default:
+		}
+	}
+	return result
 }
 
 // PopAll drains all pending events.
@@ -92,14 +110,10 @@ func (c *Collector) Len() int {
 // Run periodically flushes events until the context is canceled.
 // Flushes occur when:
 // 1. The flush interval (500ms) has elapsed and there are events
-// 2. The buffer has 100 or more events (checked every 50ms)
+// 2. The buffer has reached the trigger capacity (capacity - 10)
 func (c *Collector) Run(ctx context.Context) {
 	flushTicker := time.NewTicker(c.flushInterval)
 	defer flushTicker.Stop()
-
-	// Check buffer size more frequently for proactive flushing
-	checkTicker := time.NewTicker(50 * time.Millisecond)
-	defer checkTicker.Stop()
 
 	logrus.WithField("prefix", "analytics").Debugf("analytics collector started with flush interval %v", c.flushInterval)
 
@@ -118,11 +132,9 @@ func (c *Collector) Run(ctx context.Context) {
 				logrus.WithField("prefix", "analytics").Debug("analytics collector ticker fired")
 				c.Flush(ctx)
 			}
-		case <-checkTicker.C:
-			if c.Len() >= 100 {
-				logrus.WithField("prefix", "analytics").Debugf("analytics collector buffer reached %d events, flushing", c.Len())
-				c.Flush(ctx)
-			}
+		case <-c.notifyCh:
+			logrus.WithField("prefix", "analytics").Debugf("analytics collector buffer reached %d events, flushing", c.Len())
+			c.Flush(ctx)
 		}
 	}
 }
