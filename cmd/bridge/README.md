@@ -1,8 +1,8 @@
-# Bridge v1 (Legacy)
+# TON Connect Bridge v1 (Legacy)
 
 > **⚠️ Warning:** Bridge v1 is deprecated and will be removed in future versions. 
 > 
-> **Please use [Bridge v3](../../README.md) for all new deployments.**
+> **Please use [TON Connect Bridge v3](../../README.md) for all new deployments.**
 >
 > Bridge v1 is the original implementation of TON Connect Bridge. It was production-proven but has a fundamental limitation: **it cannot be horizontally scaled** due to its in-memory message storage architecture.
 
