@@ -1,0 +1,19 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["prometheus:9090"]
+      
+  - job_name: "valkey_exporters"
+    static_configs:
+      - targets:
+          - "redis_exporter_valkey1:9121"
+          - "redis_exporter_valkey2:9121"
+          - "redis_exporter_valkey3:9121"
