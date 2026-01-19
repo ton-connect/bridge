@@ -46,6 +46,9 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		// Shuffle initial addresses for better load distribution
 		ShuffleInit: true,
 	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create valkey pub-sub client: %w", err)
+	}
 
 	clusterClient := redis.NewClusterClient(&redis.ClusterOptions{
 		Addrs:          []string{opts.Addr},
@@ -138,9 +141,9 @@ func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl 
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	err = s.pubSubClient.Do(ctx, s.pubSubClient.B().Spublish().Channel(channel).Message(string(messageData)).Build()).Error()
-	// err = s.client.Publish(ctx, channel, messageData).Err()
-	if err != nil {
+	if err := s.pubSubClient.Do(ctx,
+		s.pubSubClient.B().Spublish().Channel(channel).Message(string(messageData)).Build(),
+	).Error(); err != nil {
 		return fmt.Errorf("failed to publish message to channel %s: %w", channel, err)
 	}
 
@@ -223,8 +226,12 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 
 	for _, channel := range channels {
 		go func(channel string) {
-			s.pubSubClient.Receive(ctx, s.pubSubClient.B().
-				Ssubscribe().Channel(channel).Build(), s.handlePubSubMessage)
+			if err := s.pubSubClient.Receive(ctx,
+				s.pubSubClient.B().Ssubscribe().Channel(channel).Build(),
+				s.handlePubSubMessage,
+			); err != nil {
+				log.Errorf("failed to subscribe to channel %s: %v", channel, err)
+			}
 		}(channel)
 	}
 
