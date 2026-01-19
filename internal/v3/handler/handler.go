@@ -16,17 +16,17 @@ import (
 
 	"time"
 
-	"github.com/google/uuid"
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
-
-	"github.com/tonkeeper/bridge/internal/config"
-	handler_common "github.com/tonkeeper/bridge/internal/handler"
-	"github.com/tonkeeper/bridge/internal/models"
-	"github.com/tonkeeper/bridge/internal/utils"
-	storagev3 "github.com/tonkeeper/bridge/internal/v3/storage"
+	"github.com/ton-connect/bridge/internal/analytics"
+	"github.com/ton-connect/bridge/internal/config"
+	handler_common "github.com/ton-connect/bridge/internal/handler"
+	"github.com/ton-connect/bridge/internal/models"
+	"github.com/ton-connect/bridge/internal/ntp"
+	"github.com/ton-connect/bridge/internal/utils"
+	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
 )
 
 var validHeartbeatTypes = map[string]string{
@@ -72,17 +72,21 @@ type handler struct {
 	eventIDGen        *EventIDGenerator
 	heartbeatInterval time.Duration
 	realIP            *utils.RealIPExtractor
+	eventCollector    analytics.EventCollector
+	eventBuilder      analytics.EventBuilder
 }
 
-func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor) *handler {
+func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, timeProvider ntp.TimeProvider, collector analytics.EventCollector, builder analytics.EventBuilder) *handler {
 	// TODO support extractor in v3
 	h := handler{
 		Mux:               sync.RWMutex{},
 		Connections:       make(map[string]*stream),
 		storage:           s,
-		eventIDGen:        NewEventIDGenerator(),
+		eventIDGen:        NewEventIDGenerator(timeProvider),
 		realIP:            extractor,
 		heartbeatInterval: heartbeatInterval,
+		eventCollector:    collector,
+		eventBuilder:      builder,
 	}
 	return &h
 }
@@ -107,6 +111,13 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().Flush()
 	params := c.QueryParams()
 
+	traceIdParam, ok := params["trace_id"]
+	traceIdValue := ""
+	if ok && len(traceIdParam) > 0 {
+		traceIdValue = traceIdParam[0]
+	}
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdValue, ok && len(traceIdParam) > 0)
+
 	heartbeatType := "legacy"
 	if heartbeatParam, exists := params["heartbeat"]; exists && len(heartbeatParam) > 0 {
 		heartbeatType = heartbeatParam[0]
@@ -117,6 +128,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "invalid heartbeat type. Supported: legacy and message"
 		log.Error(errorMsg)
+		h.logEventRegistrationValidationFailure("", traceId, "events/heartbeat")
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
 
@@ -129,6 +141,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "Last-Event-ID should be int"
 			log.Error(errorMsg)
+			h.logEventRegistrationValidationFailure("", traceId, "events/last-event-id-header")
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -139,6 +152,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
 			log.Error(errorMsg)
+			h.logEventRegistrationValidationFailure("", traceId, "events/last-event-id-query")
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
 	}
@@ -147,11 +161,23 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
+		h.logEventRegistrationValidationFailure("", traceId, "events/missing-client-id")
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
+
 	clientIds := strings.Split(clientId[0], ",")
+	for _, id := range clientIds {
+		if _, err := utils.NewPublicAddressFromString(id); err != nil {
+			badRequestMetric.Inc()
+			errMsg := fmt.Errorf("param \"client_id\" must be a valid public address, error: %w", err).Error()
+			log.Error(errMsg)
+			h.logEventRegistrationValidationFailure("", traceId, errMsg)
+			return c.JSON(utils.HttpResError(errMsg, http.StatusBadRequest))
+		}
+	}
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
-	session := h.CreateSession(clientIds, lastEventId)
+
+	session := h.CreateSession(clientIds, lastEventId, traceId)
 
 	// Track connection for verification
 	if len(clientIds) > 0 {
@@ -177,7 +203,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	go func() {
 		<-notify
 		session.Close()
-		h.removeConnection(session)
+		h.removeConnection(session, traceId)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
 	}()
 	ticker := time.NewTicker(h.heartbeatInterval)
@@ -200,6 +226,7 @@ loop:
 
 			fromId := "unknown"
 			toId := msg.To
+			traceID := ""
 
 			hash := sha256.Sum256(msg.Message)
 			messageHash := hex.EncodeToString(hash[:])
@@ -207,6 +234,7 @@ loop:
 			var bridgeMsg models.BridgeMessage
 			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
 				fromId = bridgeMsg.From
+				traceID = bridgeMsg.TraceId
 				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
 				messageHash = hex.EncodeToString(contentHash[:])
 			}
@@ -216,9 +244,17 @@ loop:
 				"from":     fromId,
 				"to":       toId,
 				"event_id": msg.EventId,
-				"trace_id": bridgeMsg.TraceId,
+				"trace_id": traceID,
 			}).Debug("message sent")
 
+			if h.eventCollector != nil {
+				_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageSentEvent(
+					msg.To,
+					traceID,
+					msg.EventId,
+					messageHash,
+				))
+			}
 			deliveredMessagesMetric.Inc()
 			storagev3.ExpiredCache.Mark(msg.EventId)
 		case <-ticker.C:
@@ -239,20 +275,44 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	log := logrus.WithContext(ctx).WithField("prefix", "SendMessageHandler")
 
 	params := c.QueryParams()
-	clientId, ok := params["client_id"]
+
+	traceIdParam, ok := params["trace_id"]
+	traceIdValue := ""
+	if ok && len(traceIdParam) > 0 {
+		traceIdValue = traceIdParam[0]
+	}
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdValue, ok && len(traceIdParam) > 0)
+
+	clientIdValues, ok := params["client_id"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
 		log.Error(errorMsg)
-		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
+		return h.failValidation(c, errorMsg, "", traceId, "", "")
 	}
 
-	toId, ok := params["to"]
+	clientID, err := utils.NewPublicAddressFromString(clientIdValues[0])
+	if err != nil {
+		err = fmt.Errorf("failed to parse the \"client_id\" address: %w", err)
+		badRequestMetric.Inc()
+		log.Error(err)
+		return h.failValidation(c, err.Error(), clientIdValues[0], traceId, "", "")
+	}
+
+	toIdValues, ok := params["to"]
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
 		log.Error(errorMsg)
-		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
+		return h.failValidation(c, errorMsg, clientID.String(), traceId, "", "")
+	}
+
+	toId, err := utils.NewPublicAddressFromString(toIdValues[0])
+	if err != nil {
+		err = fmt.Errorf("failed to parse the \"to\" address: %w", err)
+		badRequestMetric.Inc()
+		log.Error(err)
+		return h.failValidation(c, err.Error(), clientID.String(), traceId, "", "")
 	}
 
 	ttlParam, ok := params["ttl"]
@@ -260,26 +320,27 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
 		log.Error(errorMsg)
-		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
+		return h.failValidation(c, errorMsg, clientID.String(), traceId, "", "")
 	}
 	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
+		return h.failValidation(c, err.Error(), clientID.String(), traceId, "", "")
 	}
 	if ttl > 300 { // TODO: config MaxTTL value
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" too high"
 		log.Error(errorMsg)
-		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
+		return h.failValidation(c, errorMsg, clientID.String(), traceId, "", "")
 	}
 	message, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
+		return h.failValidation(c, err.Error(), clientID.String(), traceId, "", "")
 	}
+
 	if config.Config.CopyToURL != "" {
 		go func() {
 			u, err := url.Parse(config.Config.CopyToURL)
@@ -294,50 +355,30 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 			http.DefaultClient.Do(req) //nolint:errcheck// TODO review golangci-lint issue
 		}()
 	}
-	topic, ok := params["topic"]
+	topicParam, ok := params["topic"]
+	topic := ""
 	if ok {
+		topic = topicParam[0]
 		go func(clientID, topic, message string) {
 			handler_common.SendWebhook(clientID, handler_common.WebhookData{Topic: topic, Hash: message})
-		}(clientId[0], topic[0], string(message))
-	}
-
-	traceIdParam, ok := params["trace_id"]
-	traceId := "unknown"
-	if ok {
-		uuids, err := uuid.Parse(traceIdParam[0])
-		if err != nil {
-			log.WithFields(logrus.Fields{
-				"error":            err,
-				"invalid_trace_id": traceIdParam[0],
-			}).Warn("generating a new trace_id")
-		} else {
-			traceId = uuids.String()
-		}
-	}
-	if traceId == "unknown" {
-		uuids, err := uuid.NewV7()
-		if err != nil {
-			log.Error(err)
-		} else {
-			traceId = uuids.String()
-		}
+		}(clientID.String(), topic, string(message))
 	}
 
 	mes, err := json.Marshal(models.BridgeMessage{
-		From:    clientId[0],
+		From:    clientID.String(),
 		Message: string(message),
 		TraceId: traceId,
 	})
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
-		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
+		return h.failValidation(c, err.Error(), clientID.String(), traceId, topic, "")
 	}
 
 	sseMessage := models.SseMessage{
 		EventId: h.eventIDGen.NextID(),
 		Message: mes,
-		To:      toId[0],
+		To:      toId.String(),
 	}
 
 	// Send message only to storage - pub-sub will handle distribution
@@ -367,8 +408,18 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		"from":     fromId,
 		"to":       toId[0],
 		"event_id": sseMessage.EventId,
-		"trace_id": bridgeMsg.TraceId,
+		"trace_id": traceId,
 	}).Debug("message received")
+
+	if h.eventCollector != nil {
+		_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageReceivedEvent(
+			clientID.String(),
+			traceId,
+			topic,
+			sseMessage.EventId,
+			messageHash,
+		))
+	}
 
 	transferedMessagesNumMetric.Inc()
 	return c.JSON(http.StatusOK, utils.HttpResOk())
@@ -385,17 +436,44 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
 	if err != nil {
 		badRequestMetric.Inc()
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
+				"",
+				"",
+				http.StatusBadRequest,
+				err.Error(),
+			))
+		}
 		return c.JSON(utils.HttpResError(err.Error(), http.StatusBadRequest))
 	}
+
+	traceIdParam, ok := paramsStore.Get("trace_id")
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdParam, ok)
 
 	clientId, ok := paramsStore.Get("client_id")
 	if !ok {
 		badRequestMetric.Inc()
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
+				"",
+				traceId,
+				http.StatusBadRequest,
+				"param \"client_id\" not present",
+			))
+		}
 		return c.JSON(utils.HttpResError("param \"client_id\" not present", http.StatusBadRequest))
 	}
 	urlParam, ok := paramsStore.Get("url")
 	if !ok {
 		badRequestMetric.Inc()
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
+				clientId,
+				traceId,
+				http.StatusBadRequest,
+				"param \"url\" not present",
+			))
+		}
 		return c.JSON(utils.HttpResError("param \"url\" not present", http.StatusBadRequest))
 	}
 	qtype, ok := paramsStore.Get("type")
@@ -412,16 +490,35 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 		}
 		status, err := h.storage.VerifyConnection(ctx, conn)
 		if err != nil {
+			if h.eventCollector != nil {
+				_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
+					clientId,
+					traceId,
+					http.StatusInternalServerError,
+					err.Error(),
+				))
+			}
 			return c.JSON(utils.HttpResError(err.Error(), http.StatusInternalServerError))
+		}
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyEvent(clientId, traceId, status))
 		}
 		return c.JSON(http.StatusOK, verifyResponse{Status: status})
 	default:
 		badRequestMetric.Inc()
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeVerifyValidationFailedEvent(
+				clientId,
+				traceId,
+				http.StatusBadRequest,
+				"param \"type\" must be: connect",
+			))
+		}
 		return c.JSON(utils.HttpResError("param \"type\" must be: connect", http.StatusBadRequest))
 	}
 }
 
-func (h *handler) removeConnection(ses *Session) {
+func (h *handler) removeConnection(ses *Session, traceID string) {
 	log := logrus.WithField("prefix", "removeConnection")
 	log.Infof("remove session: %v", ses.ClientIds)
 	for _, id := range ses.ClientIds {
@@ -448,10 +545,13 @@ func (h *handler) removeConnection(ses *Session) {
 			h.Mux.Unlock()
 		}
 		activeSubscriptionsMetric.Dec()
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientUnsubscribedEvent(id, traceID))
+		}
 	}
 }
 
-func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session {
+func (h *handler) CreateSession(clientIds []string, lastEventId int64, traceID string) *Session {
 	log := logrus.WithField("prefix", "CreateSession")
 	log.Infof("make new session with ids: %v", clientIds)
 	session := NewSession(h.storage, clientIds, lastEventId)
@@ -474,6 +574,40 @@ func (h *handler) CreateSession(clientIds []string, lastEventId int64) *Session 
 		}
 
 		activeSubscriptionsMetric.Inc()
+		if h.eventCollector != nil {
+			_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeEventsClientSubscribedEvent(id, traceID))
+		}
 	}
 	return session
+}
+
+func (h *handler) logEventRegistrationValidationFailure(clientID, traceID, requestType string) {
+	if h.eventCollector == nil {
+		return
+	}
+	h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageValidationFailedEvent(
+		clientID,
+		traceID,
+		requestType,
+		"",
+	))
+}
+
+func (h *handler) failValidation(
+	c echo.Context,
+	msg string,
+	clientID string,
+	traceID string,
+	topic string,
+	messageHash string,
+) error {
+	if h.eventCollector != nil {
+		_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageValidationFailedEvent(
+			clientID,
+			traceID,
+			topic,
+			messageHash,
+		))
+	}
+	return c.JSON(utils.HttpResError(msg, http.StatusBadRequest))
 }

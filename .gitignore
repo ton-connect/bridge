@@ -23,6 +23,8 @@ env.yaml
 /bridge
 /bridge3
 benchmark/k6
+benchmark/results
 bridge-sdk/
 
+__debug*
 .env

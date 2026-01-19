@@ -13,31 +13,54 @@ export let delivery_latency = new Trend('delivery_latency');
 export let json_parse_errors = new Counter('json_parse_errors');
 export let missing_timestamps = new Counter('missing_timestamps');
 
-const PRE_ALLOCATED_VUS = 100
-const MAX_VUS = PRE_ALLOCATED_VUS * 25
-
 const BRIDGE_URL = __ENV.BRIDGE_URL || 'http://localhost:8081/bridge';
 
+// Auth token to bypass rate limits
+const AUTH_TOKEN = __ENV.AUTH_TOKEN || 'test-token';
+
 // 1 minutes ramp-up, 1 minutes steady, 1 minutes ramp-down
-const RAMP_UP = __ENV.RAMP_UP || '10s';
-const HOLD = __ENV.HOLD || '10s';
-const RAMP_DOWN = __ENV.RAMP_DOWN || '10s';
+const SENDER_RAMP_UP = __ENV.SENDER_RAMP_UP || '10s';
+const SENDER_HOLD = __ENV.SENDER_HOLD || '30s';
+const SENDER_RAMP_DOWN = __ENV.SENDER_RAMP_DOWN || '10s';
+const SENDER_DELAY = __ENV.SENDER_DELAY || '10s';
+
+const SSE_RAMP_UP = __ENV.SSE_RAMP_UP || '10s';
+const SSE_HOLD = __ENV.SSE_HOLD || '50s';
+const SSE_RAMP_DOWN = __ENV.SSE_RAMP_DOWN || '10s';
+const SSE_DELAY = __ENV.SSE_DELAY || '0s';
 
 const SSE_VUS = Number(__ENV.SSE_VUS || 100);
 const SEND_RATE = Number(__ENV.SEND_RATE || 1000);
 
+const LISTENER_WRITERS_RATIO = Number(__ENV.LISTENER_WRITERS_RATIO || 3); // number of listeners per writer
+const TOTAL_INSTANCES = Number(__ENV.TOTAL_INSTANCES || 1); // total number of instances in the simulation test
+const CURRENT_INSTANCE = Number(__ENV.CURRENT_INSTANCE || 0); // 0 for the first instance, 1 for the second instance, etc.
+
+const START_INDEX_OFFSET = CURRENT_INSTANCE * LISTENER_WRITERS_RATIO * SSE_VUS;
+const ID_SPACE_SIZE = TOTAL_INSTANCES * LISTENER_WRITERS_RATIO * SSE_VUS - 1;
+
 // Generate valid hex client IDs that the bridge expects
-const ID_POOL = new SharedArray('ids', () => Array.from({length: 100}, (_, i) => {
-  return i.toString(16).padStart(64, '0'); // 64-char hex strings
-}));
+function getSSEIDs(vuIndex) {
+  const startIndex = START_INDEX_OFFSET + vuIndex * LISTENER_WRITERS_RATIO;
+  const ids = [];
+  for (let i = 0; i < LISTENER_WRITERS_RATIO; i++) {
+    ids.push([(startIndex + i).toString(16).padStart(64, '0')]);
+  }
+  return ids;
+}
 
-
+// Generate valid hex client IDs that the bridge expects
+// This generates a random client ID for the sender in the ID space
+function getID() {
+  const targetIndex = Math.floor(Math.random() * ID_SPACE_SIZE);
+  return targetIndex.toString(16).padStart(64, '0');
+}
 
 export const options = {
     discardResponseBodies: true,
     systemTags: ['status', 'method', 'name', 'scenario'], // Exclude 'url' to prevent metrics explosion
     thresholds: {
-        http_req_failed: ['rate<0.01'],
+        http_req_failed: ['rate<0.0001'],
         delivery_latency: ['p(95)<2000'],
         sse_errors: ['count<10'], // SSE should be very stable
         json_parse_errors: ['count<5'], // Should rarely fail to parse
@@ -50,10 +73,11 @@ export const options = {
         sse: {
             executor: 'ramping-vus',
             startVUs: 0,
+            startTime: SSE_DELAY,
             stages: [
-                { duration: RAMP_UP, target: SSE_VUS },   // warm-up
-                { duration: HOLD, target: SSE_VUS },      // steady
-                { duration: RAMP_DOWN, target: 0 },       // cool-down
+                { duration: SSE_RAMP_UP, target: SSE_VUS },   // warm-up
+                { duration: SSE_HOLD, target: SSE_VUS },      // steady
+                { duration: SSE_RAMP_DOWN, target: 0 },       // cool-down
             ],
             gracefulRampDown: '30s',
             exec: 'sseWorker'
@@ -61,13 +85,13 @@ export const options = {
         senders: {
             executor: 'ramping-arrival-rate',
             startRate: 0,
+            startTime: SENDER_DELAY,
             timeUnit: '1s',
-            preAllocatedVUs: PRE_ALLOCATED_VUS,
-            maxVUs: MAX_VUS,
+            preAllocatedVUs: SSE_VUS,
             stages: [
-                { duration: RAMP_UP, target: SEND_RATE }, // warm-up
-                { duration: HOLD, target: SEND_RATE },    // steady
-                { duration: RAMP_DOWN, target: 0 },       // cool-down
+                { duration: SENDER_RAMP_UP, target: SEND_RATE }, // warm-up
+                { duration: SENDER_HOLD, target: SEND_RATE },    // steady
+                { duration: SENDER_RAMP_DOWN, target: 0 },       // cool-down
             ],
             gracefulStop: '30s',
             exec: 'messageSender'
@@ -76,22 +100,17 @@ export const options = {
 };
 
 export function sseWorker() {
-  // Use round-robin assignment for more predictable URLs
-  const vuIndex = exec.vu.idInTest - 1;
-  const groupId = Math.floor(vuIndex / 10); // 10 VUs per group
-  // Use same IDs as sender
-  const ids = [
-    ID_POOL[groupId * 3 % ID_POOL.length], 
-    ID_POOL[(groupId * 3 + 1) % ID_POOL.length], 
-    ID_POOL[(groupId * 3 + 2) % ID_POOL.length]
-  ];
+  const ids = getSSEIDs(exec.scenario.iterationInTest);
   const url = `${BRIDGE_URL}/events?client_id=${ids.join(',')}`;
   
   // Keep reconnecting for the test duration
   for (;;) {
     try {
       sse.open(url, { 
-        headers: { Accept: 'text/event-stream' },
+        headers: { 
+          'Accept': 'text/event-stream',
+          'Authorization': 'Bearer ' + AUTH_TOKEN,
+        },
         tags: { name: 'SSE /events' }
       }, (c) => {
         c.on('event', (ev) => {
@@ -130,16 +149,22 @@ export function sseWorker() {
 }
 
 export function messageSender() {
-  // Use fixed client pairs to reduce URL variations
-  const vuIndex = exec.vu.idInTest % ID_POOL.length;
-  const to = ID_POOL[vuIndex];
-  const from = ID_POOL[(vuIndex + 1) % ID_POOL.length];
+  const to = getID();
+  let from = getID();
+  // Avoid sending message to the same client ID
+  while (from === to) {
+    from = getID()
+  }
+  
   const topic = Math.random() < 0.5 ? 'sendTransaction' : 'signData';
-  const body = encoding.b64encode(JSON.stringify({ ts: Date.now(), data: 'test_message' }));
+  const body = encoding.b64encode(JSON.stringify({ ts: Date.now(), data: `${from} ${to}` }));
   const url = `${BRIDGE_URL}/message?client_id=${from}&to=${to}&ttl=300&topic=${topic}`;
   
   const r = http.post(url, body, {
-    headers: { 'Content-Type': 'text/plain' },
+    headers: { 
+      'Content-Type': 'text/plain',
+      'Authorization': 'Bearer ' + AUTH_TOKEN,
+    },
     timeout: '10s',
     tags: { name: 'POST /message' }, // Group all message requests
   });

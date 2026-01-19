@@ -1,0 +1,16 @@
+FROM golang:1.24-alpine AS builder
+
+WORKDIR /app
+
+# Copy the standalone mock server
+COPY cmd/analytics-mock/main.go ./main.go
+
+# Build the server
+RUN go build -o analytics-mock main.go
+
+FROM alpine:latest
+RUN apk --no-cache add ca-certificates curl
+WORKDIR /root/
+COPY --from=builder /app/analytics-mock .
+EXPOSE 9090
+CMD ["./analytics-mock"]

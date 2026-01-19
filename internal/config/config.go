@@ -53,13 +53,18 @@ var Config = struct {
 	WebhookURL             string `env:"WEBHOOK_URL"`
 	CopyToURL              string `env:"COPY_TO_URL"`
 
+	// NTP Configuration
+	NTPEnabled      bool     `env:"NTP_ENABLED" envDefault:"true"`
+	NTPServers      []string `env:"NTP_SERVERS" envSeparator:"," envDefault:"time.google.com,time.cloudflare.com,pool.ntp.org"`
+	NTPSyncInterval int      `env:"NTP_SYNC_INTERVAL" envDefault:"300"`
+	NTPQueryTimeout int      `env:"NTP_QUERY_TIMEOUT" envDefault:"5"`
+
 	// TON Analytics
-	TFAnalyticsEnabled bool   `env:"TF_ANALYTICS_ENABLED" envDefault:"false"`
-	BridgeName         string `env:"BRIDGE_NAME" envDefault:"ton-connect-bridge"`
-	BridgeVersion      string `env:"BRIDGE_VERSION" envDefault:"1.0.0"` // TODO start using build version
-	BridgeURL          string `env:"BRIDGE_URL" envDefault:"localhost"`
-	Environment        string `env:"ENVIRONMENT" envDefault:"production"`
-	NetworkId          string `env:"NETWORK_ID" envDefault:"-239"`
+	TONAnalyticsEnabled       bool   `env:"TON_ANALYTICS_ENABLED" envDefault:"false"`
+	TonAnalyticsURL           string `env:"TON_ANALYTICS_URL" envDefault:"https://analytics.ton.org/events"`
+	TonAnalyticsBridgeVersion string `env:"TON_ANALYTICS_BRIDGE_VERSION" envDefault:"1.0.0"` // TODO start using build version
+	TonAnalyticsBridgeURL     string `env:"TON_ANALYTICS_BRIDGE_URL" envDefault:"localhost"`
+	TonAnalyticsNetworkId     string `env:"TON_ANALYTICS_NETWORK_ID" envDefault:"-239"`
 }{}
 
 func LoadConfig() {

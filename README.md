@@ -1,4 +1,4 @@
-# bridge
+# TON Connect Bridge
 
 [HTTP bridge](https://github.com/ton-connect/docs/blob/main/bridge.md) implementation for TON Connect 2.0.
 
@@ -30,6 +30,17 @@ Use `make help` to see all available commands.
 - [Deployment](docs/DEPLOYMENT.md) - Production deployment patterns and best practices
 - [Known Issues](docs/KNOWN_ISSUES.md) - Common issues and troubleshooting
 - [Monitoring](docs/MONITORING.md) - Metrics, health checks, and observability
+
+<details>
+<summary>Looking for PostgreSQL-based setup?</summary>
+
+> For existing PostgreSQL-based installations, see [Bridge v1](cmd/bridge/README.md).
+>
+> We recommend migrating to the current version — it scales with your user base and receives active development.
+>
+> The current setup uses Redis/Valkey for pub/sub, enabling horizontal scaling across multiple instances. The PostgreSQL-based version is limited to a single instance and cannot scale horizontally.
+
+</details>
 
 ## Use local TON Connect Bridge
 

@@ -4,7 +4,7 @@ Production-ready deployment patterns and best practices for TON Connect Bridge v
 
 ## Quick Deployment Checklist
 
-- [ ] Set up Redis/Valkey 7.0+ cluster or managed service
+- [ ] Set up Redis/Valkey 7.0+ **cluster** (Bridge v3 requires cluster mode)
 - [ ] Configure environment variables (see [CONFIGURATION.md](CONFIGURATION.md))
 - [ ] Deploy multiple Bridge instances for high availability
 - [ ] Set up load balancer with health checks
@@ -15,34 +15,9 @@ Production-ready deployment patterns and best practices for TON Connect Bridge v
 
 ## Architecture Patterns
 
-### Pattern 1: Single Instance (Development/Small Scale)
+> **Note:** Bridge v3 requires Redis/Valkey cluster mode. Single-node deployments are not supported.
 
-Bridge v3 + Redis
-
-**Best for:** Development, testing, <1,000 concurrent connections
-
-```
-  Internet
-     │
-     ├── TLS Termination (Cloudflare/nginx)
-     │
-     ▼
-┌──────────┐
-│  Bridge  │──── Redis/Valkey
-│ Instance │
-└──────────┘
-```
-
-**Pros:**
-- Simple setup
-- Easy to test
-- Low cost
-
-**Cons:**
-- Single point of failure
-- Limited scaling
-
-### Pattern 2: Multi-Instance with Load Balancer (Recommended)
+### Pattern 1: Multi-Instance with Load Balancer (Recommended)
 
 **Best for:** Production, >10,000 concurrent connections, high availability
 
@@ -80,11 +55,11 @@ Internet
 
 **Key Components:**
 - Bridge v3 Instances: 3+ instances for redundancy
-- Redis Cluster: 3-6 nodes with replication
+- Redis Cluster: 3-6 nodes with replication (required for Bridge v3)
 - Load Balancer: Distributes traffic, health checks
 - TLS Termination: SSL/TLS at load balancer level
 
-### Pattern 3: Multi-Region (Global)
+### Pattern 2: Multi-Region (Global)
 
 **Best for:** Global audience, ultra-low latency requirements
 

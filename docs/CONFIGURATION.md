@@ -15,8 +15,8 @@ Complete reference for all environment variables supported by TON Connect Bridge
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `STORAGE` | string | `memory` | `valkey` or `memory` |
-| `VALKEY_URI` | string | - | Format: `valkey://[:pass@]host:port[/db]`<br>Cluster: `rediss://default:@clustercfg.example.com:6379?skip_verify=true` |
+| `STORAGE` | string | `memory` | `valkey` (cluster required) or `memory` (dev only) |
+| `VALKEY_URI` | string | - | Cluster format: `rediss://default:@clustercfg.example.com:6379?skip_verify=true` |
 
 ## Performance & Limits
 
@@ -54,14 +54,26 @@ Complete reference for all environment variables supported by TON Connect Bridge
 
 TODO where to read more about it?
 
+| Variable                       |  Type  | Default | Description                                                  |
+|--------------------------------|--------|---------|--------------------------------------------------------------|
+| `TON_ANALYTICS_ENABLED`        | bool   | `false` | Enable TonConnect analytics                                  |
+| `TON_ANALYTICS_URL`            | string | `https://analytics.ton.org/events` | TON Analytics endpoint URL |
+| `TON_ANALYTICS_BRIDGE_VERSION` | string | `1.0.0` | Bridge version for analytics tracking (auto-set during build) |
+| `TON_ANALYTICS_BRIDGE_URL`     | string | `localhost` | Public bridge URL for analytics                          |
+| `TON_ANALYTICS_NETWORK_ID`     | string | `-239`  | TON network: `-239` (mainnet), `-3` (testnet)                |
+
+## NTP Time Synchronization
+
+Bridge v3 supports NTP time synchronization for consistent `event_id` generation across multiple instances. This ensures monotonic event ordering even when bridge instances run on different servers.
+
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `TF_ANALYTICS_ENABLED` | bool | `false` | Enable TonConnect analytics |
-| `BRIDGE_NAME` | string | `ton-connect-bridge` | Instance name for metrics/logging |
-| `BRIDGE_VERSION` | string | `1.0.0` | Version (auto-set during build) |
-| `BRIDGE_URL` | string | `localhost` | Public bridge URL |
-| `ENVIRONMENT` | string | `production` | Environment name (`dev`, `staging`, `production`) |
-| `NETWORK_ID` | string | `-239` | TON network: `-239` (mainnet), `-3` (testnet) |
+| `NTP_ENABLED` | bool | `true` | Enable NTP time synchronization |
+| `NTP_SERVERS` | string | `time.google.com,time.cloudflare.com,pool.ntp.org` | Comma-separated NTP server list |
+| `NTP_SYNC_INTERVAL` | int | `300` | NTP sync interval (seconds) |
+| `NTP_QUERY_TIMEOUT` | int | `5` | NTP query timeout (seconds) |
+
+**Note:** NTP synchronization is only available in bridge v3. Bridge v1 uses local system time.
 
 ## Configuration Presets
 
@@ -74,14 +86,15 @@ CORS_ENABLE=true
 HEARTBEAT_INTERVAL=10
 RPS_LIMIT=50
 CONNECTIONS_LIMIT=50
+NTP_ENABLED=true
 ```
 
-### 🚀 Production (Redis/Valkey)
+### 🚀 Production (Redis/Valkey Cluster)
 
 ```bash
 LOG_LEVEL=info
 STORAGE=valkey
-VALKEY_URI="rediss://username:yourpassword@localhost:6380?skip_verify=true"
+VALKEY_URI="rediss://username:yourpassword@clustercfg.example.com:6379?skip_verify=true"
 CORS_ENABLE=true
 RPS_LIMIT=100000
 CONNECTIONS_LIMIT=500000
@@ -89,6 +102,9 @@ CONNECT_CACHE_SIZE=500000
 TRUSTED_PROXY_RANGES="10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,{use_your_own_please}"
 ENVIRONMENT=production
 BRIDGE_URL="https://use-your-own-bridge.myapp.com"
+NTP_ENABLED=true
+NTP_SERVERS=time.google.com,time.cloudflare.com,pool.ntp.org
+NTP_SYNC_INTERVAL=300
 ```
 
 ## Using Environment Files
@@ -101,7 +117,7 @@ BRIDGE_URL="https://use-your-own-bridge.myapp.com"
 LOG_LEVEL=info
 PORT=8081
 STORAGE=valkey
-VALKEY_URI=valkey://localhost:6379
+VALKEY_URI=rediss://clustercfg.example.com:6379
 CORS_ENABLE=true
 RPS_LIMIT=100
 CONNECTIONS_LIMIT=200

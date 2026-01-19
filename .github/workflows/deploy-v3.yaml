@@ -1,0 +1,42 @@
+name: Deploy v3
+
+run-name: Deploy v3 / ${{ inputs.ref_name }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref_name:
+        description: "Branch or tag"
+        required: true
+        type: string
+        default: release
+
+jobs:
+  build:
+    uses: ./.github/workflows/build.yml
+    secrets: inherit
+    permissions:
+      packages: write
+      contents: read
+    with:
+      ref_name: ${{ inputs.ref_name }}
+      component: v3
+      image_file: './docker/Dockerfile.bridge3'
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Run deployment wf
+        uses: the-actions-org/workflow-dispatch@v4
+        with:
+          workflow: deploy-v2.yml
+          ref: main
+          repo: ${{ vars.DEPLOY_REPO }}
+          token: ${{ secrets.DEPLOY_REPO_TOKEN }}
+          inputs: |
+            {
+              "app_name": "ton-connect-bridge-v3",
+              "image_tag": "${{ needs.build.outputs.image_tag }}",
+              "image_digest": "${{ needs.build.outputs.image_digest }}"
+            }

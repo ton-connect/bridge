@@ -8,7 +8,7 @@ import (
 	"strings"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/internal/config"
+	"github.com/ton-connect/bridge/internal/config"
 )
 
 type WebhookData struct {

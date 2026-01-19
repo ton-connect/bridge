@@ -7,7 +7,7 @@ import (
 	"time"
 
 	log "github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/internal"
+	"github.com/ton-connect/bridge/internal"
 )
 
 // HealthChecker interface for storage health checking

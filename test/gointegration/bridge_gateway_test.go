@@ -111,10 +111,9 @@ func OpenBridge(ctx context.Context, opts OpenOpts) (*BridgeGateway, error) {
 
 	// Reader goroutine
 	go func() {
-		defer close(gw.msgs)
-		defer close(gw.errs)
-		// explicitly ignore Close() error to satisfy errcheck
 		defer func() {
+			close(gw.msgs)
+			close(gw.errs)
 			if err = gw.Close(); err != nil {
 				log.Println("error during gw.Close():", err)
 			}
@@ -162,10 +161,7 @@ func OpenBridge(ctx context.Context, opts OpenOpts) (*BridgeGateway, error) {
 			// ignore event:, retry:, etc.
 		}
 		if err := sc.Err(); err != nil && !errors.Is(err, io.EOF) {
-			select {
-			case gw.errs <- err:
-			default:
-			}
+			gw.errs <- err
 		}
 	}()
 
@@ -273,18 +269,17 @@ func (g *BridgeGateway) Send(ctx context.Context, payload []byte, fromSession, t
 func (g *BridgeGateway) WaitMessage(ctx context.Context) (SSEEvent, error) {
 	select {
 	case ev, ok := <-g.msgs:
-		if !ok {
-			return SSEEvent{}, io.EOF
+		if ok {
+			return ev, nil
 		}
-		return ev, nil
 	case err := <-g.errs:
 		if err != nil {
 			return SSEEvent{}, err
 		}
-		return SSEEvent{}, io.EOF
 	case <-ctx.Done():
 		return SSEEvent{}, ctx.Err()
 	}
+	return SSEEvent{}, io.EOF
 }
 
 // ===== Helpers =====
@@ -545,7 +540,7 @@ func TestBridge_ReceiveMessageAgainAfterReconnectWithValidLastEventID(t *testing
 }
 
 func TestBridge_NoDeliveryAfterReconnectWithFutureLastEventID(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*testSSETimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*testSSETimeout)
 	defer cancel()
 
 	senderSession := randomSessionID(t)
@@ -846,4 +841,109 @@ func bumpID(s string, delta uint64) string {
 	}
 	// if non-numeric, just return the same (server will ignore resume semantics)
 	return s
+}
+
+func TestBridge_LargeClientAndToIDs(t *testing.T) {
+	ctx, cancel := context.WithTimeout(context.Background(), testSSETimeout)
+	defer cancel()
+
+	t.Run("large client ID", func(t *testing.T) {
+		clientID := randomSessionID(t)
+		// Create large IDs with 2048*100 = 204800
+		largeToID := strings.Repeat("b", 2048*100)
+
+		// Create a sender gateway with the large client ID
+		sender, err := OpenBridge(ctx, OpenOpts{BridgeURL: BRIDGE_URL, SessionID: clientID})
+		if err != nil {
+			t.Fatalf("open sender with large ID: %v", err)
+		}
+		defer func() {
+			if err = sender.Close(); err != nil {
+				log.Println("error during sender.Close():", err)
+			}
+		}()
+		if !sender.IsReady() {
+			t.Fatal("sender not ready")
+		}
+
+		// Send a message from large client ID to large to ID
+		err = sender.Send(ctx, []byte("large-id-test"), clientID, largeToID, nil)
+		if err == nil {
+			t.Fatalf("send with large IDs: expected error, got nil")
+		}
+
+		if strings.Contains(err.Error(), "status 414") {
+			// This is expected if request pass through the Nginx and get 414 error, we don't need to go further
+			return
+		}
+
+		expectedErrStr := "public address must be 64 characters long"
+		if !strings.Contains(err.Error(), expectedErrStr) {
+			t.Fatalf("send with large IDs: expected (%v), got (%v)", expectedErrStr, err)
+		}
+	})
+
+	t.Run("large sender ID", func(t *testing.T) {
+		senderID := strings.Repeat("b", 2048*100)
+
+		// Create a sender gateway with the large client ID
+		r, err := OpenBridge(ctx, OpenOpts{BridgeURL: BRIDGE_URL, SessionID: senderID})
+		if err != nil {
+			if strings.Contains(err.Error(), "status 414") {
+				// This is expected if request pass through the Nginx and get 414 error, we don't need to go further
+				return
+			}
+			t.Fatalf("open bridge with large SessionID: %v", err)
+		}
+		defer func() {
+			if err = r.Close(); err != nil {
+				log.Println("error during r.Close():", err)
+			}
+		}()
+
+		if !r.IsReady() {
+			t.Fatal("receiver not ready")
+		}
+		_, err = r.WaitMessage(ctx)
+		if err == nil {
+			t.Fatalf("expected error, got nil")
+		}
+
+	})
+
+	t.Run("large sender ID, validate error message", func(t *testing.T) {
+		senderID := strings.Repeat("b", 2048*100)
+
+		// Create a sender gateway with the large client ID
+		u, _ := url.Parse(BRIDGE_URL + "/events")
+		q := u.Query()
+		q.Add("client_id", senderID)
+		u.RawQuery = q.Encode()
+
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+		req.Header.Set("Accept", "text/event-stream")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatalf("request failed: %v", err)
+		}
+		defer func() {
+			if err = resp.Body.Close(); err != nil {
+				log.Println("error during resp.Body.Close():", err)
+			}
+		}()
+
+		if resp.StatusCode == http.StatusRequestURITooLong {
+			// This is expected if request pass through the Nginx and get 414 error, we don't need to go further
+			return
+		}
+
+		body, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatalf("read body failed: %v", err)
+		}
+
+		if !strings.Contains(string(body), "public address must be 64 characters long") {
+			t.Fatalf("expected error message, got %s", string(body))
+		}
+	})
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/pprof"
@@ -11,13 +12,16 @@ import (
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	log "github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/internal"
-	"github.com/tonkeeper/bridge/internal/app"
-	"github.com/tonkeeper/bridge/internal/config"
-	bridge_middleware "github.com/tonkeeper/bridge/internal/middleware"
-	"github.com/tonkeeper/bridge/internal/utils"
-	handlerv3 "github.com/tonkeeper/bridge/internal/v3/handler"
-	storagev3 "github.com/tonkeeper/bridge/internal/v3/storage"
+	"github.com/ton-connect/bridge/internal"
+	"github.com/ton-connect/bridge/internal/analytics"
+	"github.com/ton-connect/bridge/internal/app"
+	"github.com/ton-connect/bridge/internal/config"
+	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
+	"github.com/ton-connect/bridge/internal/ntp"
+	"github.com/ton-connect/bridge/internal/utils"
+	handlerv3 "github.com/ton-connect/bridge/internal/v3/handler"
+	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
+	"github.com/ton-connect/bridge/tonmetrics"
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
 )
@@ -26,6 +30,27 @@ func main() {
 	log.Info(fmt.Sprintf("Bridge3 %s is running", internal.BridgeVersionRevision))
 	config.LoadConfig()
 	app.InitMetrics()
+
+	var timeProvider ntp.TimeProvider
+	if config.Config.NTPEnabled {
+		ntpClient := ntp.NewClient(ntp.Options{
+			Servers:      config.Config.NTPServers,
+			SyncInterval: time.Duration(config.Config.NTPSyncInterval) * time.Second,
+			QueryTimeout: time.Duration(config.Config.NTPQueryTimeout) * time.Second,
+		})
+		ctx := context.Background()
+		ntpClient.Start(ctx)
+		defer ntpClient.Stop()
+		timeProvider = ntpClient
+		log.WithFields(log.Fields{
+			"servers":       config.Config.NTPServers,
+			"sync_interval": config.Config.NTPSyncInterval,
+		}).Info("NTP synchronization enabled")
+	} else {
+		timeProvider = ntp.NewLocalTimeProvider()
+		log.Info("NTP synchronization disabled, using local time")
+	}
+	tonAnalytics := tonmetrics.NewAnalyticsClient()
 
 	dbURI := ""
 	store := "memory"
@@ -45,7 +70,18 @@ func main() {
 		// No URI needed for memory storage
 	}
 
-	dbConn, err := storagev3.NewStorage(store, dbURI)
+	collector := analytics.NewCollector(200, tonAnalytics, 500*time.Millisecond)
+	go collector.Run(context.Background())
+
+	analyticsBuilder := analytics.NewEventBuilder(
+		config.Config.TonAnalyticsBridgeURL,
+		"bridge",
+		"bridge",
+		config.Config.TonAnalyticsBridgeVersion,
+		config.Config.TonAnalyticsNetworkId,
+	)
+
+	dbConn, err := storagev3.NewStorage(store, dbURI, collector, analyticsBuilder)
 
 	if err != nil {
 		log.Fatalf("failed to create storage: %v", err)
@@ -116,7 +152,7 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor)
+	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, collector, analyticsBuilder)
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)

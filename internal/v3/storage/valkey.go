@@ -11,7 +11,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
-	"github.com/tonkeeper/bridge/internal/models"
+	"github.com/ton-connect/bridge/internal/models"
 )
 
 type ValkeyStorage struct {
