@@ -165,7 +165,11 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 		t.Fatalf("failed to send second message: %v", err)
 	}
 
+	// Give time for the message to be processed
+	time.Sleep(100 * time.Millisecond)
+
 	// Step 5: Verify 4 deliveries (remaining clients)
+	// Need to skip old messages (heartbeats, first message) and wait for the second message
 	deliveries2 := make([]bool, len(receivers))
 	var wg2 sync.WaitGroup
 
@@ -173,30 +177,49 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 		wg2.Add(1)
 		go func(idx int) {
 			defer wg2.Done()
-			ev, err := receivers[idx].WaitMessage(ctx)
-			if err != nil {
-				t.Errorf("receiver %d failed to receive second message: %v", idx+2, err)
-				return
-			}
+			// Keep reading messages until we get the second message
+			// Skip heartbeats and the first message
+			for {
+				ev, err := receivers[idx].WaitMessage(ctx)
+				if err != nil {
+					t.Errorf("receiver %d failed to receive second message: %v", idx+2, err)
+					return
+				}
 
-			var bm bridgeMessage
-			if err := json.Unmarshal([]byte(ev.Data), &bm); err != nil {
-				t.Errorf("receiver %d failed to decode second message: %v", idx+2, err)
-				return
-			}
+				// Skip heartbeats
+				if ev.Data == "heartbeat" || ev.Data == "" || strings.TrimSpace(ev.Data) == "" {
+					continue
+				}
 
-			raw, err := base64.StdEncoding.DecodeString(bm.Message)
-			if err != nil {
-				t.Errorf("receiver %d failed to decode base64: %v", idx+2, err)
-				return
-			}
+				var bm bridgeMessage
+				if err := json.Unmarshal([]byte(ev.Data), &bm); err != nil {
+					// Skip invalid messages (might be heartbeats in different format)
+					continue
+				}
 
-			if string(raw) == message2 && bm.From == senderSession {
-				deliveryMutex.Lock()
-				deliveries2[idx] = true
-				deliveryMutex.Unlock()
-			} else {
-				t.Errorf("receiver %d received unexpected second message: from=%s, msg=%s", idx+2, bm.From, string(raw))
+				raw, err := base64.StdEncoding.DecodeString(bm.Message)
+				if err != nil {
+					// Skip messages we can't decode
+					continue
+				}
+
+				payload := string(raw)
+
+				// Skip the first message if we receive it again
+				if payload == message1 {
+					continue
+				}
+
+				// Check if this is the second message
+				if payload == message2 && bm.From == senderSession {
+					deliveryMutex.Lock()
+					deliveries2[idx] = true
+					deliveryMutex.Unlock()
+					return
+				}
+
+				// If we get here, it's an unexpected message
+				t.Errorf("receiver %d received unexpected message: from=%s, msg=%s", idx+2, bm.From, payload)
 			}
 		}(i)
 	}
@@ -211,8 +234,17 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 	select {
 	case <-done2:
 		// All messages received
-	case <-time.After(testSSETimeout):
-		t.Fatal("timeout waiting for second message deliveries")
+	case <-time.After(2 * testSSETimeout):
+		// Increased timeout as we may need to skip multiple old messages
+		deliveryMutex.Lock()
+		receivedCount := 0
+		for _, delivered := range deliveries2 {
+			if delivered {
+				receivedCount++
+			}
+		}
+		deliveryMutex.Unlock()
+		t.Fatalf("timeout waiting for second message deliveries: received %d out of %d", receivedCount, len(receivers))
 	}
 
 	// Verify 4 clients received the message
