@@ -17,13 +17,11 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 3*testSSETimeout)
 	defer cancel()
 
-	// Create a single recipient ID that all clients will listen to
 	recipientID := randomSessionID(t)
 	const numClients = 5
 
-	// Step 1: Connect 5 clients to listen to the same ID
 	receivers := make([]*BridgeGateway, 0, numClients)
-	allReceivers := make([]*BridgeGateway, 0, numClients) // Keep all receivers for cleanup
+	allReceivers := make([]*BridgeGateway, 0, numClients)
 	for i := 0; i < numClients; i++ {
 		receiver, err := OpenBridge(ctx, OpenOpts{
 			BridgeURL: BRIDGE_URL,
@@ -35,13 +33,11 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 		receivers = append(receivers, receiver)
 		allReceivers = append(allReceivers, receiver)
 
-		// Wait for each receiver to be ready
 		if err := receiver.WaitReady(ctx); err != nil {
 			t.Fatalf("receiver %d not ready: %v", i+1, err)
 		}
 	}
 
-	// Defer cleanup for all receivers
 	defer func() {
 		for i, receiver := range allReceivers {
 			if receiver != nil {
@@ -52,7 +48,6 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 		}
 	}()
 
-	// Create a sender
 	senderSession := randomSessionID(t)
 	sender, err := OpenBridge(ctx, OpenOpts{
 		BridgeURL: BRIDGE_URL,
@@ -71,16 +66,13 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 		t.Fatal("sender not ready")
 	}
 
-	// Give all connections time to establish
 	time.Sleep(200 * time.Millisecond)
 
-	// Step 2: Send 1 message and verify 5 deliveries
 	message1 := "test-message-1"
 	if err := sender.Send(ctx, []byte(message1), senderSession, recipientID, nil); err != nil {
 		t.Fatalf("failed to send first message: %v", err)
 	}
 
-	// Collect messages from all receivers concurrently
 	var wg sync.WaitGroup
 	deliveries1 := make([]bool, numClients)
 	deliveryMutex := sync.Mutex{}
@@ -117,7 +109,6 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 		}(i)
 	}
 
-	// Wait for all deliveries with timeout
 	done := make(chan struct{})
 	go func() {
 		wg.Wait()
@@ -131,7 +122,6 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 		t.Fatal("timeout waiting for first message deliveries")
 	}
 
-	// Verify all 5 clients received the message
 	deliveryMutex.Lock()
 	deliveredCount := 0
 	for i, delivered := range deliveries1 {
@@ -148,18 +138,17 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 	}
 	t.Logf("✓ All %d clients received the first message", numClients)
 
-	// Step 3: Disconnect one client (the first one)
 	t.Logf("Disconnecting receiver 1...")
 	if err := receivers[0].Close(); err != nil {
 		t.Fatalf("failed to close receiver 1: %v", err)
 	}
-	allReceivers[0] = nil     // Mark as closed so defer won't try to close it again
-	receivers = receivers[1:] // Remove from slice
 
-	// Give time for disconnection to propagate
+	// Mark as closed so defer won't try to close it again
+	allReceivers[0] = nil
+	receivers = receivers[1:]
+
 	time.Sleep(200 * time.Millisecond)
 
-	// Step 4: Send 1 message
 	message2 := "test-message-2"
 	if err := sender.Send(ctx, []byte(message2), senderSession, recipientID, nil); err != nil {
 		t.Fatalf("failed to send second message: %v", err)
@@ -168,7 +157,7 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 	// Give time for the message to be processed
 	time.Sleep(100 * time.Millisecond)
 
-	// Step 5: Verify 4 deliveries (remaining clients)
+	// Verify 4 deliveries (remaining clients)
 	// Need to skip old messages (heartbeats, first message) and wait for the second message
 	deliveries2 := make([]bool, len(receivers))
 	var wg2 sync.WaitGroup
@@ -177,8 +166,7 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 		wg2.Add(1)
 		go func(idx int) {
 			defer wg2.Done()
-			// Keep reading messages until we get the second message
-			// Skip heartbeats and the first message
+
 			for {
 				ev, err := receivers[idx].WaitMessage(ctx)
 				if err != nil {
@@ -186,8 +174,8 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 					return
 				}
 
-				// Skip heartbeats
 				if ev.Data == "heartbeat" || ev.Data == "" || strings.TrimSpace(ev.Data) == "" {
+					// Skip heartbeats
 					continue
 				}
 
@@ -205,12 +193,6 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 
 				payload := string(raw)
 
-				// Skip the first message if we receive it again
-				if payload == message1 {
-					continue
-				}
-
-				// Check if this is the second message
 				if payload == message2 && bm.From == senderSession {
 					deliveryMutex.Lock()
 					deliveries2[idx] = true
@@ -218,13 +200,11 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 					return
 				}
 
-				// If we get here, it's an unexpected message
 				t.Errorf("receiver %d received unexpected message: from=%s, msg=%s", idx+2, bm.From, payload)
 			}
 		}(i)
 	}
 
-	// Wait for all deliveries with timeout
 	done2 := make(chan struct{})
 	go func() {
 		wg2.Wait()
@@ -235,7 +215,6 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 	case <-done2:
 		// All messages received
 	case <-time.After(2 * testSSETimeout):
-		// Increased timeout as we may need to skip multiple old messages
 		deliveryMutex.Lock()
 		receivedCount := 0
 		for _, delivered := range deliveries2 {
@@ -247,7 +226,7 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 		t.Fatalf("timeout waiting for second message deliveries: received %d out of %d", receivedCount, len(receivers))
 	}
 
-	// Verify 4 clients received the message
+	// Verify 4 clients received second message
 	deliveryMutex.Lock()
 	deliveredCount2 := 0
 	for i, delivered := range deliveries2 {
@@ -273,14 +252,11 @@ func TestBridge_SingleListenerMultipleIDs(t *testing.T) {
 	defer cancel()
 
 	const numIDs = 100
-
-	// Step 1: Create 100 recipient IDs
 	recipientIDs := make([]string, 0, numIDs)
 	for i := 0; i < numIDs; i++ {
 		recipientIDs = append(recipientIDs, randomSessionID(t))
 	}
 
-	// Step 2: Connect one user to listen to all 100 IDs (comma-separated)
 	multiClientParam := strings.Join(recipientIDs, ",")
 	receiver, err := OpenBridge(ctx, OpenOpts{
 		BridgeURL: BRIDGE_URL,
@@ -299,10 +275,8 @@ func TestBridge_SingleListenerMultipleIDs(t *testing.T) {
 		t.Fatalf("receiver not ready: %v", err)
 	}
 
-	// Give connection time to establish
 	time.Sleep(200 * time.Millisecond)
 
-	// Step 3: Create a single sender
 	senderSession := randomSessionID(t)
 	sender, err := OpenBridge(ctx, OpenOpts{
 		BridgeURL: BRIDGE_URL,
@@ -321,10 +295,8 @@ func TestBridge_SingleListenerMultipleIDs(t *testing.T) {
 		t.Fatal("sender not ready")
 	}
 
-	// Step 4: Send 1 message to each of the 100 IDs
-	// Track which messages we sent (recipientID -> message payload)
-	sentMessages := make(map[string]string, numIDs)       // recipientID -> payload
-	payloadToRecipient := make(map[string]string, numIDs) // payload -> recipientID
+	sentMessages := make(map[string]string, numIDs)
+	payloadToRecipient := make(map[string]string, numIDs)
 	for i, recipientID := range recipientIDs {
 		payload := fmt.Sprintf("message-to-id-%d", i+1)
 		sentMessages[recipientID] = payload
@@ -337,12 +309,9 @@ func TestBridge_SingleListenerMultipleIDs(t *testing.T) {
 
 	t.Logf("✓ Sent %d messages to %d different IDs", numIDs, numIDs)
 
-	// Step 5: Collect all received messages
-	// Track received payloads (payload -> recipientID)
 	receivedPayloads := make(map[string]string, numIDs) // payload -> recipientID
 	receivedMutex := sync.Mutex{}
 
-	// Use a goroutine to collect messages with timeout
 	done := make(chan struct{})
 	go func() {
 		for len(receivedPayloads) < numIDs {
@@ -365,8 +334,6 @@ func TestBridge_SingleListenerMultipleIDs(t *testing.T) {
 			}
 
 			payload := string(raw)
-
-			// Verify sender and find matching recipient ID
 			if bm.From != senderSession {
 				t.Errorf("received message from unexpected sender: %s (expected %s)", bm.From, senderSession)
 				continue
