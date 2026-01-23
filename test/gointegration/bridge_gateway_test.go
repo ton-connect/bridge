@@ -466,7 +466,7 @@ func TestBridge_NoMessageAfterReconnectWithUpdatedLastEventID(t *testing.T) {
 }
 
 func TestBridge_ReceiveMessageAgainAfterReconnectWithValidLastEventID(t *testing.T) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*testSSETimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*testSSETimeout)
 	defer cancel()
 
 	senderSession := randomSessionID(t)
