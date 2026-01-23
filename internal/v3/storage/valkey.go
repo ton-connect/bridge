@@ -42,8 +42,8 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		Username:    opts.Username,
 		Password:    opts.Password,
 		TLSConfig:   opts.TLSConfig,
-		// Disable client-side caching tracking to avoid "unknown subcommand 'tracking'" error
-		ClientTrackingOptions: []string{},
+		// Disable client-side caching for Valkey servers that don't support it or RESP3
+		DisableCache: true,
 		// Enable auto pipelining for better performance
 		DisableAutoPipelining: false,
 		// Shuffle initial addresses for better load distribution
