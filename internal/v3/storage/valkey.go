@@ -16,10 +16,11 @@ import (
 )
 
 type ValkeyStorage struct {
-	client       redis.UniversalClient
-	pubSubClient valkey.Client
-	subscribers  map[string][]chan<- models.SseMessage
-	subMutex     sync.RWMutex
+	client             redis.UniversalClient
+	pubSubClient       valkey.Client
+	subscribers        map[string][]chan<- models.SseMessage
+	subscribedChannels map[string]bool // Track which channels we're already subscribed to
+	subMutex           sync.RWMutex
 }
 
 // NewValkeyStorage creates a Valkey-backed storage client.
@@ -80,9 +81,10 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	log.Info("Successfully connected to Valkey/Redis")
 
 	return &ValkeyStorage{
-		client:       clusterClient,
-		pubSubClient: pubSubClient,
-		subscribers:  make(map[string][]chan<- models.SseMessage),
+		client:             clusterClient,
+		pubSubClient:       pubSubClient,
+		subscribers:        make(map[string][]chan<- models.SseMessage),
+		subscribedChannels: make(map[string]bool),
 	}, nil
 }
 
@@ -224,13 +226,28 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		channels[i] = fmt.Sprintf("client:%s", key)
 	}
 
+	// Subscribe to channels only if not already subscribed
+	// This prevents duplicate subscriptions when multiple clients listen to the same ID
 	for _, channel := range channels {
+		// Check if we're already subscribed to this channel
+		if s.subscribedChannels[channel] {
+			continue // Already subscribed, skip
+		}
+
+		// Mark as subscribed before starting goroutine
+		s.subscribedChannels[channel] = true
+
+		// Start subscription goroutine
 		go func(channel string) {
 			if err := s.pubSubClient.Receive(ctx,
 				s.pubSubClient.B().Ssubscribe().Channel(channel).Build(),
 				s.handlePubSubMessage,
 			); err != nil {
 				log.Errorf("failed to subscribe to channel %s: %v", channel, err)
+				// If subscription fails, mark as not subscribed so we can retry
+				s.subMutex.Lock()
+				delete(s.subscribedChannels, channel)
+				s.subMutex.Unlock()
 			}
 		}(channel)
 	}
@@ -282,6 +299,9 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 			if err != nil {
 				log.Errorf("failed to unsubscribe from channel %s: %v", channel, err)
 				// Continue with other channels even if one fails
+			} else {
+				// Mark channel as unsubscribed
+				delete(s.subscribedChannels, channel)
 			}
 		}
 	}
