@@ -68,7 +68,7 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	message1 := "test-message-1"
+	message1 := fmt.Sprintf("first-message-%d", time.Now().UnixNano())
 	if err := sender.Send(ctx, []byte(message1), senderSession, recipientID, nil); err != nil {
 		t.Fatalf("failed to send first message: %v", err)
 	}
@@ -149,7 +149,7 @@ func TestBridge_MultipleListenersSameID(t *testing.T) {
 
 	time.Sleep(200 * time.Millisecond)
 
-	message2 := "test-message-2"
+	message2 := fmt.Sprintf("second-message-%d", time.Now().UnixNano())
 	if err := sender.Send(ctx, []byte(message2), senderSession, recipientID, nil); err != nil {
 		t.Fatalf("failed to send second message: %v", err)
 	}
