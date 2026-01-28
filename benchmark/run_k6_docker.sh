@@ -49,7 +49,7 @@ for ((i=0; i< TOTAL_INSTANCES; i++)); do
   echo ""
   echo ">>> Starting instance ${i}/${TOTAL_INSTANCES} ..."
 
-  docker run --rm --network host \
+  docker run --rm \
     -e BRIDGE_URL="${BRIDGE_URL}" \
     -e AUTH_TOKEN="${AUTH_TOKEN}" \
     -e SSE_VUS="${SSE_VUS}" \
