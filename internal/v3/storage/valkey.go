@@ -12,13 +12,15 @@ import (
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/models"
+	"github.com/valkey-io/valkey-go"
 )
 
 type ValkeyStorage struct {
-	client      redis.UniversalClient
-	pubSubConn  *redis.PubSub
-	subscribers map[string][]chan<- models.SseMessage
-	subMutex    sync.RWMutex
+	client             redis.UniversalClient
+	pubSubClient       valkey.Client
+	subscribers        map[string][]chan<- models.SseMessage
+	subscribedChannels map[string]bool // Track which channels we're already subscribed to
+	subMutex           sync.RWMutex
 }
 
 // NewValkeyStorage creates a Valkey-backed storage client.
@@ -34,6 +36,21 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 
 	if err := detectClusterMode(opts); err != nil {
 		return nil, fmt.Errorf("failed to detect cluster mode or redis endpoint is not in cluster mode: %w", err)
+	}
+	pubSubClient, err := valkey.NewClient(valkey.ClientOption{
+		InitAddress: []string{opts.Addr},
+		Username:    opts.Username,
+		Password:    opts.Password,
+		TLSConfig:   opts.TLSConfig,
+		// Disable client-side caching for Valkey servers that don't support it or RESP3
+		DisableCache: true,
+		// Enable auto pipelining for better performance
+		DisableAutoPipelining: false,
+		// Shuffle initial addresses for better load distribution
+		ShuffleInit: true,
+	})
+	if err != nil {
+		return nil, fmt.Errorf("failed to create valkey pub-sub client: %w", err)
 	}
 
 	clusterClient := redis.NewClusterClient(&redis.ClusterOptions{
@@ -66,8 +83,10 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	log.Info("Successfully connected to Valkey/Redis")
 
 	return &ValkeyStorage{
-		client:      clusterClient,
-		subscribers: make(map[string][]chan<- models.SseMessage),
+		client:             clusterClient,
+		pubSubClient:       pubSubClient,
+		subscribers:        make(map[string][]chan<- models.SseMessage),
+		subscribedChannels: make(map[string]bool),
 	}, nil
 }
 
@@ -126,8 +145,9 @@ func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl 
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	err = s.client.Publish(ctx, channel, messageData).Err()
-	if err != nil {
+	if err := s.pubSubClient.Do(ctx,
+		s.pubSubClient.B().Spublish().Channel(channel).Message(string(messageData)).Build(),
+	).Error(); err != nil {
 		return fmt.Errorf("failed to publish message to channel %s: %w", channel, err)
 	}
 
@@ -208,16 +228,30 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		channels[i] = fmt.Sprintf("client:%s", key)
 	}
 
-	// If this is the first subscription, start the pub-sub connection
-	if s.pubSubConn == nil {
-		s.pubSubConn = s.client.Subscribe(ctx, channels...)
-		go s.handlePubSub()
-	} else {
-		// Subscribe to additional channels
-		err := s.pubSubConn.Subscribe(ctx, channels...)
-		if err != nil {
-			log.Errorf("failed to subscribe to additional channels: %v", err)
+	// Subscribe to channels only if not already subscribed
+	// This prevents duplicate subscriptions when multiple clients listen to the same ID
+	for _, channel := range channels {
+		// Check if we're already subscribed to this channel
+		if s.subscribedChannels[channel] {
+			continue // Already subscribed, skip
 		}
+
+		// Mark as subscribed before starting goroutine
+		s.subscribedChannels[channel] = true
+
+		// Start subscription goroutine
+		go func(channel string) {
+			if err := s.pubSubClient.Receive(ctx,
+				s.pubSubClient.B().Ssubscribe().Channel(channel).Build(),
+				s.handlePubSubMessage,
+			); err != nil {
+				log.Errorf("failed to subscribe to channel %s: %v", channel, err)
+				// If subscription fails, mark as not subscribed so we can retry
+				s.subMutex.Lock()
+				delete(s.subscribedChannels, channel)
+				s.subMutex.Unlock()
+			}
+		}(channel)
 	}
 
 	log.Debugf("subscribed to channels for keys: %v", keys)
@@ -258,11 +292,19 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 		}
 	}
 
-	// Only unsubscribe from Redis channels that have NO subscribers left
-	if s.pubSubConn != nil && len(channelsToUnsub) > 0 {
-		err := s.pubSubConn.Unsubscribe(ctx, channelsToUnsub...)
-		if err != nil {
-			return fmt.Errorf("failed to unsubscribe from channels: %w", err)
+	// Only unsubscribe from channels that have NO subscribers left
+	// Unsubscribe from each channel individually to avoid cluster slot conflicts
+	// In a Valkey cluster, channels that hash to different slots cannot be unsubscribed in a single command
+	if s.pubSubClient != nil && len(channelsToUnsub) > 0 {
+		for _, channel := range channelsToUnsub {
+			err := s.pubSubClient.Do(ctx, s.pubSubClient.B().Sunsubscribe().Channel(channel).Build()).Error()
+			if err != nil {
+				log.Errorf("failed to unsubscribe from channel %s: %v", channel, err)
+				// Continue with other channels even if one fails
+			} else {
+				// Mark channel as unsubscribed
+				delete(s.subscribedChannels, channel)
+			}
 		}
 	}
 
@@ -270,41 +312,38 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 	return nil
 }
 
-// handlePubSub processes incoming Redis pub-sub messages
-func (s *ValkeyStorage) handlePubSub() {
-	log := log.WithField("prefix", "ValkeyStorage.handlePubSub")
+func (s *ValkeyStorage) handlePubSubMessage(msg valkey.PubSubMessage) {
+	log := log.WithField("prefix", "ValkeyStorage.handlePubSubMessage")
 
-	for msg := range s.pubSubConn.Channel() {
-		// Parse channel name to get client key
-		var key string
-		if len(msg.Channel) > 7 && msg.Channel[:7] == "client:" {
-			key = msg.Channel[7:]
-		} else {
-			continue
-		}
+	// Parse channel name to get client key
+	var key string
+	if len(msg.Channel) > 7 && msg.Channel[:7] == "client:" {
+		key = msg.Channel[7:]
+	} else {
+		return
+	}
 
-		// Parse message
-		var sseMessage models.SseMessage
-		err := json.Unmarshal([]byte(msg.Payload), &sseMessage)
-		if err != nil {
-			log.Errorf("failed to unmarshal pub-sub message: %v", err)
-			continue
-		}
+	// Parse message
+	var sseMessage models.SseMessage
+	err := json.Unmarshal([]byte(msg.Message), &sseMessage)
+	if err != nil {
+		log.Errorf("failed to unmarshal pub-sub message: %v", err)
+		return
+	}
 
-		// Send to all subscribers for this key
-		s.subMutex.RLock()
-		subscribers, exists := s.subscribers[key]
-		if exists {
-			for _, ch := range subscribers {
-				select {
-				case ch <- sseMessage:
-				default:
-					// Channel is full or closed, skip
-				}
+	// Send to all subscribers for this key
+	s.subMutex.RLock()
+	subscribers, exists := s.subscribers[key]
+	if exists {
+		for _, ch := range subscribers {
+			select {
+			case ch <- sseMessage:
+			default:
+				// Channel is full or closed, skip
 			}
 		}
-		s.subMutex.RUnlock()
 	}
+	s.subMutex.RUnlock()
 }
 
 // AddConnection stores connection info in Valkey with TTL

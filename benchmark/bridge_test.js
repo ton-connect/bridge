@@ -36,12 +36,16 @@ const LISTENER_WRITERS_RATIO = Number(__ENV.LISTENER_WRITERS_RATIO || 3); // num
 const TOTAL_INSTANCES = Number(__ENV.TOTAL_INSTANCES || 1); // total number of instances in the simulation test
 const CURRENT_INSTANCE = Number(__ENV.CURRENT_INSTANCE || 0); // 0 for the first instance, 1 for the second instance, etc.
 
+const ID_SPACE_OFFSET = parseInt(__ENV.ID_SPACE_OFFSET || 0);
+const SPACE_SIZE = TOTAL_INSTANCES * LISTENER_WRITERS_RATIO * SSE_VUS - 1
 const START_INDEX_OFFSET = CURRENT_INSTANCE * LISTENER_WRITERS_RATIO * SSE_VUS;
-const ID_SPACE_SIZE = TOTAL_INSTANCES * LISTENER_WRITERS_RATIO * SSE_VUS - 1;
+const ID_SPACE_START = ID_SPACE_OFFSET * SPACE_SIZE
+
+// console.log('CURRENT_INSTANCE:', CURRENT_INSTANCE);
 
 // Generate valid hex client IDs that the bridge expects
 function getSSEIDs(vuIndex) {
-  const startIndex = START_INDEX_OFFSET + vuIndex * LISTENER_WRITERS_RATIO;
+  const startIndex = ID_SPACE_START + START_INDEX_OFFSET + vuIndex * LISTENER_WRITERS_RATIO;
   const ids = [];
   for (let i = 0; i < LISTENER_WRITERS_RATIO; i++) {
     ids.push([(startIndex + i).toString(16).padStart(64, '0')]);
@@ -52,7 +56,7 @@ function getSSEIDs(vuIndex) {
 // Generate valid hex client IDs that the bridge expects
 // This generates a random client ID for the sender in the ID space
 function getID() {
-  const targetIndex = Math.floor(Math.random() * ID_SPACE_SIZE);
+  const targetIndex = ID_SPACE_START + Math.floor(Math.random() * SPACE_SIZE);
   return targetIndex.toString(16).padStart(64, '0');
 }
 
