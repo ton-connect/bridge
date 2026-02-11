@@ -9,7 +9,7 @@ import (
 
 type ObjectStorage interface {
 	Store(ctx context.Context, object string, ttl int64) (string, error) // returns ID
-	Get(ctx context.Context, id string) (string, error)                 // returns object
+	Get(ctx context.Context, id string) (string, error)                  // returns object
 }
 
 func NewObjectStorage(storageType string, uri string) (ObjectStorage, error) {

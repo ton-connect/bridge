@@ -9,10 +9,10 @@ import (
 )
 
 type Handler struct {
-	storage    ObjectStorage
-	maxTTL     int64
-	maxSize    int
-	baseURL    string
+	storage ObjectStorage
+	maxTTL  int64
+	maxSize int
+	baseURL string
 }
 
 func NewHandler(storage ObjectStorage, maxTTL int64, maxSize int, baseURL string) *Handler {
