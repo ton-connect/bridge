@@ -18,6 +18,7 @@ import (
 	"github.com/ton-connect/bridge/internal/config"
 	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
 	"github.com/ton-connect/bridge/internal/ntp"
+	"github.com/ton-connect/bridge/internal/objectstorage"
 	"github.com/ton-connect/bridge/internal/utils"
 	handlerv3 "github.com/ton-connect/bridge/internal/v3/handler"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
@@ -157,6 +158,17 @@ func main() {
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)
 	e.POST("/bridge/verify", h.ConnectVerifyHandler)
+
+	// Object Storage
+	var objStore objectstorage.ObjectStorage
+	if vs, ok := dbConn.(*storagev3.ValkeyStorage); ok {
+		objStore = objectstorage.NewObjectStorageWithClient(vs.Client())
+	} else {
+		objStore = objectstorage.NewMemObjectStorage()
+	}
+	objHandler := objectstorage.NewHandler(objStore, int64(config.Config.ObjectStorageMaxTTL), config.Config.ObjectStorageMaxSize, "")
+	e.POST("/store", objHandler.StoreHandler)
+	e.GET("/store/:id", objHandler.GetHandler)
 
 	var existedPaths []string
 	for _, r := range e.Routes() {

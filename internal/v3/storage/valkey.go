@@ -394,6 +394,11 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 	return leastSuspicious, nil
 }
 
+// Client returns the underlying Redis client for reuse by other subsystems.
+func (s *ValkeyStorage) Client() redis.UniversalClient {
+	return s.client
+}
+
 // HealthCheck verifies the connection to Valkey
 func (s *ValkeyStorage) HealthCheck() error {
 	log := log.WithField("prefix", "ValkeyStorage.HealthCheck")
