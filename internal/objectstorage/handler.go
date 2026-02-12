@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/labstack/echo/v4"
 )
@@ -87,8 +88,8 @@ func (h *Handler) buildGetURL(c echo.Context, id string) string {
 		scheme = "https"
 	}
 	if fwd := c.Request().Header.Get("X-Forwarded-Proto"); fwd != "" {
-		scheme = fwd
+		scheme = strings.TrimSpace(fwd)
 	}
 
-	return fmt.Sprintf("%s://%s/objects/%s", scheme, c.Request().Host, id)
+	return fmt.Sprintf("%s://%s/objects/%s", scheme, strings.TrimSpace(c.Request().Host), id)
 }
