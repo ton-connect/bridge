@@ -95,12 +95,12 @@ func TestStoreDifferentContent(t *testing.T) {
 	req1 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("content A"))
 	rec1 := httptest.NewRecorder()
 	c1 := e.NewContext(req1, rec1)
-	handler.StoreHandler(c1)
+	_ = handler.StoreHandler(c1)
 
 	req2 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("content B"))
 	rec2 := httptest.NewRecorder()
 	c2 := e.NewContext(req2, rec2)
-	handler.StoreHandler(c2)
+	_ = handler.StoreHandler(c2)
 
 	if rec1.Body.String() == rec2.Body.String() {
 		t.Fatal("different content should produce different URLs")
