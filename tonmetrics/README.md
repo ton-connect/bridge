@@ -3,7 +3,7 @@
 This directory owns the Go models used to send TON analytics bridge events.
 
 ## Prerequisites
-- Go 1.24 or newer (for installing `oapi-codegen`)
+- Go 1.26 or newer (for installing `oapi-codegen`)
 - `make`, `jq`
 
 ## Usage
