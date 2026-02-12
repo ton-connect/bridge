@@ -167,8 +167,8 @@ func main() {
 		objStore = objectstorage.NewMemObjectStorage()
 	}
 	objHandler := objectstorage.NewHandler(objStore, int64(config.Config.ObjectStorageMaxTTL), config.Config.ObjectStorageMaxSize, "")
-	e.POST("/store", objHandler.StoreHandler)
-	e.GET("/store/:id", objHandler.GetHandler)
+	e.POST("/objects", objHandler.StoreHandler)
+	e.GET("/objects/:id", objHandler.GetHandler)
 
 	var existedPaths []string
 	for _, r := range e.Routes() {

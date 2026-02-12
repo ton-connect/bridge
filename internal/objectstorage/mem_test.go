@@ -10,7 +10,7 @@ func TestMemStoreAndGet(t *testing.T) {
 	s := NewMemObjectStorage()
 	ctx := context.Background()
 
-	id, err := s.Store(ctx, "dGVzdCBvYmplY3Q=", 60)
+	id, err := s.Store(ctx, "hello world", 60)
 	if err != nil {
 		t.Fatalf("Store failed: %v", err)
 	}
@@ -22,8 +22,8 @@ func TestMemStoreAndGet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Get failed: %v", err)
 	}
-	if obj != "dGVzdCBvYmplY3Q=" {
-		t.Fatalf("expected 'dGVzdCBvYmplY3Q=', got '%s'", obj)
+	if obj != "hello world" {
+		t.Fatalf("expected 'hello world', got '%s'", obj)
 	}
 }
 
@@ -64,19 +64,33 @@ func TestMemExpiration(t *testing.T) {
 	}
 }
 
-func TestMemUniqueIDs(t *testing.T) {
+func TestMemDeduplication(t *testing.T) {
 	s := NewMemObjectStorage()
 	ctx := context.Background()
 
-	ids := make(map[string]bool)
-	for i := 0; i < 100; i++ {
-		id, err := s.Store(ctx, "obj", 60)
-		if err != nil {
-			t.Fatalf("Store failed: %v", err)
-		}
-		if ids[id] {
-			t.Fatalf("duplicate ID generated: %s", id)
-		}
-		ids[id] = true
+	id1, err := s.Store(ctx, "same content", 60)
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	id2, err := s.Store(ctx, "same content", 60)
+	if err != nil {
+		t.Fatalf("Store failed: %v", err)
+	}
+
+	if id1 != id2 {
+		t.Fatalf("same content should produce same ID, got %s and %s", id1, id2)
+	}
+}
+
+func TestMemDifferentContentDifferentIDs(t *testing.T) {
+	s := NewMemObjectStorage()
+	ctx := context.Background()
+
+	id1, _ := s.Store(ctx, "content A", 60)
+	id2, _ := s.Store(ctx, "content B", 60)
+
+	if id1 == id2 {
+		t.Fatal("different content should produce different IDs")
 	}
 }

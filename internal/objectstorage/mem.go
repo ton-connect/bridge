@@ -2,7 +2,7 @@ package objectstorage
 
 import (
 	"context"
-	"crypto/rand"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
 	"sync"
@@ -28,10 +28,7 @@ func NewMemObjectStorage() *MemObjectStorage {
 }
 
 func (s *MemObjectStorage) Store(ctx context.Context, object string, ttl int64) (string, error) {
-	id, err := generateID()
-	if err != nil {
-		return "", fmt.Errorf("failed to generate ID: %w", err)
-	}
+	id := hashObject(object)
 
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -73,10 +70,7 @@ func (s *MemObjectStorage) watcher() {
 	}
 }
 
-func generateID() (string, error) {
-	b := make([]byte, 16)
-	if _, err := rand.Read(b); err != nil {
-		return "", err
-	}
-	return hex.EncodeToString(b), nil
+func hashObject(object string) string {
+	h := sha256.Sum256([]byte(object))
+	return hex.EncodeToString(h[:])
 }

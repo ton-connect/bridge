@@ -2,6 +2,7 @@ package objectstorage
 
 import (
 	"fmt"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -24,73 +25,61 @@ func NewHandler(storage ObjectStorage, maxTTL int64, maxSize int, baseURL string
 	}
 }
 
-type storeRequest struct {
-	Object string `json:"object"`
-}
-
-type storeResponse struct {
-	GetURL string `json:"get_url"`
-}
-
-type getResponse struct {
-	Object string `json:"object"`
-}
-
 func (h *Handler) StoreHandler(c echo.Context) error {
 	ttlStr := c.QueryParam("ttl")
 	if ttlStr == "" {
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "missing ttl query parameter"})
+		return c.String(http.StatusBadRequest, "missing ttl query parameter")
 	}
 
 	ttl, err := strconv.ParseInt(ttlStr, 10, 64)
 	if err != nil || ttl <= 0 {
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "ttl must be a positive integer"})
+		return c.String(http.StatusBadRequest, "ttl must be a positive integer")
 	}
 
 	if ttl > h.maxTTL {
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": fmt.Sprintf("ttl exceeds maximum allowed value of %d", h.maxTTL), "max_ttl": h.maxTTL})
+		return c.String(http.StatusBadRequest, fmt.Sprintf("ttl exceeds maximum allowed value of %d", h.maxTTL))
 	}
 
-	var req storeRequest
-	if err := c.Bind(&req); err != nil {
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "invalid request body"})
-	}
-
-	if req.Object == "" {
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "missing object field"})
-	}
-
-	if len(req.Object) > h.maxSize {
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": fmt.Sprintf("object exceeds maximum allowed size of %d bytes", h.maxSize)})
-	}
-
-	id, err := h.storage.Store(c.Request().Context(), req.Object, ttl)
+	body, err := io.ReadAll(c.Request().Body)
 	if err != nil {
-		return c.JSON(http.StatusInternalServerError, echo.Map{"error": "failed to store object"})
+		return c.String(http.StatusBadRequest, "failed to read request body")
+	}
+
+	if len(body) == 0 {
+		return c.String(http.StatusBadRequest, "empty body")
+	}
+
+	if len(body) > h.maxSize {
+		return c.String(http.StatusBadRequest, fmt.Sprintf("object exceeds maximum allowed size of %d bytes", h.maxSize))
+	}
+
+	id, err := h.storage.Store(c.Request().Context(), string(body), ttl)
+	if err != nil {
+		return c.String(http.StatusInternalServerError, "failed to store object")
 	}
 
 	getURL := h.buildGetURL(c, id)
 
-	return c.JSON(http.StatusOK, storeResponse{GetURL: getURL})
+	return c.String(http.StatusOK, getURL)
 }
 
 func (h *Handler) GetHandler(c echo.Context) error {
 	id := c.Param("id")
 	if id == "" {
-		return c.JSON(http.StatusBadRequest, echo.Map{"error": "missing id"})
+		return c.String(http.StatusBadRequest, "missing id")
 	}
 
 	object, err := h.storage.Get(c.Request().Context(), id)
 	if err != nil {
-		return c.JSON(http.StatusNotFound, echo.Map{"error": "object not found"})
+		return c.NoContent(http.StatusNotFound)
 	}
 
-	return c.JSON(http.StatusOK, getResponse{Object: object})
+	return c.String(http.StatusOK, object)
 }
 
 func (h *Handler) buildGetURL(c echo.Context, id string) string {
 	if h.baseURL != "" {
-		return fmt.Sprintf("%s/store/%s", h.baseURL, id)
+		return fmt.Sprintf("%s/objects/%s", h.baseURL, id)
 	}
 
 	scheme := "http"
@@ -101,5 +90,5 @@ func (h *Handler) buildGetURL(c echo.Context, id string) string {
 		scheme = fwd
 	}
 
-	return fmt.Sprintf("%s://%s/store/%s", scheme, c.Request().Host, id)
+	return fmt.Sprintf("%s://%s/objects/%s", scheme, c.Request().Host, id)
 }

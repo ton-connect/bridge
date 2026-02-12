@@ -37,13 +37,10 @@ func NewValkeyObjectStorage(uri string) (*ValkeyObjectStorage, error) {
 }
 
 func (s *ValkeyObjectStorage) Store(ctx context.Context, object string, ttl int64) (string, error) {
-	id, err := generateID()
-	if err != nil {
-		return "", fmt.Errorf("failed to generate ID: %w", err)
-	}
+	id := hashObject(object)
 
 	key := keyPrefix + id
-	err = s.client.Set(ctx, key, object, time.Duration(ttl)*time.Second).Err()
+	err := s.client.Set(ctx, key, object, time.Duration(ttl)*time.Second).Err()
 	if err != nil {
 		return "", fmt.Errorf("failed to store object: %w", err)
 	}

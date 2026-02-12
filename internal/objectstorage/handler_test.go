@@ -1,7 +1,6 @@
 package objectstorage
 
 import (
-	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -23,9 +22,7 @@ func TestStoreAndRetrieve(t *testing.T) {
 	handler, e := setupTestHandler()
 
 	// Store an object
-	body := `{"object":"dGVzdCBvYmplY3Q="}`
-	req := httptest.NewRequest(http.MethodPost, "/store?ttl=60", strings.NewReader(body))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("hello world"))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -36,23 +33,21 @@ func TestStoreAndRetrieve(t *testing.T) {
 		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
 	}
 
-	// Extract ID from get_url
-	var resp storeResponse
-	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
-		t.Fatalf("failed to parse response: %v", err)
-	}
-	if resp.GetURL == "" {
-		t.Fatal("response should contain get_url")
+	// Response is a plain text URL
+	getURL := rec.Body.String()
+	if !strings.Contains(getURL, "/objects/") {
+		t.Fatalf("response should contain /objects/ path: %s", getURL)
 	}
 
-	parts := strings.Split(resp.GetURL, "/store/")
+	// Extract ID from the URL
+	parts := strings.Split(getURL, "/objects/")
 	if len(parts) < 2 {
-		t.Fatalf("unexpected get_url format: %s", resp.GetURL)
+		t.Fatalf("unexpected URL format: %s", getURL)
 	}
 	id := parts[len(parts)-1]
 
 	// Retrieve the object
-	req2 := httptest.NewRequest(http.MethodGet, "/store/"+id, nil)
+	req2 := httptest.NewRequest(http.MethodGet, "/objects/"+id, nil)
 	rec2 := httptest.NewRecorder()
 	c2 := e.NewContext(req2, rec2)
 	c2.SetParamNames("id")
@@ -64,17 +59,58 @@ func TestStoreAndRetrieve(t *testing.T) {
 	if rec2.Code != http.StatusOK {
 		t.Fatalf("expected status 200, got %d: %s", rec2.Code, rec2.Body.String())
 	}
-	if !strings.Contains(rec2.Body.String(), "dGVzdCBvYmplY3Q=") {
-		t.Fatalf("response should contain the stored object: %s", rec2.Body.String())
+	if rec2.Body.String() != "hello world" {
+		t.Fatalf("expected 'hello world', got '%s'", rec2.Body.String())
+	}
+}
+
+func TestStoreDeduplication(t *testing.T) {
+	handler, e := setupTestHandler()
+
+	// Store same object twice
+	req1 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("same content"))
+	rec1 := httptest.NewRecorder()
+	c1 := e.NewContext(req1, rec1)
+	if err := handler.StoreHandler(c1); err != nil {
+		t.Fatalf("StoreHandler returned error: %v", err)
+	}
+	url1 := rec1.Body.String()
+
+	req2 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("same content"))
+	rec2 := httptest.NewRecorder()
+	c2 := e.NewContext(req2, rec2)
+	if err := handler.StoreHandler(c2); err != nil {
+		t.Fatalf("StoreHandler returned error: %v", err)
+	}
+	url2 := rec2.Body.String()
+
+	if url1 != url2 {
+		t.Fatalf("same content should produce same URL, got %s and %s", url1, url2)
+	}
+}
+
+func TestStoreDifferentContent(t *testing.T) {
+	handler, e := setupTestHandler()
+
+	req1 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("content A"))
+	rec1 := httptest.NewRecorder()
+	c1 := e.NewContext(req1, rec1)
+	handler.StoreHandler(c1)
+
+	req2 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("content B"))
+	rec2 := httptest.NewRecorder()
+	c2 := e.NewContext(req2, rec2)
+	handler.StoreHandler(c2)
+
+	if rec1.Body.String() == rec2.Body.String() {
+		t.Fatal("different content should produce different URLs")
 	}
 }
 
 func TestStoreMissingTTL(t *testing.T) {
 	handler, e := setupTestHandler()
 
-	body := `{"object":"dGVzdA=="}`
-	req := httptest.NewRequest(http.MethodPost, "/store", strings.NewReader(body))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req := httptest.NewRequest(http.MethodPost, "/object", strings.NewReader("test"))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -89,9 +125,7 @@ func TestStoreMissingTTL(t *testing.T) {
 func TestStoreTTLTooHigh(t *testing.T) {
 	handler, e := setupTestHandler()
 
-	body := `{"object":"dGVzdA=="}`
-	req := httptest.NewRequest(http.MethodPost, "/store?ttl=9999", strings.NewReader(body))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=9999", strings.NewReader("test"))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -101,17 +135,12 @@ func TestStoreTTLTooHigh(t *testing.T) {
 	if rec.Code != http.StatusBadRequest {
 		t.Fatalf("expected status 400, got %d", rec.Code)
 	}
-	if !strings.Contains(rec.Body.String(), "max_ttl") {
-		t.Fatalf("response should contain max_ttl: %s", rec.Body.String())
-	}
 }
 
 func TestStoreInvalidTTL(t *testing.T) {
 	handler, e := setupTestHandler()
 
-	body := `{"object":"dGVzdA=="}`
-	req := httptest.NewRequest(http.MethodPost, "/store?ttl=abc", strings.NewReader(body))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=abc", strings.NewReader("test"))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -126,9 +155,7 @@ func TestStoreInvalidTTL(t *testing.T) {
 func TestStoreNegativeTTL(t *testing.T) {
 	handler, e := setupTestHandler()
 
-	body := `{"object":"dGVzdA=="}`
-	req := httptest.NewRequest(http.MethodPost, "/store?ttl=-1", strings.NewReader(body))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=-1", strings.NewReader("test"))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -140,12 +167,10 @@ func TestStoreNegativeTTL(t *testing.T) {
 	}
 }
 
-func TestStoreMissingObject(t *testing.T) {
+func TestStoreEmptyBody(t *testing.T) {
 	handler, e := setupTestHandler()
 
-	body := `{}`
-	req := httptest.NewRequest(http.MethodPost, "/store?ttl=60", strings.NewReader(body))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(""))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -161,9 +186,7 @@ func TestStoreObjectTooLarge(t *testing.T) {
 	handler, e := setupTestHandler()
 
 	largeObject := strings.Repeat("a", testMaxSize+1)
-	body := `{"object":"` + largeObject + `"}`
-	req := httptest.NewRequest(http.MethodPost, "/store?ttl=60", strings.NewReader(body))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(largeObject))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -179,9 +202,7 @@ func TestStoreObjectExactlyAtLimit(t *testing.T) {
 	handler, e := setupTestHandler()
 
 	exactObject := strings.Repeat("a", testMaxSize)
-	body := `{"object":"` + exactObject + `"}`
-	req := httptest.NewRequest(http.MethodPost, "/store?ttl=60", strings.NewReader(body))
-	req.Header.Set(echo.HeaderContentType, echo.MIMEApplicationJSON)
+	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(exactObject))
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -196,7 +217,7 @@ func TestStoreObjectExactlyAtLimit(t *testing.T) {
 func TestGetNonExistent(t *testing.T) {
 	handler, e := setupTestHandler()
 
-	req := httptest.NewRequest(http.MethodGet, "/store/nonexistent", nil)
+	req := httptest.NewRequest(http.MethodGet, "/objects/nonexistent", nil)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	c.SetParamNames("id")
@@ -220,7 +241,7 @@ func TestBuildGetURLWithBaseURL(t *testing.T) {
 	c := e.NewContext(req, rec)
 
 	url := handler.buildGetURL(c, "abc123")
-	expected := "https://bridge.example.com/store/abc123"
+	expected := "https://bridge.example.com/objects/abc123"
 	if url != expected {
 		t.Fatalf("expected %s, got %s", expected, url)
 	}
@@ -237,7 +258,7 @@ func TestBuildGetURLFromRequest(t *testing.T) {
 	c := e.NewContext(req, rec)
 
 	url := handler.buildGetURL(c, "abc123")
-	expected := "http://localhost:8081/store/abc123"
+	expected := "http://localhost:8081/objects/abc123"
 	if url != expected {
 		t.Fatalf("expected %s, got %s", expected, url)
 	}
