@@ -1,0 +1,58 @@
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: "cadvisor"
+    static_configs:
+      - targets: ["cadvisor:8080"]
+
+  - job_name: "prometheus"
+    static_configs:
+      - targets: ["prometheus:9090"]
+      
+  - job_name: "valkey_exporters"
+    static_configs:
+      - targets:
+          - "redis_exporter_valkey1:9121"
+          - "redis_exporter_valkey2:9121"
+          - "redis_exporter_valkey3:9121"
+    relabel_configs:
+      # Add shard label for shard identification
+      - source_labels: [__address__]
+        regex: 'redis_exporter_valkey([0-9]+):9121'
+        target_label: shard
+        replacement: 'shard$1'
+      # Rename connection metrics for convenience
+      - source_labels: [__address__]
+        target_label: instance
+        regex: 'redis_exporter_valkey([0-9]+):9121'
+        replacement: 'valkey-shard$1'
+
+  # Valkey cluster connection metrics
+  # redis_exporter automatically collects:
+  # - redis_connected_clients - number of connected clients
+  # - redis_connected_slaves - number of connected replicas (if any)
+  # - redis_rejected_connections_total - number of rejected connections
+  # - redis_clients - detailed client information
+  # - redis_cluster_connected_nodes - number of connected cluster nodes
+  # - redis_cluster_state - cluster state
+  # - redis_cluster_slots_assigned - number of assigned slots
+  # - redis_cluster_slots_ok - number of slots in OK state
+  # - redis_cluster_slots_pfail - number of slots in PFail state
+  # - redis_cluster_slots_fail - number of slots in Fail state
+  # - redis_cluster_known_nodes - number of known cluster nodes
+  # - redis_cluster_size - cluster size
+  # - redis_cluster_current_epoch - current cluster epoch
+  # - redis_cluster_my_epoch - current node epoch
+  # - redis_cluster_stats_messages_sent - cluster messages sent
+  # - redis_cluster_stats_messages_received - cluster messages received
+
+  # Metrics from bridge application (if running)
+  - job_name: "bridge"
+    static_configs:
+      - targets: ["host.docker.internal:2112"]  # Default metrics port
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: instance
+        replacement: 'bridge-app'

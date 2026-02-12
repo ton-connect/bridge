@@ -1,0 +1,213 @@
+services:
+  valkey-shard1:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6379:6379"
+    volumes:
+      - valkey_shard1_data:/data
+    command: valkey-server --port 6379 --cluster-enabled yes --cluster-config-file nodes-6379.conf --cluster-node-timeout 5000 --appendonly yes
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.20
+    restart: unless-stopped
+
+  valkey-shard2:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6380:6380"
+    volumes:
+      - valkey_shard2_data:/data
+    command: valkey-server --port 6380 --cluster-enabled yes --cluster-config-file nodes-6380.conf --cluster-node-timeout 5000 --appendonly yes
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-p", "6380", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.21
+    restart: unless-stopped
+
+  valkey-shard3:
+    image: valkey/valkey:7.2-alpine
+    ports:
+      - "6381:6381"
+    volumes:
+      - valkey_shard3_data:/data
+    command: valkey-server --port 6381 --cluster-enabled yes --cluster-config-file nodes-6381.conf --cluster-node-timeout 5000 --appendonly yes
+    healthcheck:
+      test: ["CMD", "valkey-cli", "-p", "6381", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.22
+    restart: unless-stopped
+
+  valkey-cluster-init:
+    image: valkey/valkey:7.2-alpine
+    depends_on:
+      valkey-shard1:
+        condition: service_healthy
+      valkey-shard2:
+        condition: service_healthy
+      valkey-shard3:
+        condition: service_healthy
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.23
+    command: >
+      sh -c "
+        sleep 10 &&
+        echo 'Resetting cluster state on all nodes...' &&
+        valkey-cli -h 172.20.0.20 -p 6379 FLUSHALL &&
+        valkey-cli -h 172.20.0.21 -p 6380 FLUSHALL &&
+        valkey-cli -h 172.20.0.22 -p 6381 FLUSHALL &&
+        valkey-cli -h 172.20.0.20 -p 6379 CLUSTER RESET HARD &&
+        valkey-cli -h 172.20.0.21 -p 6380 CLUSTER RESET HARD &&
+        valkey-cli -h 172.20.0.22 -p 6381 CLUSTER RESET HARD &&
+        echo 'Creating new cluster...' &&
+        valkey-cli --cluster create 172.20.0.20:6379 172.20.0.21:6380 172.20.0.22:6381 --cluster-replicas 0 --cluster-yes &&
+        echo 'Cluster created successfully' &&
+        valkey-cli -c -h 172.20.0.20 -p 6379 cluster nodes &&
+        valkey-cli -c -h 172.20.0.20 -p 6379 cluster info
+      "
+    restart: "no"
+
+  data-monitor:
+    image: valkey/valkey:7.2-alpine
+    container_name: shard-data-monitor
+    networks:
+      bridge_network:
+        ipv4_address: 172.20.0.60
+    command: >
+      sh -c "
+        echo 'Monitoring data distribution across shards...' &&
+        sleep 30 &&
+        while true; do
+          echo '=== Data Distribution Report ===' &&
+          echo 'Shard 1 (172.20.0.20:6379):' &&
+          valkey-cli -h 172.20.0.20 -p 6379 info keyspace &&
+          valkey-cli -h 172.20.0.20 -p 6379 dbsize &&
+          echo 'Shard 2 (172.20.0.21:6380):' &&
+          valkey-cli -h 172.20.0.21 -p 6380 info keyspace &&
+          valkey-cli -h 172.20.0.21 -p 6380 dbsize &&
+          echo 'Shard 3 (172.20.0.22:6381):' &&
+          valkey-cli -h 172.20.0.22 -p 6381 info keyspace &&
+          valkey-cli -h 172.20.0.22 -p 6381 dbsize &&
+          echo 'Cluster Info:' &&
+          valkey-cli -c -h 172.20.0.20 -p 6379 cluster info &&
+          echo '==============================' &&
+          sleep 60
+        done
+      "
+    restart: unless-stopped
+  prometheus:
+    image: prom/prometheus:v2.49.1
+    container_name: prometheus
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --web.enable-lifecycle
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    ports:
+      - "19090:9090"
+    networks:
+      - bridge_network
+
+  grafana:
+    image: grafana/grafana:10.3.3
+    container_name: grafana
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+    ports:
+      - "3000:3000"
+    networks:
+      - bridge_network
+    depends_on:
+      - prometheus
+
+  cadvisor:
+    image: gcr.io/cadvisor/cadvisor:v0.49.1
+    container_name: cadvisor
+    privileged: true
+    ports:
+      - "8080:8080"
+    volumes:
+      # cAdvisor reads container/network/cgroup information
+      - /:/rootfs:ro
+      - /var/run:/var/run:rw
+      - /sys:/sys:ro
+      - /var/lib/docker/:/var/lib/docker:ro
+    networks:
+      - bridge_network
+  # Redis exporters for collecting connection metrics from Valkey cluster
+  redis_exporter_valkey1:
+    image: oliver006/redis_exporter:v1.58.0
+    container_name: redis_exporter_valkey1
+    environment:
+      - REDIS_ADDR=redis://valkey-shard1:6379
+      # Enable collection of detailed connection metrics and system metrics
+      - REDIS_EXPORTER_INCLUDE_SYSTEM_METRICS=true
+      - REDIS_EXPORTER_CHECK_KEYS=*
+    ports:
+      - "9121:9121"
+    networks:
+      - bridge_network
+    depends_on:
+      - valkey-shard1
+
+  redis_exporter_valkey2:
+    image: oliver006/redis_exporter:v1.58.0
+    container_name: redis_exporter_valkey2
+    environment:
+      - REDIS_ADDR=redis://valkey-shard2:6380
+      - REDIS_EXPORTER_INCLUDE_SYSTEM_METRICS=true
+      - REDIS_EXPORTER_CHECK_KEYS=*
+    ports:
+      - "9122:9121"
+    networks:
+      - bridge_network
+    depends_on:
+      - valkey-shard2
+
+  redis_exporter_valkey3:
+    image: oliver006/redis_exporter:v1.58.0
+    container_name: redis_exporter_valkey3
+    environment:
+      - REDIS_ADDR=redis://valkey-shard3:6381
+      - REDIS_EXPORTER_INCLUDE_SYSTEM_METRICS=true
+      - REDIS_EXPORTER_CHECK_KEYS=*
+    ports:
+      - "9123:9121"
+    networks:
+      - bridge_network
+    depends_on:
+      - valkey-shard3
+
+volumes:
+  valkey_shard1_data:
+  valkey_shard2_data:
+  valkey_shard3_data:
+  prometheus_data:
+  grafana_data:
+
+networks:
+  bridge_network:
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 172.20.0.0/16
+  monitoring:
+    name: bridge_network
