@@ -2,6 +2,8 @@ package storagev3
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -9,22 +11,34 @@ import (
 	"sync"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
+	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/models"
 )
 
+var (
+	expiredUndeliveredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "number_of_expired_undelivered_messages",
+		Help: "The total number of messages that expired without being delivered",
+	})
+)
+
 type ValkeyStorage struct {
-	client      redis.UniversalClient
-	pubSubConn  *redis.PubSub
-	subscribers map[string][]chan<- models.SseMessage
-	subMutex    sync.RWMutex
+	client       redis.UniversalClient
+	pubSubConn   *redis.PubSub
+	subscribers  map[string][]chan<- models.SseMessage
+	subMutex     sync.RWMutex
+	analytics    analytics.EventCollector
+	eventBuilder analytics.EventBuilder
 }
 
 // NewValkeyStorage creates a Valkey-backed storage client.
 // Expects a Redis cluster URL (parsed by redis.ParseURL) and requires
 // Redis Cluster + Redis 7+ sharded pub/sub. Returns *ValkeyStorage or error.
-func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
+func NewValkeyStorage(valkeyURI string, collector analytics.EventCollector, builder analytics.EventBuilder) (*ValkeyStorage, error) {
 	log := log.WithField("prefix", "NewValkeyStorage")
 
 	opts, err := redis.ParseURL(strings.TrimSpace(valkeyURI))
@@ -66,8 +80,10 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	log.Info("Successfully connected to Valkey/Redis")
 
 	return &ValkeyStorage{
-		client:      clusterClient,
-		subscribers: make(map[string][]chan<- models.SseMessage),
+		client:       clusterClient,
+		subscribers:  make(map[string][]chan<- models.SseMessage),
+		analytics:    collector,
+		eventBuilder: builder,
 	}, nil
 }
 
@@ -169,8 +185,58 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	for _, key := range keys {
 		clientKey := fmt.Sprintf("client:%s", key)
 
-		// Remove expired messages first
-		// TODO support expired messages but not delivered log
+		// Get expired messages before removing them to check if they were delivered
+		expiredMessages, err := s.client.ZRangeByScore(ctx, clientKey, &redis.ZRangeBy{
+			Min: "0",
+			Max: fmt.Sprintf("%d", now),
+		}).Result()
+		if err != nil && err != redis.Nil {
+			log.Errorf("failed to get expired messages for client %s: %v", key, err)
+		}
+
+		// Check for messages that expired but were not delivered
+		for _, msgData := range expiredMessages {
+			var msg models.SseMessage
+			if err := json.Unmarshal([]byte(msgData), &msg); err != nil {
+				log.Errorf("failed to unmarshal expired message: %v", err)
+				continue
+			}
+
+			if ExpiredCache.IsMarked(msg.EventId) {
+				continue
+			}
+
+			var bridgeMsg models.BridgeMessage
+			fromID := "unknown"
+			hash := sha256.Sum256(msg.Message)
+			messageHash := hex.EncodeToString(hash[:])
+
+			if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+				fromID = bridgeMsg.From
+				contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
+				messageHash = hex.EncodeToString(contentHash[:])
+			}
+
+			expiredUndeliveredMessagesMetric.Inc()
+			log.WithFields(map[string]interface{}{
+				"hash":     messageHash,
+				"from":     fromID,
+				"to":       key,
+				"event_id": msg.EventId,
+				"trace_id": bridgeMsg.TraceId,
+			}).Debug("message expired")
+
+			if s.analytics != nil {
+				_ = s.analytics.TryAdd(s.eventBuilder.NewBridgeMessageExpiredEvent(
+					key,
+					bridgeMsg.TraceId,
+					msg.EventId,
+					messageHash,
+				))
+			}
+		}
+
+		// Remove expired messages
 		s.client.ZRemRangeByScore(ctx, clientKey, "0", fmt.Sprintf("%d", now))
 
 		// Get all remaining messages
