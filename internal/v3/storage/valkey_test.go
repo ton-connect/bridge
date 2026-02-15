@@ -309,7 +309,7 @@ func TestValkeyStorage_ExpiredUndeliveredMessages_Detected(t *testing.T) {
 	}
 
 	close(messageCh)
-	storage.Unsub(ctx, []string{clientID}, messageCh)
+	_ = storage.Unsub(ctx, []string{clientID}, messageCh)
 }
 
 func TestValkeyStorage_ExpiredDeliveredMessages_NotDetected(t *testing.T) {
@@ -351,7 +351,7 @@ func TestValkeyStorage_ExpiredDeliveredMessages_NotDetected(t *testing.T) {
 	}
 
 	close(messageCh)
-	storage.Unsub(ctx, []string{clientID}, messageCh)
+	_ = storage.Unsub(ctx, []string{clientID}, messageCh)
 }
 
 func TestValkeyStorage_MultipleExpiredMessages_MixedStatus(t *testing.T) {
@@ -400,5 +400,5 @@ func TestValkeyStorage_MultipleExpiredMessages_MixedStatus(t *testing.T) {
 	}
 
 	close(messageCh)
-	storage.Unsub(ctx, []string{clientID}, messageCh)
+	_ = storage.Unsub(ctx, []string{clientID}, messageCh)
 }
