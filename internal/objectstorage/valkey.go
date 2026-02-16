@@ -2,6 +2,7 @@ package objectstorage
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -11,6 +12,11 @@ import (
 )
 
 const keyPrefix = "objstore:"
+
+type valkeyEntry struct {
+	Object      []byte `json:"object"`
+	ContentType string `json:"content_type"`
+}
 
 type ValkeyObjectStorage struct {
 	client redis.UniversalClient
@@ -36,11 +42,21 @@ func NewValkeyObjectStorage(uri string) (*ValkeyObjectStorage, error) {
 	return &ValkeyObjectStorage{client: client}, nil
 }
 
-func (s *ValkeyObjectStorage) Store(ctx context.Context, object string, ttl int64) (string, error) {
-	id := hashObject(object)
-
+func (s *ValkeyObjectStorage) Store(ctx context.Context, object []byte, contentType string, ttl int64) (string, error) {
+	id := hashObject(object, contentType)
 	key := keyPrefix + id
-	err := s.client.Set(ctx, key, object, time.Duration(ttl)*time.Second).Err()
+
+	entry := valkeyEntry{
+		Object:      object,
+		ContentType: contentType,
+	}
+
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal object: %w", err)
+	}
+
+	err = s.client.Set(ctx, key, data, time.Duration(ttl)*time.Second).Err()
 	if err != nil {
 		return "", fmt.Errorf("failed to store object: %w", err)
 	}
@@ -48,15 +64,20 @@ func (s *ValkeyObjectStorage) Store(ctx context.Context, object string, ttl int6
 	return id, nil
 }
 
-func (s *ValkeyObjectStorage) Get(ctx context.Context, id string) (string, error) {
+func (s *ValkeyObjectStorage) Get(ctx context.Context, id string) ([]byte, string, error) {
 	key := keyPrefix + id
 	val, err := s.client.Get(ctx, key).Result()
 	if err != nil {
 		if err == redis.Nil {
-			return "", fmt.Errorf("object not found")
+			return nil, "", fmt.Errorf("object not found")
 		}
-		return "", fmt.Errorf("failed to get object: %w", err)
+		return nil, "", fmt.Errorf("failed to get object: %w", err)
 	}
 
-	return val, nil
+	var entry valkeyEntry
+	if err := json.Unmarshal([]byte(val), &entry); err != nil {
+		return nil, "", fmt.Errorf("failed to unmarshal object: %w", err)
+	}
+
+	return entry.Object, entry.ContentType, nil
 }

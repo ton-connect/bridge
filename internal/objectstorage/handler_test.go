@@ -23,6 +23,7 @@ func TestStoreAndRetrieve(t *testing.T) {
 
 	// Store an object
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("hello world"))
+	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -62,6 +63,10 @@ func TestStoreAndRetrieve(t *testing.T) {
 	if rec2.Body.String() != "hello world" {
 		t.Fatalf("expected 'hello world', got '%s'", rec2.Body.String())
 	}
+	gotCT := rec2.Header().Get("Content-Type")
+	if !strings.HasPrefix(gotCT, "text/plain") {
+		t.Fatalf("expected Content-Type text/plain, got %s", gotCT)
+	}
 }
 
 func TestStoreDeduplication(t *testing.T) {
@@ -69,6 +74,7 @@ func TestStoreDeduplication(t *testing.T) {
 
 	// Store same object twice
 	req1 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("same content"))
+	req1.Header.Set("Content-Type", "text/plain")
 	rec1 := httptest.NewRecorder()
 	c1 := e.NewContext(req1, rec1)
 	if err := handler.StoreHandler(c1); err != nil {
@@ -77,6 +83,7 @@ func TestStoreDeduplication(t *testing.T) {
 	url1 := rec1.Body.String()
 
 	req2 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("same content"))
+	req2.Header.Set("Content-Type", "text/plain")
 	rec2 := httptest.NewRecorder()
 	c2 := e.NewContext(req2, rec2)
 	if err := handler.StoreHandler(c2); err != nil {
@@ -93,11 +100,13 @@ func TestStoreDifferentContent(t *testing.T) {
 	handler, e := setupTestHandler()
 
 	req1 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("content A"))
+	req1.Header.Set("Content-Type", "text/plain")
 	rec1 := httptest.NewRecorder()
 	c1 := e.NewContext(req1, rec1)
 	_ = handler.StoreHandler(c1)
 
 	req2 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("content B"))
+	req2.Header.Set("Content-Type", "text/plain")
 	rec2 := httptest.NewRecorder()
 	c2 := e.NewContext(req2, rec2)
 	_ = handler.StoreHandler(c2)
@@ -111,6 +120,7 @@ func TestStoreMissingTTL(t *testing.T) {
 	handler, e := setupTestHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/object", strings.NewReader("test"))
+	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -126,6 +136,7 @@ func TestStoreTTLTooHigh(t *testing.T) {
 	handler, e := setupTestHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=9999", strings.NewReader("test"))
+	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -141,6 +152,7 @@ func TestStoreInvalidTTL(t *testing.T) {
 	handler, e := setupTestHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=abc", strings.NewReader("test"))
+	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -156,6 +168,7 @@ func TestStoreNegativeTTL(t *testing.T) {
 	handler, e := setupTestHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=-1", strings.NewReader("test"))
+	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -171,6 +184,7 @@ func TestStoreEmptyBody(t *testing.T) {
 	handler, e := setupTestHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(""))
+	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -187,6 +201,7 @@ func TestStoreObjectTooLarge(t *testing.T) {
 
 	largeObject := strings.Repeat("a", testMaxSize+1)
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(largeObject))
+	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -203,6 +218,7 @@ func TestStoreObjectExactlyAtLimit(t *testing.T) {
 
 	exactObject := strings.Repeat("a", testMaxSize)
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(exactObject))
+	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
@@ -231,9 +247,10 @@ func TestGetNonExistent(t *testing.T) {
 	}
 }
 
-func storeObject(t *testing.T, handler *Handler, e *echo.Echo, body string) string {
+func storeObject(t *testing.T, handler *Handler, e *echo.Echo, body string, contentType string) string {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(body))
+	req.Header.Set("Content-Type", contentType)
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 	if err := handler.StoreHandler(c); err != nil {
@@ -243,32 +260,24 @@ func storeObject(t *testing.T, handler *Handler, e *echo.Echo, body string) stri
 	return parts[len(parts)-1]
 }
 
-func TestGetWithAcceptHeader(t *testing.T) {
+func TestGetReturnsStoredContentType(t *testing.T) {
 	handler, e := setupTestHandler()
-	id := storeObject(t, handler, e, "hello world")
 
 	tests := []struct {
-		name       string
-		accept     string
-		wantStatus int
-		wantCT     string
-		wantBody   string
+		name        string
+		body        string
+		contentType string
 	}{
-		{"no accept header", "", http.StatusOK, "text/plain", "hello world"},
-		{"accept wildcard", "*/*", http.StatusOK, "text/plain", "hello world"},
-		{"accept text/plain", "text/plain", http.StatusOK, "text/plain", "hello world"},
-		{"accept application/json", "application/json", http.StatusOK, "application/json", "hello world"},
-		{"accept application/xml", "application/xml", http.StatusOK, "application/xml", "hello world"},
-		{"unsupported type", "text/html", http.StatusNotAcceptable, "", "unsupported Accept type"},
-		{"arbitrary string", "foo/bar", http.StatusNotAcceptable, "", "unsupported Accept type"},
+		{"text/plain", "hello world", "text/plain"},
+		{"application/json", `{"key":"value"}`, "application/json"},
+		{"application/xml", "<root/>", "application/xml"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			id := storeObject(t, handler, e, tt.body, tt.contentType)
+
 			req := httptest.NewRequest(http.MethodGet, "/objects/"+id, nil)
-			if tt.accept != "" {
-				req.Header.Set("Accept", tt.accept)
-			}
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 			c.SetParamNames("id")
@@ -277,19 +286,70 @@ func TestGetWithAcceptHeader(t *testing.T) {
 			if err := handler.GetHandler(c); err != nil {
 				t.Fatalf("GetHandler returned error: %v", err)
 			}
-			if rec.Code != tt.wantStatus {
-				t.Fatalf("expected status %d, got %d: %s", tt.wantStatus, rec.Code, rec.Body.String())
+			if rec.Code != http.StatusOK {
+				t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
 			}
-			if tt.wantCT != "" {
-				gotCT := rec.Header().Get("Content-Type")
-				if !strings.HasPrefix(gotCT, tt.wantCT) {
-					t.Fatalf("expected Content-Type %s, got %s", tt.wantCT, gotCT)
-				}
+			gotCT := rec.Header().Get("Content-Type")
+			if !strings.HasPrefix(gotCT, tt.contentType) {
+				t.Fatalf("expected Content-Type %s, got %s", tt.contentType, gotCT)
 			}
-			if rec.Body.String() != tt.wantBody {
-				t.Fatalf("expected body %q, got %q", tt.wantBody, rec.Body.String())
+			if rec.Body.String() != tt.body {
+				t.Fatalf("expected body %q, got %q", tt.body, rec.Body.String())
 			}
 		})
+	}
+}
+
+func TestStoreUnsupportedContentType(t *testing.T) {
+	handler, e := setupTestHandler()
+
+	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("hello"))
+	req.Header.Set("Content-Type", "text/html")
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := handler.StoreHandler(c); err != nil {
+		t.Fatalf("StoreHandler returned error: %v", err)
+	}
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("expected status 400, got %d: %s", rec.Code, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "unsupported Content-Type") {
+		t.Fatalf("expected unsupported Content-Type message, got %q", rec.Body.String())
+	}
+}
+
+func TestStoreDefaultContentType(t *testing.T) {
+	handler, e := setupTestHandler()
+
+	// POST without Content-Type header should default to text/plain
+	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("hello"))
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+
+	if err := handler.StoreHandler(c); err != nil {
+		t.Fatalf("StoreHandler returned error: %v", err)
+	}
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	// Retrieve and verify content type defaults to text/plain
+	parts := strings.Split(rec.Body.String(), "/objects/")
+	id := parts[len(parts)-1]
+
+	req2 := httptest.NewRequest(http.MethodGet, "/objects/"+id, nil)
+	rec2 := httptest.NewRecorder()
+	c2 := e.NewContext(req2, rec2)
+	c2.SetParamNames("id")
+	c2.SetParamValues(id)
+
+	if err := handler.GetHandler(c2); err != nil {
+		t.Fatalf("GetHandler returned error: %v", err)
+	}
+	gotCT := rec2.Header().Get("Content-Type")
+	if !strings.HasPrefix(gotCT, "text/plain") {
+		t.Fatalf("expected Content-Type text/plain, got %s", gotCT)
 	}
 }
 
