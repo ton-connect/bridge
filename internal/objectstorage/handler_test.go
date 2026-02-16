@@ -95,12 +95,12 @@ func TestStoreDifferentContent(t *testing.T) {
 	req1 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("content A"))
 	rec1 := httptest.NewRecorder()
 	c1 := e.NewContext(req1, rec1)
-	handler.StoreHandler(c1)
+	_ = handler.StoreHandler(c1)
 
 	req2 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("content B"))
 	rec2 := httptest.NewRecorder()
 	c2 := e.NewContext(req2, rec2)
-	handler.StoreHandler(c2)
+	_ = handler.StoreHandler(c2)
 
 	if rec1.Body.String() == rec2.Body.String() {
 		t.Fatal("different content should produce different URLs")
@@ -228,6 +228,69 @@ func TestGetNonExistent(t *testing.T) {
 	}
 	if rec.Code != http.StatusNotFound {
 		t.Fatalf("expected status 404, got %d", rec.Code)
+	}
+}
+
+func storeObject(t *testing.T, handler *Handler, e *echo.Echo, body string) string {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(body))
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	if err := handler.StoreHandler(c); err != nil {
+		t.Fatalf("StoreHandler returned error: %v", err)
+	}
+	parts := strings.Split(rec.Body.String(), "/objects/")
+	return parts[len(parts)-1]
+}
+
+func TestGetWithContentType(t *testing.T) {
+	handler, e := setupTestHandler()
+	id := storeObject(t, handler, e, "hello world")
+
+	tests := []struct {
+		name       string
+		ct         string
+		wantStatus int
+		wantCT     string
+		wantBody   string
+	}{
+		{"default plain text", "", http.StatusOK, "text/plain", "hello world"},
+		{"explicit plain text", "text/plain", http.StatusOK, "text/plain", "hello world"},
+		{"application/json", "application/json", http.StatusOK, "application/json", "hello world"},
+		{"application/xml", "application/xml", http.StatusOK, "application/xml", "hello world"},
+		{"unsupported type", "text/html", http.StatusBadRequest, "", "unsupported content-type"},
+		{"arbitrary string", "foo/bar", http.StatusBadRequest, "", "unsupported content-type"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, "/objects/"+id, nil)
+			q := req.URL.Query()
+			if tt.ct != "" {
+				q.Set("content-type", tt.ct)
+			}
+			req.URL.RawQuery = q.Encode()
+			rec := httptest.NewRecorder()
+			c := e.NewContext(req, rec)
+			c.SetParamNames("id")
+			c.SetParamValues(id)
+
+			if err := handler.GetHandler(c); err != nil {
+				t.Fatalf("GetHandler returned error: %v", err)
+			}
+			if rec.Code != tt.wantStatus {
+				t.Fatalf("expected status %d, got %d: %s", tt.wantStatus, rec.Code, rec.Body.String())
+			}
+			if tt.wantCT != "" {
+				gotCT := rec.Header().Get("Content-Type")
+				if !strings.HasPrefix(gotCT, tt.wantCT) {
+					t.Fatalf("expected Content-Type %s, got %s", tt.wantCT, gotCT)
+				}
+			}
+			if rec.Body.String() != tt.wantBody {
+				t.Fatalf("expected body %q, got %q", tt.wantBody, rec.Body.String())
+			}
+		})
 	}
 }
 
