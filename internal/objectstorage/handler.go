@@ -10,6 +10,12 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+var allowedContentTypes = map[string]bool{
+	"text/plain":       true,
+	"application/json": true,
+	"application/xml":  true,
+}
+
 type Handler struct {
 	storage ObjectStorage
 	maxTTL  int64
@@ -75,7 +81,16 @@ func (h *Handler) GetHandler(c echo.Context) error {
 		return c.NoContent(http.StatusNotFound)
 	}
 
-	return c.String(http.StatusOK, object)
+	contentType := c.QueryParam("content-type")
+	if contentType == "" {
+		contentType = "text/plain"
+	}
+
+	if !allowedContentTypes[contentType] {
+		return c.String(http.StatusBadRequest, "unsupported content-type")
+	}
+
+	return c.Blob(http.StatusOK, contentType, []byte(object))
 }
 
 func (h *Handler) buildGetURL(c echo.Context, id string) string {
