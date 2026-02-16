@@ -243,33 +243,32 @@ func storeObject(t *testing.T, handler *Handler, e *echo.Echo, body string) stri
 	return parts[len(parts)-1]
 }
 
-func TestGetWithContentType(t *testing.T) {
+func TestGetWithAcceptHeader(t *testing.T) {
 	handler, e := setupTestHandler()
 	id := storeObject(t, handler, e, "hello world")
 
 	tests := []struct {
 		name       string
-		ct         string
+		accept     string
 		wantStatus int
 		wantCT     string
 		wantBody   string
 	}{
-		{"default plain text", "", http.StatusOK, "text/plain", "hello world"},
-		{"explicit plain text", "text/plain", http.StatusOK, "text/plain", "hello world"},
-		{"application/json", "application/json", http.StatusOK, "application/json", "hello world"},
-		{"application/xml", "application/xml", http.StatusOK, "application/xml", "hello world"},
-		{"unsupported type", "text/html", http.StatusBadRequest, "", "unsupported content-type"},
-		{"arbitrary string", "foo/bar", http.StatusBadRequest, "", "unsupported content-type"},
+		{"no accept header", "", http.StatusOK, "text/plain", "hello world"},
+		{"accept wildcard", "*/*", http.StatusOK, "text/plain", "hello world"},
+		{"accept text/plain", "text/plain", http.StatusOK, "text/plain", "hello world"},
+		{"accept application/json", "application/json", http.StatusOK, "application/json", "hello world"},
+		{"accept application/xml", "application/xml", http.StatusOK, "application/xml", "hello world"},
+		{"unsupported type", "text/html", http.StatusNotAcceptable, "", "unsupported Accept type"},
+		{"arbitrary string", "foo/bar", http.StatusNotAcceptable, "", "unsupported Accept type"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(http.MethodGet, "/objects/"+id, nil)
-			q := req.URL.Query()
-			if tt.ct != "" {
-				q.Set("content-type", tt.ct)
+			if tt.accept != "" {
+				req.Header.Set("Accept", tt.accept)
 			}
-			req.URL.RawQuery = q.Encode()
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
 			c.SetParamNames("id")
@@ -303,14 +302,8 @@ func TestBuildGetURLWithBaseURL(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	u := handler.buildGetURL(c, "abc123", "")
+	u := handler.buildGetURL(c, "abc123")
 	expected := "https://bridge.example.com/objects/abc123"
-	if u != expected {
-		t.Fatalf("expected %s, got %s", expected, u)
-	}
-
-	u = handler.buildGetURL(c, "abc123", "application/json")
-	expected = "https://bridge.example.com/objects/abc123?content-type=application%2Fjson"
 	if u != expected {
 		t.Fatalf("expected %s, got %s", expected, u)
 	}
@@ -326,7 +319,7 @@ func TestBuildGetURLFromRequest(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	u := handler.buildGetURL(c, "abc123", "")
+	u := handler.buildGetURL(c, "abc123")
 	expected := "http://localhost:8081/objects/abc123"
 	if u != expected {
 		t.Fatalf("expected %s, got %s", expected, u)
