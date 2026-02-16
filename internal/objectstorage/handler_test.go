@@ -303,10 +303,16 @@ func TestBuildGetURLWithBaseURL(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	url := handler.buildGetURL(c, "abc123")
+	u := handler.buildGetURL(c, "abc123", "")
 	expected := "https://bridge.example.com/objects/abc123"
-	if url != expected {
-		t.Fatalf("expected %s, got %s", expected, url)
+	if u != expected {
+		t.Fatalf("expected %s, got %s", expected, u)
+	}
+
+	u = handler.buildGetURL(c, "abc123", "application/json")
+	expected = "https://bridge.example.com/objects/abc123?content-type=application%2Fjson"
+	if u != expected {
+		t.Fatalf("expected %s, got %s", expected, u)
 	}
 }
 
@@ -320,9 +326,9 @@ func TestBuildGetURLFromRequest(t *testing.T) {
 	rec := httptest.NewRecorder()
 	c := e.NewContext(req, rec)
 
-	url := handler.buildGetURL(c, "abc123")
+	u := handler.buildGetURL(c, "abc123", "")
 	expected := "http://localhost:8081/objects/abc123"
-	if url != expected {
-		t.Fatalf("expected %s, got %s", expected, url)
+	if u != expected {
+		t.Fatalf("expected %s, got %s", expected, u)
 	}
 }
