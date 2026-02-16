@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 
@@ -61,17 +60,12 @@ func (h *Handler) StoreHandler(c echo.Context) error {
 		return c.String(http.StatusBadRequest, fmt.Sprintf("object exceeds maximum allowed size of %d bytes", h.maxSize))
 	}
 
-	contentType := c.QueryParam("content-type")
-	if contentType != "" && !allowedContentTypes[contentType] {
-		return c.String(http.StatusBadRequest, "unsupported content-type")
-	}
-
 	id, err := h.storage.Store(c.Request().Context(), string(body), ttl)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "failed to store object")
 	}
 
-	getURL := h.buildGetURL(c, id, contentType)
+	getURL := h.buildGetURL(c, id)
 
 	return c.String(http.StatusOK, getURL)
 }
@@ -87,35 +81,32 @@ func (h *Handler) GetHandler(c echo.Context) error {
 		return c.NoContent(http.StatusNotFound)
 	}
 
-	contentType := c.QueryParam("content-type")
-	if contentType == "" {
-		contentType = "text/plain"
-	}
-
-	if !allowedContentTypes[contentType] {
-		return c.String(http.StatusBadRequest, "unsupported content-type")
+	// Use Accept header for content negotiation (RFC 7231), default to text/plain
+	contentType := "text/plain"
+	if accept := c.Request().Header.Get("Accept"); accept != "" && accept != "*/*" {
+		if !allowedContentTypes[accept] {
+			return c.String(http.StatusNotAcceptable, "unsupported Accept type")
+		}
+		contentType = accept
 	}
 
 	return c.Blob(http.StatusOK, contentType, []byte(object))
 }
 
-func (h *Handler) buildGetURL(c echo.Context, id string, contentType string) string {
-	var base string
+func (h *Handler) buildGetURL(c echo.Context, id string) string {
 	if h.baseURL != "" {
-		base = fmt.Sprintf("%s/objects/%s", h.baseURL, id)
-	} else {
-		scheme := "http"
-		if c.Request().TLS != nil {
-			scheme = "https"
-		}
-		if fwd := c.Request().Header.Get("X-Forwarded-Proto"); fwd != "" {
-			scheme = strings.TrimSpace(fwd)
-		}
-		base = fmt.Sprintf("%s://%s/objects/%s", scheme, strings.TrimSpace(c.Request().Host), id)
+		return fmt.Sprintf("%s/objects/%s", h.baseURL, id)
 	}
 
-	if contentType != "" {
-		return base + "?content-type=" + url.QueryEscape(contentType)
+	scheme := "http"
+	if c.Request().TLS != nil {
+		scheme = "https"
 	}
-	return base
+	// Override scheme with X-Forwarded-Proto header set by reverse proxies (nginx, ALB, etc.)
+	// to preserve the original protocol (e.g. https) when TLS is terminated at the proxy level.
+	if fwd := c.Request().Header.Get("X-Forwarded-Proto"); fwd != "" {
+		scheme = strings.TrimSpace(fwd)
+	}
+
+	return fmt.Sprintf("%s://%s/objects/%s", scheme, strings.TrimSpace(c.Request().Host), id)
 }
