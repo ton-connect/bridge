@@ -108,6 +108,8 @@ func (h *Handler) buildGetURL(c echo.Context, id string, contentType string) str
 		if c.Request().TLS != nil {
 			scheme = "https"
 		}
+		// Override scheme with X-Forwarded-Proto header set by reverse proxies (nginx, ALB, etc.)
+		// to preserve the original protocol (e.g. https) when TLS is terminated at the proxy level.
 		if fwd := c.Request().Header.Get("X-Forwarded-Proto"); fwd != "" {
 			scheme = strings.TrimSpace(fwd)
 		}
