@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 
@@ -60,12 +61,17 @@ func (h *Handler) StoreHandler(c echo.Context) error {
 		return c.String(http.StatusBadRequest, fmt.Sprintf("object exceeds maximum allowed size of %d bytes", h.maxSize))
 	}
 
+	contentType := c.QueryParam("content-type")
+	if contentType != "" && !allowedContentTypes[contentType] {
+		return c.String(http.StatusBadRequest, "unsupported content-type")
+	}
+
 	id, err := h.storage.Store(c.Request().Context(), string(body), ttl)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "failed to store object")
 	}
 
-	getURL := h.buildGetURL(c, id)
+	getURL := h.buildGetURL(c, id, contentType)
 
 	return c.String(http.StatusOK, getURL)
 }
@@ -93,18 +99,23 @@ func (h *Handler) GetHandler(c echo.Context) error {
 	return c.Blob(http.StatusOK, contentType, []byte(object))
 }
 
-func (h *Handler) buildGetURL(c echo.Context, id string) string {
+func (h *Handler) buildGetURL(c echo.Context, id string, contentType string) string {
+	var base string
 	if h.baseURL != "" {
-		return fmt.Sprintf("%s/objects/%s", h.baseURL, id)
+		base = fmt.Sprintf("%s/objects/%s", h.baseURL, id)
+	} else {
+		scheme := "http"
+		if c.Request().TLS != nil {
+			scheme = "https"
+		}
+		if fwd := c.Request().Header.Get("X-Forwarded-Proto"); fwd != "" {
+			scheme = strings.TrimSpace(fwd)
+		}
+		base = fmt.Sprintf("%s://%s/objects/%s", scheme, strings.TrimSpace(c.Request().Host), id)
 	}
 
-	scheme := "http"
-	if c.Request().TLS != nil {
-		scheme = "https"
+	if contentType != "" {
+		return base + "?content-type=" + url.QueryEscape(contentType)
 	}
-	if fwd := c.Request().Header.Get("X-Forwarded-Proto"); fwd != "" {
-		scheme = strings.TrimSpace(fwd)
-	}
-
-	return fmt.Sprintf("%s://%s/objects/%s", scheme, strings.TrimSpace(c.Request().Host), id)
+	return base
 }
