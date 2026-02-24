@@ -60,7 +60,15 @@ func (h *Handler) StoreHandler(c echo.Context) error {
 		return c.String(http.StatusBadRequest, fmt.Sprintf("object exceeds maximum allowed size of %d bytes", h.maxSize))
 	}
 
-	id, err := h.storage.Store(c.Request().Context(), string(body), ttl)
+	contentType := c.Request().Header.Get("Content-Type")
+	if contentType == "" {
+		contentType = "text/plain"
+	}
+	if !allowedContentTypes[contentType] {
+		return c.String(http.StatusBadRequest, "unsupported Content-Type")
+	}
+
+	id, err := h.storage.Store(c.Request().Context(), body, contentType, ttl)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "failed to store object")
 	}
@@ -76,21 +84,12 @@ func (h *Handler) GetHandler(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "missing id")
 	}
 
-	object, err := h.storage.Get(c.Request().Context(), id)
+	object, contentType, err := h.storage.Get(c.Request().Context(), id)
 	if err != nil {
 		return c.NoContent(http.StatusNotFound)
 	}
 
-	// Use Accept header for content negotiation (RFC 7231), default to text/plain
-	contentType := "text/plain"
-	if accept := c.Request().Header.Get("Accept"); accept != "" && accept != "*/*" {
-		if !allowedContentTypes[accept] {
-			return c.String(http.StatusNotAcceptable, "unsupported Accept type")
-		}
-		contentType = accept
-	}
-
-	return c.Blob(http.StatusOK, contentType, []byte(object))
+	return c.Blob(http.StatusOK, contentType, object)
 }
 
 func (h *Handler) buildGetURL(c echo.Context, id string) string {
