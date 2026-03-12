@@ -25,6 +25,11 @@ type ValkeyObjectStorage struct {
 	client redis.UniversalClient
 }
 
+// NewValkeyObjectStorageWithClient creates a ValkeyObjectStorage reusing an existing Redis client.
+func NewValkeyObjectStorageWithClient(client redis.UniversalClient) *ValkeyObjectStorage {
+	return &ValkeyObjectStorage{client: client}
+}
+
 // NewValkeyObjectStorage creates a new Valkey/Redis-backed storage from a connection URI.
 // It pings the server on creation to verify connectivity.
 func NewValkeyObjectStorage(uri string) (*ValkeyObjectStorage, error) {

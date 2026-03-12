@@ -162,7 +162,7 @@ func main() {
 	// Object Storage
 	var objStore objectstorage.ObjectStorage
 	if vs, ok := dbConn.(*storagev3.ValkeyStorage); ok {
-		objStore = objectstorage.NewObjectStorageWithClient(vs.Client())
+		objStore = vs.NewObjectStorage()
 	} else {
 		objStore = objectstorage.NewMemObjectStorage()
 	}

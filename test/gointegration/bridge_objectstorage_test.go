@@ -41,7 +41,7 @@ func storeObjectHTTP(t *testing.T, ctx context.Context, body []byte, contentType
 		t.Fatalf("POST /objects: %v", err)
 	}
 	respBody, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if err != nil {
 		t.Fatalf("read response: %v", err)
 	}
@@ -60,7 +60,7 @@ func getObjectHTTP(t *testing.T, ctx context.Context, id string) (*http.Response
 		t.Fatalf("GET /objects/%s: %v", id, err)
 	}
 	body, err := io.ReadAll(resp.Body)
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if err != nil {
 		t.Fatalf("read response: %v", err)
 	}
@@ -258,7 +258,7 @@ func TestObjectStorage_MissingTTL(t *testing.T) {
 	if err != nil {
 		t.Fatalf("request: %v", err)
 	}
-	resp.Body.Close()
+	_ = resp.Body.Close()
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("expected 400, got %d", resp.StatusCode)
 	}
@@ -286,7 +286,7 @@ func TestObjectStorage_InvalidTTL(t *testing.T) {
 			if err != nil {
 				t.Fatalf("request: %v", err)
 			}
-			resp.Body.Close()
+			_ = resp.Body.Close()
 			if resp.StatusCode != http.StatusBadRequest {
 				t.Fatalf("expected 400, got %d", resp.StatusCode)
 			}

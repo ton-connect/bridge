@@ -3,8 +3,6 @@ package objectstorage
 import (
 	"context"
 	"fmt"
-
-	"github.com/redis/go-redis/v9"
 )
 
 // ObjectStorage defines the interface for storing and retrieving binary objects with TTL.
@@ -27,9 +25,4 @@ func NewObjectStorage(storageType string, uri string) (ObjectStorage, error) {
 	default:
 		return nil, fmt.Errorf("unsupported object storage type: %s", storageType)
 	}
-}
-
-// NewObjectStorageWithClient creates a Valkey-backed ObjectStorage reusing an existing Redis client.
-func NewObjectStorageWithClient(client redis.UniversalClient) ObjectStorage {
-	return &ValkeyObjectStorage{client: client}
 }

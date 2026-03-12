@@ -12,6 +12,7 @@ import (
 	"github.com/redis/go-redis/v9"
 	log "github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/models"
+	"github.com/ton-connect/bridge/internal/objectstorage"
 )
 
 type ValkeyStorage struct {
@@ -394,9 +395,9 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 	return leastSuspicious, nil
 }
 
-// Client returns the underlying Redis client for reuse by other subsystems.
-func (s *ValkeyStorage) Client() redis.UniversalClient {
-	return s.client
+// NewObjectStorage creates an ObjectStorage backed by the same Redis connection.
+func (s *ValkeyStorage) NewObjectStorage() objectstorage.ObjectStorage {
+	return objectstorage.NewValkeyObjectStorageWithClient(s.client)
 }
 
 // HealthCheck verifies the connection to Valkey
