@@ -10,12 +10,14 @@ import (
 	"github.com/labstack/echo/v4"
 )
 
+// allowedContentTypes is the whitelist of Content-Type values accepted for stored objects.
 var allowedContentTypes = map[string]bool{
 	"text/plain":       true,
 	"application/json": true,
 	"application/xml":  true,
 }
 
+// Handler provides HTTP endpoints for storing and retrieving objects.
 type Handler struct {
 	storage ObjectStorage
 	maxTTL  int64
@@ -23,6 +25,8 @@ type Handler struct {
 	baseURL string
 }
 
+// NewHandler creates a Handler with the given storage backend, max TTL (seconds),
+// max object size (bytes), and optional base URL for generating object retrieval links.
 func NewHandler(storage ObjectStorage, maxTTL int64, maxSize int, baseURL string) *Handler {
 	return &Handler{
 		storage: storage,
@@ -32,6 +36,8 @@ func NewHandler(storage ObjectStorage, maxTTL int64, maxSize int, baseURL string
 	}
 }
 
+// StoreHandler handles POST /objects. It validates the TTL query parameter, Content-Type header,
+// and body size, then stores the object and returns the retrieval URL.
 func (h *Handler) StoreHandler(c echo.Context) error {
 	ttlStr := c.QueryParam("ttl")
 	if ttlStr == "" {
@@ -78,6 +84,8 @@ func (h *Handler) StoreHandler(c echo.Context) error {
 	return c.String(http.StatusOK, getURL)
 }
 
+// GetHandler handles GET /objects/:id. It retrieves the object by ID and returns it
+// with the original Content-Type.
 func (h *Handler) GetHandler(c echo.Context) error {
 	id := c.Param("id")
 	if id == "" {
@@ -92,6 +100,9 @@ func (h *Handler) GetHandler(c echo.Context) error {
 	return c.Blob(http.StatusOK, contentType, object)
 }
 
+// buildGetURL constructs the full URL for retrieving a stored object.
+// Uses baseURL if configured, otherwise derives scheme and host from the request,
+// respecting X-Forwarded-Proto for TLS termination at a reverse proxy.
 func (h *Handler) buildGetURL(c echo.Context, id string) string {
 	if h.baseURL != "" {
 		return fmt.Sprintf("%s/objects/%s", h.baseURL, id)

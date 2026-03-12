@@ -11,17 +11,22 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
+// keyPrefix is the Redis key namespace for all stored objects.
 const keyPrefix = "objstore:"
 
+// valkeyEntry is the JSON-serialized format for objects stored in Valkey/Redis.
 type valkeyEntry struct {
 	Object      []byte `json:"object"`
 	ContentType string `json:"content_type"`
 }
 
+// ValkeyObjectStorage is a Valkey/Redis-backed ObjectStorage implementation.
 type ValkeyObjectStorage struct {
 	client redis.UniversalClient
 }
 
+// NewValkeyObjectStorage creates a new Valkey/Redis-backed storage from a connection URI.
+// It pings the server on creation to verify connectivity.
 func NewValkeyObjectStorage(uri string) (*ValkeyObjectStorage, error) {
 	opts, err := redis.ParseURL(strings.TrimSpace(uri))
 	if err != nil {
@@ -42,6 +47,8 @@ func NewValkeyObjectStorage(uri string) (*ValkeyObjectStorage, error) {
 	return &ValkeyObjectStorage{client: client}, nil
 }
 
+// Store serializes the object with its content type and saves it to Valkey with the given TTL.
+// Returns a content-addressable ID.
 func (s *ValkeyObjectStorage) Store(ctx context.Context, object []byte, contentType string, ttl int64) (string, error) {
 	id := hashObject(object, contentType)
 	key := keyPrefix + id
@@ -64,6 +71,7 @@ func (s *ValkeyObjectStorage) Store(ctx context.Context, object []byte, contentT
 	return id, nil
 }
 
+// Get retrieves an object by ID from Valkey, deserializes it, and returns the bytes and content type.
 func (s *ValkeyObjectStorage) Get(ctx context.Context, id string) ([]byte, string, error) {
 	key := keyPrefix + id
 	val, err := s.client.Get(ctx, key).Result()
