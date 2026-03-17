@@ -78,7 +78,7 @@ func newWebhookMockServer(addr, walletName, webhookURL string) (*webhookMockServ
 }
 
 func (m *webhookMockServer) Close() {
-	m.server.Close()
+	_ = m.server.Close()
 }
 
 func (m *webhookMockServer) Port() int {
@@ -93,7 +93,7 @@ func (m *webhookMockServer) SetPublicKey(key *rsa.PublicKey) {
 
 func (m *webhookMockServer) handleWalletList(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
-	w.Write(m.walletList)
+	_, _ = w.Write(m.walletList)
 }
 
 func (m *webhookMockServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
@@ -130,14 +130,14 @@ func (m *webhookMockServer) handleWebhook(w http.ResponseWriter, r *http.Request
 	m.mu.Unlock()
 
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, `{"status":"ok"}`)
+	_, _ = fmt.Fprint(w, `{"status":"ok"}`)
 }
 
 func (m *webhookMockServer) handleRecords(w http.ResponseWriter, r *http.Request) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(m.records)
+	_ = json.NewEncoder(w).Encode(m.records)
 }
 
 func (m *webhookMockServer) handleReset(w http.ResponseWriter, r *http.Request) {

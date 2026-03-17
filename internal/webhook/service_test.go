@@ -27,7 +27,7 @@ func walletListServer(t *testing.T, wallets []walletListEntry) *httptest.Server 
 	}
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
-		w.Write(body)
+		_, _ = w.Write(body)
 	}))
 }
 
@@ -188,7 +188,7 @@ func TestService_WalletListRefresh(t *testing.T) {
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		json.NewEncoder(w).Encode(wallets)
+		_ = json.NewEncoder(w).Encode(wallets)
 	}))
 	defer listSrv.Close()
 
@@ -371,7 +371,7 @@ func TestService_WalletListBadURL(t *testing.T) {
 
 func TestService_WalletListBadJSON(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "not json")
+		_, _ = fmt.Fprint(w, "not json")
 	}))
 	defer srv.Close()
 
@@ -415,7 +415,7 @@ func generateTestKeyFile(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 	return pem.Encode(f, &pem.Block{
 		Type:  "RSA PRIVATE KEY",
 		Bytes: x509.MarshalPKCS1PrivateKey(key),

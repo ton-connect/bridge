@@ -115,7 +115,7 @@ func (m *Mock) handle(w http.ResponseWriter, r *http.Request) {
 	m.mu.Unlock()
 
 	w.WriteHeader(http.StatusOK)
-	fmt.Fprint(w, `{"status":"ok"}`)
+	_, _ = fmt.Fprint(w, `{"status":"ok"}`)
 }
 
 func verifySignature(pubKey *rsa.PublicKey, body []byte, sigBase64 string) bool {

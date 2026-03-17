@@ -140,7 +140,7 @@ func (s *Service) refresh() error {
 	if err != nil {
 		return fmt.Errorf("fetch wallet list: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("wallet list returned %d", resp.StatusCode)

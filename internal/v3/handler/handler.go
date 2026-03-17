@@ -26,8 +26,8 @@ import (
 	"github.com/ton-connect/bridge/internal/models"
 	"github.com/ton-connect/bridge/internal/ntp"
 	"github.com/ton-connect/bridge/internal/utils"
-	"github.com/ton-connect/bridge/internal/webhook"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
+	"github.com/ton-connect/bridge/internal/webhook"
 )
 
 var validHeartbeatTypes = map[string]string{
