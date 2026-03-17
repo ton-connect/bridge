@@ -16,6 +16,7 @@ import (
 	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/app"
 	"github.com/ton-connect/bridge/internal/config"
+	handler_common "github.com/ton-connect/bridge/internal/handler"
 	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
 	"github.com/ton-connect/bridge/internal/ntp"
 	"github.com/ton-connect/bridge/internal/utils"
@@ -152,11 +153,27 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, collector, analyticsBuilder)
+	walletWebhookSvc, err := handler_common.NewWalletWebhookService(
+		config.Config.WalletListURL,
+		config.Config.WebhookPrivateKeyPath,
+		config.Config.WalletListRefreshSec,
+	)
+	if err != nil {
+		log.Fatalf("failed to create wallet webhook service: %v", err)
+	}
+
+	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, collector, analyticsBuilder, walletWebhookSvc)
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)
 	e.POST("/bridge/verify", h.ConnectVerifyHandler)
+	e.GET("/bridge/webhook/public-key", func(c echo.Context) error {
+		pemBytes, err := walletWebhookSvc.PublicKeyPEM()
+		if err != nil {
+			return c.String(http.StatusNotFound, "public key not available")
+		}
+		return c.Blob(http.StatusOK, "application/x-pem-file", pemBytes)
+	})
 
 	var existedPaths []string
 	for _, r := range e.Routes() {

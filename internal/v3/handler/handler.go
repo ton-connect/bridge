@@ -74,9 +74,10 @@ type handler struct {
 	realIP            *utils.RealIPExtractor
 	eventCollector    analytics.EventCollector
 	eventBuilder      analytics.EventBuilder
+	walletWebhook     *handler_common.WalletWebhookService
 }
 
-func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, timeProvider ntp.TimeProvider, collector analytics.EventCollector, builder analytics.EventBuilder) *handler {
+func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, timeProvider ntp.TimeProvider, collector analytics.EventCollector, builder analytics.EventBuilder, walletWebhook *handler_common.WalletWebhookService) *handler {
 	// TODO support extractor in v3
 	h := handler{
 		Mux:               sync.RWMutex{},
@@ -87,6 +88,7 @@ func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor 
 		heartbeatInterval: heartbeatInterval,
 		eventCollector:    collector,
 		eventBuilder:      builder,
+		walletWebhook:     walletWebhook,
 	}
 	return &h
 }
@@ -362,6 +364,20 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		go func(clientID, topic, message string) {
 			handler_common.SendWebhook(clientID, handler_common.WebhookData{Topic: topic, Hash: message})
 		}(clientID.String(), topic, string(message))
+	}
+
+	if h.walletWebhook != nil {
+		if walletParam, ok := params["wallet"]; ok && len(walletParam) > 0 {
+			wallet := walletParam[0]
+			if webhookURL, ok := h.walletWebhook.GetWebhookURL(wallet); ok {
+				go h.walletWebhook.Send(webhookURL, handler_common.WalletWebhookData{
+					ClientID: clientID.String(),
+					To:       toId.String(),
+					Message:  string(message),
+					TraceID:  traceId,
+				})
+			}
+		}
 	}
 
 	mes, err := json.Marshal(models.BridgeMessage{
