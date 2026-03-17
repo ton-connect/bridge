@@ -13,9 +13,8 @@ import (
 )
 
 const (
-	webhookMockPort    = 9091
-	webhookWalletName  = "testwallet"
-	webhookWaitTimeout = 15 * time.Second
+	webhookMockPort   = 9091
+	webhookWalletName = "testwallet"
 )
 
 // webhookMockAddr returns the address the bridge container uses to reach the mock.
@@ -27,36 +26,49 @@ func webhookMockAddr() string {
 	return fmt.Sprintf("http://localhost:%d", webhookMockPort)
 }
 
-// startWebhookMock starts the mock server and waits for the bridge to pick up
-// the wallet list (via its refresh interval).
-func startWebhookMock(t *testing.T) *webhookMockServer {
-	t.Helper()
+// Shared mock — started once, used by all webhook tests.
+var sharedWebhookMock *webhookMockServer
 
-	externalAddr := webhookMockAddr()
+// webhookBridgeReady is true if the bridge supports webhooks and has loaded the wallet list.
+var webhookBridgeReady bool
+
+func initWebhookMock(t *testing.T) {
+	if sharedWebhookMock == nil {
+		t.Skip("webhook mock not initialized (bridge may not support webhooks)")
+	}
+	if !webhookBridgeReady {
+		t.Skip("bridge did not pick up webhook wallet list")
+	}
+	// Reset records between tests
+	sharedWebhookMock.resetRecords()
+}
+
+func setupSharedWebhookMock() {
 	mock, err := newWebhookMockServer(
 		fmt.Sprintf(":%d", webhookMockPort),
 		webhookWalletName,
-		externalAddr+"/", // webhook POST target
+		webhookMockAddr()+"/",
 	)
 	if err != nil {
-		t.Fatalf("start webhook mock: %v", err)
+		fmt.Fprintf(os.Stderr, "webhook mock: %v (webhook tests will be skipped)\n", err)
+		return
 	}
 
-	// Fetch the bridge's public key for signature verification.
-	// If the endpoint doesn't exist (v1 bridge), skip the test.
+	// Check if bridge supports webhooks
 	pubKey, err := fetchBridgePublicKey(BRIDGE_URL)
 	if err != nil {
+		fmt.Fprintf(os.Stderr, "bridge does not support webhooks: %v (webhook tests will be skipped)\n", err)
 		mock.Close()
-		t.Skipf("bridge does not support webhooks: %v", err)
+		return
 	}
 	mock.SetPublicKey(pubKey)
+	sharedWebhookMock = mock
 
-	// Wait for the bridge to refresh its wallet list and pick up our mock.
-	// WALLET_LIST_REFRESH_INTERVAL is set to 5s in docker-compose.
-	t.Log("Waiting for bridge to refresh wallet list...")
-	time.Sleep(7 * time.Second)
-
-	return mock
+	// Wait for the bridge to refresh its wallet list.
+	// WALLET_LIST_REFRESH_INTERVAL=5s in docker-compose; wait 2 full intervals for CI timing.
+	fmt.Fprintf(os.Stderr, "Waiting for bridge to refresh wallet list (12s)...\n")
+	time.Sleep(12 * time.Second)
+	webhookBridgeReady = true
 }
 
 func sendMessage(t *testing.T, clientID, toID, payload string, extra map[string]string) {
@@ -100,8 +112,7 @@ func pollWebhooks(t *testing.T, mock *webhookMockServer, n int, timeout time.Dur
 }
 
 func TestBridge_WebhookSentOnMessage(t *testing.T) {
-	mock := startWebhookMock(t)
-	defer mock.Close()
+	initWebhookMock(t)
 
 	clientID := randomSessionID(t)
 	toID := randomSessionID(t)
@@ -109,7 +120,7 @@ func TestBridge_WebhookSentOnMessage(t *testing.T) {
 
 	sendMessage(t, clientID, toID, payload, map[string]string{"wallet": webhookWalletName})
 
-	records := pollWebhooks(t, mock, 1, webhookWaitTimeout)
+	records := pollWebhooks(t, sharedWebhookMock, 1, 5*time.Second)
 	rec := records[0]
 
 	if rec.ClientID != clientID {
@@ -130,31 +141,28 @@ func TestBridge_WebhookSentOnMessage(t *testing.T) {
 }
 
 func TestBridge_WebhookNoWebhookForUnknownWallet(t *testing.T) {
-	mock := startWebhookMock(t)
-	defer mock.Close()
+	initWebhookMock(t)
 
 	sendMessage(t, randomSessionID(t), randomSessionID(t), "test", map[string]string{"wallet": "unknownwallet"})
 
 	time.Sleep(2 * time.Second)
-	if len(mock.getRecords()) != 0 {
-		t.Errorf("expected 0 webhooks for unknown wallet, got %d", len(mock.getRecords()))
+	if len(sharedWebhookMock.getRecords()) != 0 {
+		t.Errorf("expected 0 webhooks for unknown wallet, got %d", len(sharedWebhookMock.getRecords()))
 	}
 }
 
 func TestBridge_WebhookNotSentWithoutWalletParam(t *testing.T) {
-	mock := startWebhookMock(t)
-	defer mock.Close()
+	initWebhookMock(t)
 
 	sendMessage(t, randomSessionID(t), randomSessionID(t), "test", nil)
 
 	time.Sleep(2 * time.Second)
-	if len(mock.getRecords()) != 0 {
-		t.Errorf("expected 0 webhooks without wallet param, got %d", len(mock.getRecords()))
+	if len(sharedWebhookMock.getRecords()) != 0 {
+		t.Errorf("expected 0 webhooks without wallet param, got %d", len(sharedWebhookMock.getRecords()))
 	}
 }
 
 func TestBridge_WebhookPublicKeyEndpoint(t *testing.T) {
-	// BRIDGE_URL is like "http://bridge:8081/bridge"
 	resp, err := http.Get(strings.TrimRight(BRIDGE_URL, "/") + "/webhook/public-key")
 	if err != nil {
 		t.Fatalf("GET: %v", err)
@@ -180,8 +188,7 @@ func TestBridge_WebhookPublicKeyEndpoint(t *testing.T) {
 }
 
 func TestBridge_WebhookMultipleMessages(t *testing.T) {
-	mock := startWebhookMock(t)
-	defer mock.Close()
+	initWebhookMock(t)
 
 	const count = 5
 	clientID := randomSessionID(t)
@@ -192,7 +199,7 @@ func TestBridge_WebhookMultipleMessages(t *testing.T) {
 		sendMessage(t, clientID, toID, payload, map[string]string{"wallet": webhookWalletName})
 	}
 
-	records := pollWebhooks(t, mock, count, webhookWaitTimeout)
+	records := pollWebhooks(t, sharedWebhookMock, count, 5*time.Second)
 
 	for i, rec := range records {
 		if rec.SignatureOK != nil && !*rec.SignatureOK {

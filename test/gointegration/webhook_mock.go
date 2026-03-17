@@ -147,6 +147,13 @@ func (m *webhookMockServer) handleReset(w http.ResponseWriter, r *http.Request) 
 	w.WriteHeader(http.StatusOK)
 }
 
+// resetRecords clears all recorded webhooks.
+func (m *webhookMockServer) resetRecords() {
+	m.mu.Lock()
+	m.records = m.records[:0]
+	m.mu.Unlock()
+}
+
 // getRecords returns a copy of all recorded webhooks.
 func (m *webhookMockServer) getRecords() []webhookRecord {
 	m.mu.RLock()
