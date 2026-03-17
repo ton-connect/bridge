@@ -134,6 +134,8 @@ services:
       TON_ANALYTICS_NETWORK_ID: "-239"
       TON_ANALYTICS_BRIDGE_VERSION: "test-1.0.0"
       TON_ANALYTICS_BRIDGE_URL: "http://bridge-instance1:8080"
+      WALLET_LIST_URL: "http://bridge-gointegration:9091/wallets"
+      WALLET_LIST_REFRESH_INTERVAL: "5"
     ports:
       - "9103:9103"  # pprof and metrics
     depends_on:
@@ -245,6 +247,7 @@ services:
     container_name: bridge-gointegration
     environment:
       BRIDGE_URL: "http://172.20.0.40:80/bridge"
+      WEBHOOK_MOCK_HOST: "bridge-gointegration"
     depends_on:
       nginx:
         condition: service_started
