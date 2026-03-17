@@ -16,8 +16,8 @@ import (
 	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/app"
 	"github.com/ton-connect/bridge/internal/config"
-	handler_common "github.com/ton-connect/bridge/internal/handler"
 	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
+	"github.com/ton-connect/bridge/internal/webhook"
 	"github.com/ton-connect/bridge/internal/ntp"
 	"github.com/ton-connect/bridge/internal/utils"
 	handlerv3 "github.com/ton-connect/bridge/internal/v3/handler"
@@ -153,7 +153,7 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	walletWebhookSvc, err := handler_common.NewWalletWebhookService(
+	walletWebhookSvc, err := webhook.NewService(
 		config.Config.WalletListURL,
 		config.Config.WebhookPrivateKeyPath,
 		config.Config.WalletListRefreshSec,

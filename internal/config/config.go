@@ -50,7 +50,6 @@ var Config = struct {
 	// Events & Webhooks
 	DisconnectEventsTTL    int64  `env:"DISCONNECT_EVENTS_TTL" envDefault:"3600"`
 	DisconnectEventMaxSize int    `env:"DISCONNECT_EVENT_MAX_SIZE" envDefault:"512"`
-	WebhookURL             string `env:"WEBHOOK_URL"`
 	CopyToURL              string `env:"COPY_TO_URL"`
 
 	// Wallet Webhooks (multitenant)

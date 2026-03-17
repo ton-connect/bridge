@@ -1,4 +1,4 @@
-package handler
+package webhook
 
 import (
 	"bytes"
@@ -21,8 +21,8 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// WalletWebhookData is the payload sent to wallet webhook endpoints.
-type WalletWebhookData struct {
+// Data is the payload sent to wallet webhook endpoints.
+type Data struct {
 	ClientID string `json:"client_id"`
 	To       string `json:"to"`
 	Message  string `json:"message"`
@@ -41,9 +41,9 @@ type walletListBridge struct {
 	Webhook string `json:"webhook"`
 }
 
-// WalletWebhookService fetches wallet webhook URLs from a remote wallet list
+// Service fetches wallet webhook URLs from a remote wallet list
 // and sends signed webhook notifications.
-type WalletWebhookService struct {
+type Service struct {
 	walletListURL string
 	privateKey    *rsa.PrivateKey
 
@@ -51,10 +51,10 @@ type WalletWebhookService struct {
 	webhooks map[string]string // app_name → webhook URL
 }
 
-// NewWalletWebhookService creates the service, loads the private key,
+// NewService creates the service, loads or generates the RSA private key,
 // fetches the wallet list, and optionally starts a background refresh loop.
-func NewWalletWebhookService(walletListURL string, privateKeyPath string, refreshSec int) (*WalletWebhookService, error) {
-	s := &WalletWebhookService{
+func NewService(walletListURL string, privateKeyPath string, refreshSec int) (*Service, error) {
+	s := &Service{
 		walletListURL: walletListURL,
 		webhooks:      make(map[string]string),
 	}
@@ -88,7 +88,7 @@ func NewWalletWebhookService(walletListURL string, privateKeyPath string, refres
 }
 
 // GetWebhookURL returns the webhook URL for a given wallet app_name.
-func (s *WalletWebhookService) GetWebhookURL(wallet string) (string, bool) {
+func (s *Service) GetWebhookURL(wallet string) (string, bool) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	url, ok := s.webhooks[wallet]
@@ -96,14 +96,14 @@ func (s *WalletWebhookService) GetWebhookURL(wallet string) (string, bool) {
 }
 
 // Send sends a signed webhook to the given URL with the provided data.
-func (s *WalletWebhookService) Send(webhookURL string, data WalletWebhookData) {
+func (s *Service) Send(webhookURL string, data Data) {
 	if err := s.send(webhookURL, data); err != nil {
 		log.Errorf("failed to send wallet webhook to '%s': %v", webhookURL, err)
 	}
 }
 
 // PublicKeyPEM returns the PEM-encoded public key for signature verification.
-func (s *WalletWebhookService) PublicKeyPEM() ([]byte, error) {
+func (s *Service) PublicKeyPEM() ([]byte, error) {
 	if s.privateKey == nil {
 		return nil, fmt.Errorf("no private key loaded")
 	}
@@ -117,7 +117,7 @@ func (s *WalletWebhookService) PublicKeyPEM() ([]byte, error) {
 	}), nil
 }
 
-func (s *WalletWebhookService) refreshLoop(interval time.Duration) {
+func (s *Service) refreshLoop(interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 	for range ticker.C {
@@ -127,7 +127,7 @@ func (s *WalletWebhookService) refreshLoop(interval time.Duration) {
 	}
 }
 
-func (s *WalletWebhookService) refresh() error {
+func (s *Service) refresh() error {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 
@@ -174,7 +174,7 @@ func (s *WalletWebhookService) refresh() error {
 	return nil
 }
 
-func (s *WalletWebhookService) send(webhookURL string, data WalletWebhookData) error {
+func (s *Service) send(webhookURL string, data Data) error {
 	body, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("marshal webhook data: %w", err)
