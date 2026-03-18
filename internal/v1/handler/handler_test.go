@@ -252,7 +252,7 @@ func TestHandler_WalletWebhook(t *testing.T) {
 	t.Fatalf("timed out waiting for wallet webhook")
 }
 
-func TestHandler_WalletWebhookWithoutTopic(t *testing.T) {
+func TestHandler_NoWalletWebhookWithoutTopic(t *testing.T) {
 	e := echo.New()
 
 	mock := webhook.NewMock(nil)
@@ -294,23 +294,8 @@ func TestHandler_WalletWebhookWithoutTopic(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
 	}
 
-	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		records := mock.Records()
-		if len(records) == 1 {
-			if records[0].Payload.Topic != "" {
-				t.Fatalf("topic: got %q, want empty string", records[0].Payload.Topic)
-			}
-			if records[0].Payload.Hash != "payload" {
-				t.Fatalf("hash: got %q, want %q", records[0].Payload.Hash, "payload")
-			}
-			if records[0].Path != "/"+defaultClientID {
-				t.Fatalf("path: got %q, want %q", records[0].Path, "/"+defaultClientID)
-			}
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
+	if got := len(mock.Records()); got != 0 {
+		t.Fatalf("expected 0 wallet webhooks without topic, got %d", got)
 	}
-
-	t.Fatalf("timed out waiting for wallet webhook")
 }

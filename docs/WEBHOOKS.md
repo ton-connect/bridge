@@ -24,9 +24,9 @@ Bridge supports per-wallet webhook delivery. When a message is sent via `/bridge
 
 1. At startup, the bridge parses the `WEBHOOK_CONFIG` JSON into an in-memory map of wallet name to webhook configuration (URL and optional auth token).
 2. If `WEBHOOK_CONFIG_SOURCE` is set, the bridge loads the same JSON structure from that local path or URL, overlays it on top of the inline config, and refreshes it on the `WEBHOOK_CONFIG_REFRESH_INTERVAL` ticker.
-3. When a message is sent with a `wallet` query parameter, the bridge looks up the config for that wallet.
+3. When a message is sent with both `wallet` and `topic` query parameters, the bridge looks up the config for that wallet.
 4. If found, the bridge sends a signed POST request asynchronously. If the wallet has an `auth` token, it is attached as a `Bearer` token in the `Authorization` header. Unknown wallets or missing `wallet` parameter are silently skipped.
-5. The outgoing JSON payload uses `topic` from the `/bridge/message` query parameter and `hash` as the raw request body. If `topic` is omitted, the bridge sends an empty string.
+5. The outgoing JSON payload uses `topic` from the `/bridge/message` query parameter and `hash` as the raw request body.
 
 ## Webhook Payload
 
@@ -104,7 +104,7 @@ After successful verification, parse the JSON body:
 
 | Field | Description |
 |-------|-------------|
-| `topic` | Value of the `/bridge/message` `topic` query parameter. Empty string if omitted |
+| `topic` | Value of the `/bridge/message` `topic` query parameter |
 | `hash` | Raw `/bridge/message` request body. In typical TON Connect flows this is the base64-encoded encrypted message |
 
 Return `200 OK` to acknowledge receipt. Any non-200 response is logged as a delivery failure by the bridge.
@@ -390,7 +390,7 @@ New optional query parameter:
 
 | Parameter | Description |
 |-----------|-------------|
-| `wallet`  | Wallet name (key from `WEBHOOK_CONFIG`). If present and the wallet has a registered webhook config, a signed notification is sent |
+| `wallet`  | Wallet name (key from `WEBHOOK_CONFIG`). If present and the wallet has a registered webhook config, a signed notification is sent when `topic` is also present |
 
 ## Migration from Global Webhooks
 
