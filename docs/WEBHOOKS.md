@@ -1,6 +1,6 @@
 # Multitenant Webhooks
 
-Bridge v3 supports per-wallet webhook delivery. When a message is sent via `/bridge/message`, the bridge looks up the recipient wallet's webhook configuration and sends a cryptographically signed notification to it. Per-wallet configuration (URL, auth token) is provided via the `WEBHOOK_CONFIG` environment variable.
+Bridge supports per-wallet webhook delivery. When a message is sent via `/bridge/message`, the bridge looks up the recipient wallet's webhook configuration and sends a cryptographically signed notification to it. Per-wallet configuration (URL, auth token) is provided via the `WEBHOOK_CONFIG` environment variable.
 
 ## How It Works
 
@@ -16,7 +16,7 @@ Bridge v3 supports per-wallet webhook delivery. When a message is sent via `/bri
   Service.GetWalletConfig("WalletA") → {URL_A, token_A}
          │
          ▼
-  POST URL_A (async, non-blocking)
+  POST URL_A/<client_id> (async, non-blocking)
     Body: { topic, hash }
     Header: X-Webhook-Signature: <RSA-SHA256 signature>
     Header: Authorization: Bearer token_A
@@ -43,7 +43,7 @@ Your webhook server receives POST requests from the bridge whenever a message is
 ### What the bridge sends
 
 ```
-POST <your-webhook-url>
+POST <your-webhook-url>/<client_id>
 Content-Type: application/json
 X-Webhook-Signature: <base64-encoded signature>
 Authorization: Bearer <token>          (only when wallet has "auth" configured)
@@ -368,7 +368,7 @@ WEBHOOK_CONFIG='{
 
 | Field | Required | Description |
 |-------|----------|-------------|
-| `url` | yes | Webhook endpoint URL |
+| `url` | yes | Base webhook endpoint URL. The bridge appends `/<client_id>` to this URL when sending |
 | `auth` | no | Bearer token sent in the `Authorization` header for this wallet |
 
 An empty string (or unset) means no webhooks are configured. Invalid JSON will cause a startup error.
@@ -399,4 +399,4 @@ The previous `WEBHOOK_URL` environment variable (comma-separated list of global 
 4. Ensure callers of `/bridge/message` include the `wallet` query parameter.
 5. Webhook recipients should verify signatures using the public key from `/bridge/webhook/public-key`.
 
-**Note:** Bridge v1 no longer sends webhooks. Use bridge v3 for webhook support.
+Both `bridge` and `bridge3` binaries support this webhook flow.

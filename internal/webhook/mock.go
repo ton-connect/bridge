@@ -18,6 +18,7 @@ import (
 // Record represents a single received webhook.
 type Record struct {
 	Payload       WebhookData
+	Path          string
 	Signature     string
 	SignatureOK   *bool
 	RawBody       []byte
@@ -99,6 +100,7 @@ func (m *Mock) handle(w http.ResponseWriter, r *http.Request) {
 
 	rec := Record{
 		Payload:       payload,
+		Path:          r.URL.Path,
 		RawBody:       body,
 		Authorization: r.Header.Get("Authorization"),
 	}

@@ -18,6 +18,7 @@ import (
 
 // webhookRecord stores a single received webhook.
 type webhookRecord struct {
+	Path          string `json:"path,omitempty"`
 	Topic         string `json:"topic"`
 	Hash          string `json:"hash"`
 	Signature     string `json:"signature,omitempty"`
@@ -91,6 +92,7 @@ func (m *webhookMockServer) handleWebhook(w http.ResponseWriter, r *http.Request
 
 	rec.Signature = r.Header.Get("X-Webhook-Signature")
 	rec.Authorization = r.Header.Get("Authorization")
+	rec.Path = r.URL.Path
 
 	m.mu.RLock()
 	pubKey := m.publicKey

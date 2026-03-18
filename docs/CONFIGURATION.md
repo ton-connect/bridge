@@ -50,7 +50,7 @@ Webhook payload format: `{topic,hash}`.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `WEBHOOK_CONFIG` | string (JSON) | `""` | Per-wallet webhook config, e.g. `{"wallet1":{"url":"https://...","auth":"token"}}` |
+| `WEBHOOK_CONFIG` | string (JSON) | `""` | Per-wallet webhook config, e.g. `{"wallet1":{"url":"https://...","auth":"token"}}`. The bridge POSTs to `url/<client_id>` |
 | `WEBHOOK_PRIVATE_KEY_PATH` | string | - | Path to RSA private key PEM file. Auto-generated if unset |
 | `COPY_TO_URL` | string | - | Mirror all messages to URL (debugging/analytics) |
 

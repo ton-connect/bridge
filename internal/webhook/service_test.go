@@ -11,6 +11,8 @@ import (
 	"time"
 )
 
+const testClientID = "a3f9c8e21d7b4a5e9c0f6b1d8e72c4fa9b0e1d5c7a6f84b2e93d0c1a5f7e8b42"
+
 func TestService_SendAndVerifySignature(t *testing.T) {
 	svc, err := NewService("", "")
 	if err != nil {
@@ -34,7 +36,7 @@ func TestService_SendAndVerifySignature(t *testing.T) {
 		Hash:  "dGVzdCBtZXNzYWdl",
 	}
 
-	svc.Send(WalletConfig{URL: mock.URL()}, data)
+	svc.Send(WalletConfig{URL: mock.URL()}, testClientID, data)
 
 	// async send — give it a moment
 	time.Sleep(50 * time.Millisecond)
@@ -50,6 +52,9 @@ func TestService_SendAndVerifySignature(t *testing.T) {
 	}
 	if rec.Payload.Hash != "dGVzdCBtZXNzYWdl" {
 		t.Errorf("hash: got %q, want %q", rec.Payload.Hash, "dGVzdCBtZXNzYWdl")
+	}
+	if rec.Path != "/"+testClientID {
+		t.Errorf("path: got %q, want %q", rec.Path, "/"+testClientID)
 	}
 	if rec.Signature == "" {
 		t.Error("expected X-Webhook-Signature header")
@@ -76,7 +81,7 @@ func TestService_InvalidSignatureRejected(t *testing.T) {
 	mock := NewMock(otherPub)
 	defer mock.Close()
 
-	svc.Send(WalletConfig{URL: mock.URL()}, WebhookData{
+	svc.Send(WalletConfig{URL: mock.URL()}, testClientID, WebhookData{
 		Topic: "test",
 		Hash:  "msg",
 	})
@@ -155,7 +160,7 @@ func TestService_AuthTokenSent(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	svc.Send(WalletConfig{URL: mock.URL(), Auth: "my-secret-token"}, WebhookData{
+	svc.Send(WalletConfig{URL: mock.URL(), Auth: "my-secret-token"}, testClientID, WebhookData{
 		Topic: "test", Hash: "m",
 	})
 	time.Sleep(50 * time.Millisecond)
@@ -178,7 +183,7 @@ func TestService_NoAuthTokenWhenEmpty(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	svc.Send(WalletConfig{URL: mock.URL()}, WebhookData{
+	svc.Send(WalletConfig{URL: mock.URL()}, testClientID, WebhookData{
 		Topic: "test", Hash: "m",
 	})
 	time.Sleep(50 * time.Millisecond)
@@ -271,7 +276,7 @@ func TestService_EndToEnd(t *testing.T) {
 		{Topic: "topic3", Hash: "msg3"},
 	}
 	for _, msg := range messages {
-		svc.Send(walletCfg, msg)
+		svc.Send(walletCfg, testClientID, msg)
 	}
 
 	time.Sleep(100 * time.Millisecond)
@@ -310,7 +315,7 @@ func TestMock_Reset(t *testing.T) {
 	defer mock.Close()
 
 	svc, _ := NewService("", "")
-	svc.Send(WalletConfig{URL: mock.URL()}, WebhookData{Topic: "test", Hash: "m"})
+	svc.Send(WalletConfig{URL: mock.URL()}, testClientID, WebhookData{Topic: "test", Hash: "m"})
 	time.Sleep(50 * time.Millisecond)
 
 	if len(mock.Records()) != 1 {
@@ -331,7 +336,7 @@ func TestService_WebhookToDownServer(t *testing.T) {
 	url := mock.URL()
 	mock.Close()
 
-	svc.Send(WalletConfig{URL: url}, WebhookData{Topic: "test", Hash: "m"})
+	svc.Send(WalletConfig{URL: url}, testClientID, WebhookData{Topic: "test", Hash: "m"})
 	// No panic = pass
 }
 
@@ -340,7 +345,7 @@ func TestMock_WithoutPublicKey(t *testing.T) {
 	defer mock.Close()
 
 	svc, _ := NewService("", "")
-	svc.Send(WalletConfig{URL: mock.URL()}, WebhookData{Topic: "test", Hash: "m"})
+	svc.Send(WalletConfig{URL: mock.URL()}, testClientID, WebhookData{Topic: "test", Hash: "m"})
 	time.Sleep(50 * time.Millisecond)
 
 	records := mock.Records()

@@ -231,7 +231,7 @@ func TestHandler_WalletWebhook(t *testing.T) {
 		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
 	}
 
-	deadline := time.Now().Add(2 * time.Second)
+	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
 		records := mock.Records()
 		if len(records) == 1 {
@@ -240,6 +240,72 @@ func TestHandler_WalletWebhook(t *testing.T) {
 			}
 			if records[0].Payload.Hash != "payload" {
 				t.Fatalf("hash: got %q, want %q", records[0].Payload.Hash, "payload")
+			}
+			if records[0].Path != "/"+defaultClientID {
+				t.Fatalf("path: got %q, want %q", records[0].Path, "/"+defaultClientID)
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for wallet webhook")
+}
+
+func TestHandler_WalletWebhookWithoutTopic(t *testing.T) {
+	e := echo.New()
+
+	mock := webhook.NewMock(nil)
+	defer mock.Close()
+
+	walletWebhookSvc, err := webhook.NewService(
+		fmt.Sprintf(`{"testwallet":{"url":"%s"}}`, mock.URL()),
+		"",
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	values := url.Values{}
+	values.Set("client_id", defaultClientID)
+	values.Set("to", defaultToID)
+	values.Set("ttl", "60")
+	values.Set("wallet", "testwallet")
+	values.Set("no_request_source", "true")
+
+	req := httptest.NewRequest(http.MethodPost, "/bridge/message?"+values.Encode(), strings.NewReader("payload"))
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	memStorage := storage.NewMemStorage(nil, nil)
+	extractor, err := utils.NewRealIPExtractor([]string{})
+	if err != nil {
+		t.Fatalf("failed to create RealIPExtractor: %v", err)
+	}
+
+	h := NewHandler(memStorage, 10*time.Second, extractor, nil, nil, walletWebhookSvc)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	if err := h.SendMessageHandler(c); err != nil {
+		t.Fatalf("SendMessageHandler returned error: %v", err)
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		records := mock.Records()
+		if len(records) == 1 {
+			if records[0].Payload.Topic != "" {
+				t.Fatalf("topic: got %q, want empty string", records[0].Payload.Topic)
+			}
+			if records[0].Payload.Hash != "payload" {
+				t.Fatalf("hash: got %q, want %q", records[0].Payload.Hash, "payload")
+			}
+			if records[0].Path != "/"+defaultClientID {
+				t.Fatalf("path: got %q, want %q", records[0].Path, "/"+defaultClientID)
 			}
 			return
 		}

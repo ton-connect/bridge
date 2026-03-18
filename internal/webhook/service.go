@@ -12,7 +12,9 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net/http"
+	"net/url"
 	"os"
+	"strings"
 
 	log "github.com/sirupsen/logrus"
 )
@@ -79,8 +81,9 @@ func (s *Service) GetWalletConfig(wallet string) (WalletConfig, bool) {
 }
 
 // Send sends a signed webhook to the given wallet config with the provided data.
-func (s *Service) Send(cfg WalletConfig, data WebhookData) {
-	if err := s.send(cfg, data); err != nil {
+// The destination URL is the configured webhook URL with "/<clientID>" appended.
+func (s *Service) Send(cfg WalletConfig, clientID string, data WebhookData) {
+	if err := s.send(cfg, clientID, data); err != nil {
 		log.Errorf("failed to send wallet webhook to '%s': %v", cfg.URL, err)
 	}
 }
@@ -100,13 +103,18 @@ func (s *Service) PublicKeyPEM() ([]byte, error) {
 	}), nil
 }
 
-func (s *Service) send(cfg WalletConfig, data WebhookData) error {
+func (s *Service) send(cfg WalletConfig, clientID string, data WebhookData) error {
 	body, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("marshal webhook data: %w", err)
 	}
 
-	req, err := http.NewRequest(http.MethodPost, cfg.URL, bytes.NewReader(body))
+	webhookURL, err := buildWebhookURL(cfg.URL, clientID)
+	if err != nil {
+		return err
+	}
+
+	req, err := http.NewRequest(http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
@@ -139,6 +147,20 @@ func (s *Service) send(cfg WalletConfig, data WebhookData) error {
 		return fmt.Errorf("bad status code: %v", res.StatusCode)
 	}
 	return nil
+}
+
+func buildWebhookURL(baseURL, clientID string) (string, error) {
+	if clientID == "" {
+		return baseURL, nil
+	}
+
+	u, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("parse webhook URL: %w", err)
+	}
+
+	u.Path = strings.TrimRight(u.Path, "/") + "/" + clientID
+	return u.String(), nil
 }
 
 func loadPrivateKey(path string) (*rsa.PrivateKey, error) {

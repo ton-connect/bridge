@@ -147,6 +147,9 @@ func TestBridge_WebhookSentOnMessage(t *testing.T) {
 	if rec.Hash != payload {
 		t.Errorf("hash: got %q, want %q", rec.Hash, payload)
 	}
+	if rec.Path != "/"+clientID {
+		t.Errorf("path: got %q, want %q", rec.Path, "/"+clientID)
+	}
 	if rec.Signature == "" {
 		t.Error("expected X-Webhook-Signature header")
 	}
