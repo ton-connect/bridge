@@ -72,7 +72,8 @@ TON Connect Bridge uses pub/sub architecture to synchronize state across multipl
 
 Bridge supports per-wallet webhook notifications. When a message is sent with a `wallet` parameter, the bridge looks up the wallet's webhook URL and sends a signed notification asynchronously.
 
-- Per-wallet webhook configuration (URL, auth token) is provided via the `WEBHOOK_CONFIG` environment variable
+- Per-wallet webhook configuration can be provided inline via `WEBHOOK_CONFIG` and optionally overlaid from `WEBHOOK_CONFIG_SOURCE`
+- Source-backed webhook config is refreshed on the `WEBHOOK_CONFIG_REFRESH_INTERVAL` ticker
 - The bridge sends webhook requests to `<configured-url>/<client_id>`
 - Webhook requests are signed with RSA-SHA256 (public key available at `/bridge/webhook/public-key`)
 - Webhook payload format: `{topic, hash}`

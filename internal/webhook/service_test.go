@@ -6,6 +6,8 @@ import (
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"testing"
 	"time"
@@ -358,6 +360,162 @@ func TestMock_WithoutPublicKey(t *testing.T) {
 	if records[0].SignatureOK != nil {
 		t.Error("SignatureOK should be nil when mock has no public key")
 	}
+}
+
+func TestService_LoadsWebhookConfigFromFileSource(t *testing.T) {
+	path := t.TempDir() + "/webhooks.json"
+	if err := os.WriteFile(path, []byte(`{"filewallet":{"url":"https://file.example.com/hook","auth":"file-token"}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	svc, err := NewServiceWithOptions(Options{
+		ConfigSource:    path,
+		RefreshInterval: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewServiceWithOptions: %v", err)
+	}
+	defer svc.Close()
+
+	cfg, ok := svc.GetWalletConfig("filewallet")
+	if !ok {
+		t.Fatal("filewallet not found")
+	}
+	if cfg.URL != "https://file.example.com/hook" {
+		t.Fatalf("URL: got %q, want %q", cfg.URL, "https://file.example.com/hook")
+	}
+	if cfg.Auth != "file-token" {
+		t.Fatalf("Auth: got %q, want %q", cfg.Auth, "file-token")
+	}
+}
+
+func TestService_LoadsWebhookConfigFromHTTPSource(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = fmt.Fprint(w, `{"httpwallet":{"url":"https://http.example.com/hook","auth":"http-token"}}`)
+	}))
+	defer server.Close()
+
+	svc, err := NewServiceWithOptions(Options{
+		ConfigSource:    server.URL,
+		RefreshInterval: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewServiceWithOptions: %v", err)
+	}
+	defer svc.Close()
+
+	cfg, ok := svc.GetWalletConfig("httpwallet")
+	if !ok {
+		t.Fatal("httpwallet not found")
+	}
+	if cfg.URL != "https://http.example.com/hook" {
+		t.Fatalf("URL: got %q, want %q", cfg.URL, "https://http.example.com/hook")
+	}
+	if cfg.Auth != "http-token" {
+		t.Fatalf("Auth: got %q, want %q", cfg.Auth, "http-token")
+	}
+}
+
+func TestService_MergesInlineAndSourceWebhookConfig(t *testing.T) {
+	path := t.TempDir() + "/webhooks.json"
+	if err := os.WriteFile(path, []byte(`{
+		"sourcewallet":{"url":"https://source.example.com/hook"},
+		"shared":{"url":"https://source.example.com/shared","auth":"source-token"}
+	}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	svc, err := NewServiceWithOptions(Options{
+		InlineConfigJSON: `{
+			"inlinewallet":{"url":"https://inline.example.com/hook","auth":"inline-token"},
+			"shared":{"url":"https://inline.example.com/shared","auth":"inline-token"}
+		}`,
+		ConfigSource:    path,
+		RefreshInterval: time.Second,
+	})
+	if err != nil {
+		t.Fatalf("NewServiceWithOptions: %v", err)
+	}
+	defer svc.Close()
+
+	inlineCfg, ok := svc.GetWalletConfig("inlinewallet")
+	if !ok || inlineCfg.URL != "https://inline.example.com/hook" {
+		t.Fatalf("inlinewallet: got %+v, exists=%v", inlineCfg, ok)
+	}
+
+	sourceCfg, ok := svc.GetWalletConfig("sourcewallet")
+	if !ok || sourceCfg.URL != "https://source.example.com/hook" {
+		t.Fatalf("sourcewallet: got %+v, exists=%v", sourceCfg, ok)
+	}
+
+	sharedCfg, ok := svc.GetWalletConfig("shared")
+	if !ok {
+		t.Fatal("shared wallet not found")
+	}
+	if sharedCfg.URL != "https://source.example.com/shared" {
+		t.Fatalf("shared URL: got %q, want %q", sharedCfg.URL, "https://source.example.com/shared")
+	}
+	if sharedCfg.Auth != "source-token" {
+		t.Fatalf("shared Auth: got %q, want %q", sharedCfg.Auth, "source-token")
+	}
+}
+
+func TestService_RefreshesWebhookConfigFromSource(t *testing.T) {
+	path := t.TempDir() + "/webhooks.json"
+	if err := os.WriteFile(path, []byte(`{"refreshwallet":{"url":"https://old.example.com/hook","auth":"old-token"}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	svc, err := NewServiceWithOptions(Options{
+		ConfigSource:    path,
+		RefreshInterval: 20 * time.Millisecond,
+	})
+	if err != nil {
+		t.Fatalf("NewServiceWithOptions: %v", err)
+	}
+	defer svc.Close()
+
+	cfg, ok := svc.GetWalletConfig("refreshwallet")
+	if !ok || cfg.URL != "https://old.example.com/hook" {
+		t.Fatalf("initial refreshwallet: got %+v, exists=%v", cfg, ok)
+	}
+
+	if err := os.WriteFile(path, []byte(`{"refreshwallet":{"url":"https://new.example.com/hook","auth":"new-token"}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile updated config: %v", err)
+	}
+
+	waitForWalletConfig(t, svc, "refreshwallet", "https://new.example.com/hook", "new-token", 2*time.Second)
+}
+
+func TestService_SourceRequiresPositiveRefreshInterval(t *testing.T) {
+	path := t.TempDir() + "/webhooks.json"
+	if err := os.WriteFile(path, []byte(`{"wallet":{"url":"https://example.com/hook"}}`), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	_, err := NewServiceWithOptions(Options{
+		ConfigSource:    path,
+		RefreshInterval: 0,
+	})
+	if err == nil {
+		t.Fatal("expected error for zero refresh interval with config source")
+	}
+}
+
+func waitForWalletConfig(t *testing.T, svc *Service, wallet, wantURL, wantAuth string, timeout time.Duration) {
+	t.Helper()
+
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		cfg, ok := svc.GetWalletConfig(wallet)
+		if ok && cfg.URL == wantURL && cfg.Auth == wantAuth {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	cfg, ok := svc.GetWalletConfig(wallet)
+	t.Fatalf("timed out waiting for wallet=%q url=%q auth=%q, got cfg=%+v exists=%v", wallet, wantURL, wantAuth, cfg, ok)
 }
 
 func generateTestKeyFile(path string) error {

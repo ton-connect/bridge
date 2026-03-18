@@ -153,13 +153,16 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	walletWebhookSvc, err := webhook.NewService(
-		config.Config.WebhookConfig,
-		config.Config.WebhookPrivateKeyPath,
-	)
+	walletWebhookSvc, err := webhook.NewServiceWithOptions(webhook.Options{
+		InlineConfigJSON: config.Config.WebhookConfig,
+		ConfigSource:     config.Config.WebhookConfigSource,
+		RefreshInterval:  config.ParseWebhookConfigRefreshInterval(),
+		PrivateKeyPath:   config.Config.WebhookPrivateKeyPath,
+	})
 	if err != nil {
 		log.Fatalf("failed to create wallet webhook service: %v", err)
 	}
+	defer walletWebhookSvc.Close()
 
 	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, collector, analyticsBuilder, walletWebhookSvc)
 

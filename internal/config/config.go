@@ -3,6 +3,7 @@ package config
 import (
 	"log"
 	"strings"
+	"time"
 
 	"github.com/caarlos0/env/v6"
 	"github.com/sirupsen/logrus"
@@ -53,8 +54,10 @@ var Config = struct {
 	CopyToURL              string `env:"COPY_TO_URL"`
 
 	// Wallet Webhooks (multitenant)
-	WebhookConfig         string `env:"WEBHOOK_CONFIG"`           // JSON map: {"wallet_name":{"url":"...","auth":"..."},...}
-	WebhookPrivateKeyPath string `env:"WEBHOOK_PRIVATE_KEY_PATH"` // path to RSA private key PEM file
+	WebhookConfig                string `env:"WEBHOOK_CONFIG"`        // JSON map: {"wallet_name":{"url":"...","auth":"..."},...}
+	WebhookConfigSource          string `env:"WEBHOOK_CONFIG_SOURCE"` // local path, file:// URL, or http(s) URL with the same JSON structure as WEBHOOK_CONFIG
+	WebhookConfigRefreshInterval string `env:"WEBHOOK_CONFIG_REFRESH_INTERVAL" envDefault:"1m"`
+	WebhookPrivateKeyPath        string `env:"WEBHOOK_PRIVATE_KEY_PATH"` // path to RSA private key PEM file
 
 	// NTP Configuration
 	NTPEnabled      bool     `env:"NTP_ENABLED" envDefault:"true"`
@@ -81,4 +84,12 @@ func LoadConfig() {
 		level = logrus.InfoLevel
 	}
 	logrus.SetLevel(level)
+}
+
+func ParseWebhookConfigRefreshInterval() time.Duration {
+	duration, err := time.ParseDuration(Config.WebhookConfigRefreshInterval)
+	if err != nil {
+		log.Fatalf("invalid WEBHOOK_CONFIG_REFRESH_INTERVAL %q: %v", Config.WebhookConfigRefreshInterval, err)
+	}
+	return duration
 }

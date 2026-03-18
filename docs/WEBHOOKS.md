@@ -1,6 +1,6 @@
 # Multitenant Webhooks
 
-Bridge supports per-wallet webhook delivery. When a message is sent via `/bridge/message`, the bridge looks up the recipient wallet's webhook configuration and sends a cryptographically signed notification to it. Per-wallet configuration (URL, auth token) is provided via the `WEBHOOK_CONFIG` environment variable.
+Bridge supports per-wallet webhook delivery. When a message is sent via `/bridge/message`, the bridge looks up the recipient wallet's webhook configuration and sends a cryptographically signed notification to it. Per-wallet configuration can be provided inline via `WEBHOOK_CONFIG` and optionally overlaid from `WEBHOOK_CONFIG_SOURCE`.
 
 ## How It Works
 
@@ -23,9 +23,10 @@ Bridge supports per-wallet webhook delivery. When a message is sent via `/bridge
 ```
 
 1. At startup, the bridge parses the `WEBHOOK_CONFIG` JSON into an in-memory map of wallet name to webhook configuration (URL and optional auth token).
-2. When a message is sent with a `wallet` query parameter, the bridge looks up the config for that wallet.
-3. If found, the bridge sends a signed POST request asynchronously. If the wallet has an `auth` token, it is attached as a `Bearer` token in the `Authorization` header. Unknown wallets or missing `wallet` parameter are silently skipped.
-4. The outgoing JSON payload uses `topic` from the `/bridge/message` query parameter and `hash` as the raw request body. If `topic` is omitted, the bridge sends an empty string.
+2. If `WEBHOOK_CONFIG_SOURCE` is set, the bridge loads the same JSON structure from that local path or URL, overlays it on top of the inline config, and refreshes it on the `WEBHOOK_CONFIG_REFRESH_INTERVAL` ticker.
+3. When a message is sent with a `wallet` query parameter, the bridge looks up the config for that wallet.
+4. If found, the bridge sends a signed POST request asynchronously. If the wallet has an `auth` token, it is attached as a `Bearer` token in the `Authorization` header. Unknown wallets or missing `wallet` parameter are silently skipped.
+5. The outgoing JSON payload uses `topic` from the `/bridge/message` query parameter and `hash` as the raw request body. If `topic` is omitted, the bridge sends an empty string.
 
 ## Webhook Payload
 
@@ -348,11 +349,13 @@ The public key is always available at `GET /bridge/webhook/public-key`.
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
 | `WEBHOOK_CONFIG` | string (JSON) | `""` | Per-wallet webhook configuration (see format below) |
+| `WEBHOOK_CONFIG_SOURCE` | string | `""` | Optional local path, `file://` URL, or `http(s)://` URL that returns the same JSON object format as `WEBHOOK_CONFIG` |
+| `WEBHOOK_CONFIG_REFRESH_INTERVAL` | duration | `1m` | Refresh interval for `WEBHOOK_CONFIG_SOURCE` |
 | `WEBHOOK_PRIVATE_KEY_PATH` | string | - | Path to RSA private key PEM file. If unset, a 2048-bit key is generated at startup |
 
 ### `WEBHOOK_CONFIG` format
 
-A JSON object where keys are wallet names and values are configuration objects:
+A JSON object where keys are wallet names and values are configuration objects. This same format is used for both `WEBHOOK_CONFIG` and the content loaded from `WEBHOOK_CONFIG_SOURCE`:
 
 ```bash
 WEBHOOK_CONFIG='{
@@ -371,7 +374,7 @@ WEBHOOK_CONFIG='{
 | `url` | yes | Base webhook endpoint URL. The bridge appends `/<client_id>` to this URL when sending |
 | `auth` | no | Bearer token sent in the `Authorization` header for this wallet |
 
-An empty string (or unset) means no webhooks are configured. Invalid JSON will cause a startup error.
+An empty string (or unset) means no inline webhooks are configured. Invalid JSON in either source will cause a startup error on the initial load. When both inline and source-backed config are present, source entries override inline entries with the same wallet key.
 
 ## API Endpoints
 
