@@ -362,13 +362,10 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	topic := ""
 	if ok && len(topicParam) > 0 {
 		topic = topicParam[0]
-	}
 
-	if h.walletWebhook != nil {
 		if walletParam, ok := params["wallet"]; ok && len(walletParam) > 0 {
 			wallet := walletParam[0]
 			if walletCfg, ok := h.walletWebhook.GetWalletConfig(wallet); ok {
-				// Keep the webhook body compatible with the legacy master branch payload.
 				go h.walletWebhook.Send(walletCfg, clientID.String(), webhook.WebhookData{
 					Topic: topic,
 					Hash:  string(message),
