@@ -1,5 +1,5 @@
 # Create a new file: Dockerfile.integration
-FROM golang:1.24-alpine
+FROM golang:1.26-alpine
 
 # Install necessary packages including make and git
 RUN apk add --no-cache \

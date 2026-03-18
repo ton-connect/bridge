@@ -1,6 +1,6 @@
 module github.com/ton-connect/bridge
 
-go 1.24.9
+go 1.26.0
 
 require (
 	github.com/beevik/ntp v1.5.0

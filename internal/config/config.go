@@ -54,8 +54,12 @@ var Config = struct {
 	// Events & Webhooks
 	DisconnectEventsTTL    int64  `env:"DISCONNECT_EVENTS_TTL" envDefault:"3600"`
 	DisconnectEventMaxSize int    `env:"DISCONNECT_EVENT_MAX_SIZE" envDefault:"512"`
-	WebhookURL             string `env:"WEBHOOK_URL"`
 	CopyToURL              string `env:"COPY_TO_URL"`
+
+	// Wallet Webhooks (multitenant)
+	WalletListURL         string `env:"WALLET_LIST_URL" envDefault:"https://raw.githubusercontent.com/ton-connect/wallets-list/refs/heads/main/wallets-v2.json"`
+	WalletListRefreshSec  int    `env:"WALLET_LIST_REFRESH_INTERVAL" envDefault:"3600"` // seconds, 0 to disable
+	WebhookPrivateKeyPath string `env:"WEBHOOK_PRIVATE_KEY_PATH"`                       // path to RSA private key PEM file
 
 	// NTP Configuration
 	NTPEnabled      bool     `env:"NTP_ENABLED" envDefault:"true"`

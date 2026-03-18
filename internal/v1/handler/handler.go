@@ -371,9 +371,6 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	topic := ""
 	if ok {
 		topic = topicParam[0]
-		go func(clientID, topic, message string) {
-			handler_common.SendWebhook(clientID, handler_common.WebhookData{Topic: topic, Hash: message})
-		}(clientID.String(), topic, string(message))
 	}
 
 	var requestSource string

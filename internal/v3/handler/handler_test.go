@@ -166,7 +166,7 @@ func TestHandler(t *testing.T) {
 				t.Fatalf("failed to create RealIPExtractor: %v", err)
 			}
 
-			h := NewHandler(memStorage, 10*time.Second, extractor, ntp.NewLocalTimeProvider(), nil, nil)
+			h := NewHandler(memStorage, 10*time.Second, extractor, ntp.NewLocalTimeProvider(), nil, nil, nil)
 
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
