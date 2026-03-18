@@ -29,10 +29,10 @@ type webhookRecord struct {
 // webhookMockServer is an HTTP server that receives webhooks.
 // It runs on a fixed port so the bridge container can reach it by hostname.
 type webhookMockServer struct {
-	server   *http.Server
-	listener net.Listener
-	mu       sync.RWMutex
-	records  []webhookRecord
+	server    *http.Server
+	listener  net.Listener
+	mu        sync.RWMutex
+	records   []webhookRecord
 	publicKey *rsa.PublicKey
 }
 
