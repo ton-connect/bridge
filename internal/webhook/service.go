@@ -97,12 +97,12 @@ func NewServiceWithOptions(opts Options) (*Service, error) {
 		log.Info("Webhook RSA private key generated (2048-bit)")
 	}
 
-	inlineWebhooks, err := parseWebhookConfigJSON(opts.InlineConfigJSON)
+	inlineWebhooks, err := s.parseWebhookConfigJSON(opts.InlineConfigJSON)
 	if err != nil {
 		return nil, fmt.Errorf("parse WEBHOOK_CONFIG: %w", err)
 	}
-	s.inlineWebhooks = copyWebhookConfigMap(inlineWebhooks)
-	s.webhooks = copyWebhookConfigMap(inlineWebhooks)
+	s.inlineWebhooks = s.cloneWebhookConfigMap(inlineWebhooks)
+	s.webhooks = s.cloneWebhookConfigMap(inlineWebhooks)
 
 	if opts.ConfigSource != "" {
 		if opts.RefreshInterval <= 0 {
@@ -113,7 +113,7 @@ func NewServiceWithOptions(opts Options) (*Service, error) {
 		if err != nil {
 			return nil, fmt.Errorf("load WEBHOOK_CONFIG_SOURCE: %w", err)
 		}
-		s.webhooks = mergeWebhookConfigs(s.inlineWebhooks, sourceWebhooks)
+		s.webhooks = s.mergeWebhookConfigs(s.inlineWebhooks, sourceWebhooks)
 		s.startRefreshLoop()
 	}
 
@@ -175,7 +175,7 @@ func (s *Service) send(cfg WalletConfig, clientID string, data WebhookData) erro
 		return fmt.Errorf("marshal webhook data: %w", err)
 	}
 
-	webhookURL, err := buildWebhookURL(cfg.URL, clientID)
+	webhookURL, err := s.buildWebhookURL(cfg.URL, clientID)
 	if err != nil {
 		return err
 	}
@@ -215,7 +215,7 @@ func (s *Service) send(cfg WalletConfig, clientID string, data WebhookData) erro
 	return nil
 }
 
-func buildWebhookURL(baseURL, clientID string) (string, error) {
+func (s *Service) buildWebhookURL(baseURL, clientID string) (string, error) {
 	if clientID == "" {
 		return baseURL, nil
 	}
@@ -259,7 +259,7 @@ func (s *Service) refreshSourceWebhooks() error {
 		return err
 	}
 
-	merged := mergeWebhookConfigs(s.inlineWebhooks, sourceWebhooks)
+	merged := s.mergeWebhookConfigs(s.inlineWebhooks, sourceWebhooks)
 
 	s.mu.Lock()
 	changed := !reflect.DeepEqual(s.webhooks, merged)
@@ -278,12 +278,12 @@ func (s *Service) refreshSourceWebhooks() error {
 }
 
 func (s *Service) loadSourceWebhooks() (map[string]WalletConfig, error) {
-	data, err := loadWebhookConfigSource(s.httpClient, s.configSource)
+	data, err := s.loadWebhookConfigSource()
 	if err != nil {
 		return nil, err
 	}
 
-	cfg, err := parseWebhookConfigJSON(string(data))
+	cfg, err := s.parseWebhookConfigJSON(string(data))
 	if err != nil {
 		return nil, fmt.Errorf("parse source config: %w", err)
 	}
@@ -291,15 +291,15 @@ func (s *Service) loadSourceWebhooks() (map[string]WalletConfig, error) {
 	return cfg, nil
 }
 
-func loadWebhookConfigSource(client *http.Client, source string) ([]byte, error) {
-	u, err := url.Parse(source)
+func (s *Service) loadWebhookConfigSource() ([]byte, error) {
+	u, err := url.Parse(s.configSource)
 	if err != nil {
 		return nil, fmt.Errorf("parse source: %w", err)
 	}
 
 	switch u.Scheme {
 	case "":
-		data, err := os.ReadFile(source)
+		data, err := os.ReadFile(s.configSource)
 		if err != nil {
 			return nil, fmt.Errorf("read source file: %w", err)
 		}
@@ -315,11 +315,11 @@ func loadWebhookConfigSource(client *http.Client, source string) ([]byte, error)
 		}
 		return data, nil
 	case "http", "https":
-		req, err := http.NewRequest(http.MethodGet, source, nil)
+		req, err := http.NewRequest(http.MethodGet, s.configSource, nil)
 		if err != nil {
 			return nil, fmt.Errorf("create source request: %w", err)
 		}
-		res, err := client.Do(req)
+		res, err := s.httpClient.Do(req)
 		if err != nil {
 			return nil, fmt.Errorf("fetch source URL: %w", err)
 		}
@@ -341,7 +341,7 @@ func loadWebhookConfigSource(client *http.Client, source string) ([]byte, error)
 	}
 }
 
-func parseWebhookConfigJSON(raw string) (map[string]WalletConfig, error) {
+func (s *Service) parseWebhookConfigJSON(raw string) (map[string]WalletConfig, error) {
 	cfg := make(map[string]WalletConfig)
 	if raw == "" {
 		return cfg, nil
@@ -353,7 +353,7 @@ func parseWebhookConfigJSON(raw string) (map[string]WalletConfig, error) {
 	return cfg, nil
 }
 
-func copyWebhookConfigMap(src map[string]WalletConfig) map[string]WalletConfig {
+func (s *Service) cloneWebhookConfigMap(src map[string]WalletConfig) map[string]WalletConfig {
 	dst := make(map[string]WalletConfig, len(src))
 	for wallet, cfg := range src {
 		dst[wallet] = cfg
@@ -361,8 +361,8 @@ func copyWebhookConfigMap(src map[string]WalletConfig) map[string]WalletConfig {
 	return dst
 }
 
-func mergeWebhookConfigs(base, overlay map[string]WalletConfig) map[string]WalletConfig {
-	merged := copyWebhookConfigMap(base)
+func (s *Service) mergeWebhookConfigs(base, overlay map[string]WalletConfig) map[string]WalletConfig {
+	merged := s.cloneWebhookConfigMap(base)
 	for wallet, cfg := range overlay {
 		merged[wallet] = cfg
 	}
