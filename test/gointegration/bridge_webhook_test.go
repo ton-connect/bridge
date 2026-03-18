@@ -29,26 +29,16 @@ func webhookMockAddr() string {
 // Shared mock — started once, used by all webhook tests.
 var sharedWebhookMock *webhookMockServer
 
-// webhookBridgeReady is true if the bridge supports webhooks and has loaded the wallet list.
-var webhookBridgeReady bool
-
 func initWebhookMock(t *testing.T) {
 	if sharedWebhookMock == nil {
 		t.Skip("webhook mock not initialized (bridge may not support webhooks)")
-	}
-	if !webhookBridgeReady {
-		t.Skip("bridge did not pick up webhook wallet list")
 	}
 	// Reset records between tests
 	sharedWebhookMock.resetRecords()
 }
 
 func setupSharedWebhookMock() {
-	mock, err := newWebhookMockServer(
-		fmt.Sprintf(":%d", webhookMockPort),
-		webhookWalletName,
-		webhookMockAddr()+"/",
-	)
+	mock, err := newWebhookMockServer(fmt.Sprintf(":%d", webhookMockPort))
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "webhook mock: %v (webhook tests will be skipped)\n", err)
 		return
@@ -63,37 +53,6 @@ func setupSharedWebhookMock() {
 	}
 	mock.SetPublicKey(pubKey)
 	sharedWebhookMock = mock
-
-	// Poll until the bridge picks up the wallet list and can deliver webhooks.
-	// Send a probe message every refresh interval and check if the mock receives it.
-	fmt.Fprintf(os.Stderr, "Waiting for bridge to pick up wallet list...\n")
-	probeClientID := "a3f9c8e21d7b4a5e9c0f6b1d8e72c4fa9b0e1d5c7a6f84b2e93d0c1a5f7e8b42"
-	probeToID := "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
-		// Send probe
-		u, _ := url.Parse(BRIDGE_URL + "/message")
-		q := u.Query()
-		q.Set("client_id", probeClientID)
-		q.Set("to", probeToID)
-		q.Set("ttl", "60")
-		q.Set("wallet", webhookWalletName)
-		u.RawQuery = q.Encode()
-		resp, err := http.Post(u.String(), "text/plain", strings.NewReader("probe"))
-		if err == nil {
-			_ = resp.Body.Close()
-		}
-
-		time.Sleep(2 * time.Second)
-
-		if len(mock.getRecords()) > 0 {
-			fmt.Fprintf(os.Stderr, "Bridge wallet list loaded, webhook delivery confirmed\n")
-			mock.resetRecords()
-			webhookBridgeReady = true
-			return
-		}
-	}
-	fmt.Fprintf(os.Stderr, "WARNING: bridge did not deliver probe webhook within 60s, webhook tests will be skipped\n")
 }
 
 func sendMessage(t *testing.T, clientID, toID, payload string, extra map[string]string) {

@@ -49,8 +49,7 @@ Per-wallet webhook delivery with cryptographic signatures. See [WEBHOOKS.md](WEB
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `WALLET_LIST_URL` | string | `https://raw.githubusercontent.com/ton-connect/wallets-list/refs/heads/main/wallets-v2.json` | URL to fetch wallet webhook endpoints from |
-| `WALLET_LIST_REFRESH_INTERVAL` | int | `3600` | Re-fetch interval for wallet list (seconds). `0` disables refresh |
+| `WEBHOOK_CONFIG` | string (JSON) | `""` | Per-wallet webhook config, e.g. `{"wallet1":{"url":"https://...","auth":"token"}}` |
 | `WEBHOOK_PRIVATE_KEY_PATH` | string | - | Path to RSA private key PEM file. Auto-generated if unset |
 | `COPY_TO_URL` | string | - | Mirror all messages to URL (debugging/analytics) |
 

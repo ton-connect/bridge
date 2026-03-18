@@ -367,8 +367,8 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if h.walletWebhook != nil {
 		if walletParam, ok := params["wallet"]; ok && len(walletParam) > 0 {
 			wallet := walletParam[0]
-			if webhookURL, ok := h.walletWebhook.GetWebhookURL(wallet); ok {
-				go h.walletWebhook.Send(webhookURL, webhook.Data{
+			if walletCfg, ok := h.walletWebhook.GetWalletConfig(wallet); ok {
+				go h.walletWebhook.Send(walletCfg, webhook.Data{
 					ClientID: clientID.String(),
 					To:       toId.String(),
 					Message:  string(message),

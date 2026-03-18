@@ -154,9 +154,8 @@ func main() {
 	}
 
 	walletWebhookSvc, err := webhook.NewService(
-		config.Config.WalletListURL,
+		config.Config.WebhookConfig,
 		config.Config.WebhookPrivateKeyPath,
-		config.Config.WalletListRefreshSec,
 	)
 	if err != nil {
 		log.Fatalf("failed to create wallet webhook service: %v", err)

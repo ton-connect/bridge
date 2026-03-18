@@ -17,10 +17,11 @@ import (
 
 // Record represents a single received webhook.
 type Record struct {
-	Payload     Data
-	Signature   string
-	SignatureOK *bool
-	RawBody     []byte
+	Payload       Data
+	Signature     string
+	SignatureOK   *bool
+	RawBody       []byte
+	Authorization string
 }
 
 // Mock is an httptest-based webhook receiver for use in tests.
@@ -97,8 +98,9 @@ func (m *Mock) handle(w http.ResponseWriter, r *http.Request) {
 	}
 
 	rec := Record{
-		Payload: payload,
-		RawBody: body,
+		Payload:       payload,
+		RawBody:       body,
+		Authorization: r.Header.Get("Authorization"),
 	}
 
 	sig := r.Header.Get("X-Webhook-Signature")

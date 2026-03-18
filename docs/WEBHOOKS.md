@@ -1,32 +1,30 @@
 # Multitenant Webhooks
 
-Bridge v3 supports per-wallet webhook delivery. When a message is sent via `/bridge/message`, the bridge looks up the recipient wallet's webhook URL and sends a cryptographically signed notification to it. Each wallet registers its own webhook endpoint in the [TON Connect wallet list](https://github.com/ton-connect/wallets-list), enabling independent notification routing without centralized configuration.
+Bridge v3 supports per-wallet webhook delivery. When a message is sent via `/bridge/message`, the bridge looks up the recipient wallet's webhook configuration and sends a cryptographically signed notification to it. Per-wallet configuration (URL, auth token) is provided via the `WEBHOOK_CONFIG` environment variable.
 
 ## How It Works
 
 ```
-                     wallets-v2.json
-                    ┌───────────────────┐
-                    │ Wallet A → URL A  │
-  startup/refresh → │ Wallet B → URL B  │ ← cached in memory
-                    │ Wallet C → URL C  │
-                    └───────────────────┘
+  WEBHOOK_CONFIG={"WalletA":{"url":"URL_A","auth":"token_A"},"WalletB":{"url":"URL_B"}}
+         │
+         ▼ (parsed at startup)
+    webhooks map[string]WalletConfig
 
   POST /bridge/message?...&wallet=WalletA
          │
          ▼
-  Service.GetWebhookURL("WalletA") → URL A
+  Service.GetWalletConfig("WalletA") → {URL_A, token_A}
          │
          ▼
-  POST URL A (async, non-blocking)
+  POST URL_A (async, non-blocking)
     Body: { client_id, to, message, trace_id }
     Header: X-Webhook-Signature: <RSA-SHA256 signature>
+    Header: Authorization: Bearer token_A
 ```
 
-1. At startup, the bridge fetches the wallet list from `WALLET_LIST_URL` and builds an in-memory map of `app_name` to webhook URL (only SSE-type bridges with a non-empty `webhook` field).
-2. The wallet list is re-fetched periodically (configurable via `WALLET_LIST_REFRESH_INTERVAL`).
-3. When a message is sent with a `wallet` query parameter, the bridge looks up the webhook URL for that wallet.
-4. If found, the bridge sends a signed POST request asynchronously. Unknown wallets or missing `wallet` parameter are silently skipped.
+1. At startup, the bridge parses the `WEBHOOK_CONFIG` JSON into an in-memory map of wallet name to webhook configuration (URL and optional auth token).
+2. When a message is sent with a `wallet` query parameter, the bridge looks up the config for that wallet.
+3. If found, the bridge sends a signed POST request asynchronously. If the wallet has an `auth` token, it is attached as a `Bearer` token in the `Authorization` header. Unknown wallets or missing `wallet` parameter are silently skipped.
 
 ## Webhook Payload
 
@@ -49,11 +47,14 @@ Your webhook server receives POST requests from the bridge whenever a message is
 POST <your-webhook-url>
 Content-Type: application/json
 X-Webhook-Signature: <base64-encoded signature>
+Authorization: Bearer <token>          (only when wallet has "auth" configured)
 
 {"client_id":"...","to":"...","message":"...","trace_id":"..."}
 ```
 
 The `X-Webhook-Signature` header contains a **base64-encoded RSA-PKCS1v15-SHA256** signature computed over the raw JSON request body.
+
+When a wallet's `auth` field is set in `WEBHOOK_CONFIG`, the outgoing webhook request includes an `Authorization: Bearer <token>` header. This lets the receiving server authenticate that the request came from an authorized bridge instance before even checking the cryptographic signature. Each wallet can have its own token.
 
 ### Step-by-step: handling and validating incoming webhooks
 
@@ -353,28 +354,31 @@ The public key is always available at `GET /bridge/webhook/public-key`.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `WALLET_LIST_URL` | string | `https://raw.githubusercontent.com/ton-connect/wallets-list/refs/heads/main/wallets-v2.json` | URL to fetch wallet webhook endpoints from |
-| `WALLET_LIST_REFRESH_INTERVAL` | int | `3600` | How often to re-fetch the wallet list (seconds). `0` disables periodic refresh |
+| `WEBHOOK_CONFIG` | string (JSON) | `""` | Per-wallet webhook configuration (see format below) |
 | `WEBHOOK_PRIVATE_KEY_PATH` | string | - | Path to RSA private key PEM file. If unset, a 2048-bit key is generated at startup |
 
-## Wallet List Format
+### `WEBHOOK_CONFIG` format
 
-The bridge reads the standard [wallets-v2.json](https://github.com/ton-connect/wallets-list) format. Only entries with an SSE bridge type and a non-empty `webhook` field are used:
+A JSON object where keys are wallet names and values are configuration objects:
 
-```json
-[
-  {
-    "app_name": "testwallet",
-    "bridge": [
-      {
-        "type": "sse",
-        "url": "https://bridge.example.com/bridge",
-        "webhook": "https://testwallet.example.com/webhook"
-      }
-    ]
+```bash
+WEBHOOK_CONFIG='{
+  "testwallet": {
+    "url": "https://testwallet.example.com/webhook",
+    "auth": "secret-token-for-testwallet"
+  },
+  "otherwallet": {
+    "url": "https://other.example.com/hook"
   }
-]
+}'
 ```
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `url` | yes | Webhook endpoint URL |
+| `auth` | no | Bearer token sent in the `Authorization` header for this wallet |
+
+An empty string (or unset) means no webhooks are configured. Invalid JSON will cause a startup error.
 
 ## API Endpoints
 
@@ -390,13 +394,13 @@ New optional query parameter:
 
 | Parameter | Description |
 |-----------|-------------|
-| `wallet`  | Wallet `app_name` from the wallet list. If present and the wallet has a registered webhook URL, a signed notification is sent |
+| `wallet`  | Wallet name (key from `WEBHOOK_CONFIG`). If present and the wallet has a registered webhook config, a signed notification is sent |
 
 ## Migration from Global Webhooks
 
 The previous `WEBHOOK_URL` environment variable (comma-separated list of global endpoints) has been removed. To migrate:
 
-1. Set `WALLET_LIST_URL` (or use the default).
+1. Set `WEBHOOK_CONFIG` with a JSON map of wallet names to their webhook configuration.
 2. Optionally set `WEBHOOK_PRIVATE_KEY_PATH` for persistent signing keys.
 3. Remove `WEBHOOK_URL` from your environment.
 4. Ensure callers of `/bridge/message` include the `wallet` query parameter.

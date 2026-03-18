@@ -53,9 +53,8 @@ var Config = struct {
 	CopyToURL              string `env:"COPY_TO_URL"`
 
 	// Wallet Webhooks (multitenant)
-	WalletListURL         string `env:"WALLET_LIST_URL" envDefault:"https://raw.githubusercontent.com/ton-connect/wallets-list/refs/heads/main/wallets-v2.json"`
-	WalletListRefreshSec  int    `env:"WALLET_LIST_REFRESH_INTERVAL" envDefault:"3600"` // seconds, 0 to disable
-	WebhookPrivateKeyPath string `env:"WEBHOOK_PRIVATE_KEY_PATH"`                       // path to RSA private key PEM file
+	WebhookConfig         string `env:"WEBHOOK_CONFIG"`           // JSON map: {"wallet_name":{"url":"...","auth":"..."},...}
+	WebhookPrivateKeyPath string `env:"WEBHOOK_PRIVATE_KEY_PATH"` // path to RSA private key PEM file
 
 	// NTP Configuration
 	NTPEnabled      bool     `env:"NTP_ENABLED" envDefault:"true"`

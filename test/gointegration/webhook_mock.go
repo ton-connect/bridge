@@ -26,46 +26,28 @@ type webhookRecord struct {
 	SignatureOK *bool  `json:"signature_ok,omitempty"`
 }
 
-// webhookMockServer is an HTTP server that serves a wallet list and receives webhooks.
+// webhookMockServer is an HTTP server that receives webhooks.
 // It runs on a fixed port so the bridge container can reach it by hostname.
 type webhookMockServer struct {
-	server     *http.Server
-	listener   net.Listener
-	mu         sync.RWMutex
-	records    []webhookRecord
-	walletList []byte
-	publicKey  *rsa.PublicKey
+	server   *http.Server
+	listener net.Listener
+	mu       sync.RWMutex
+	records  []webhookRecord
+	publicKey *rsa.PublicKey
 }
 
 // newWebhookMockServer creates and starts the mock on the given addr (e.g. ":9091").
-// walletName is the app_name in the wallet list; webhookURL is where the bridge should
-// send webhooks (typically "http://bridge-gointegration:<port>/").
-func newWebhookMockServer(addr, walletName, webhookURL string) (*webhookMockServer, error) {
-	type bridge struct {
-		Type    string `json:"type"`
-		URL     string `json:"url"`
-		Webhook string `json:"webhook"`
-	}
-	type wallet struct {
-		AppName string   `json:"app_name"`
-		Bridge  []bridge `json:"bridge"`
-	}
-	list, _ := json.Marshal([]wallet{
-		{AppName: walletName, Bridge: []bridge{{Type: "sse", URL: "https://bridge.example.com", Webhook: webhookURL}}},
-	})
-
+func newWebhookMockServer(addr string) (*webhookMockServer, error) {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
 		return nil, fmt.Errorf("listen %s: %w", addr, err)
 	}
 
 	m := &webhookMockServer{
-		records:    make([]webhookRecord, 0),
-		walletList: list,
+		records: make([]webhookRecord, 0),
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/wallets", m.handleWalletList)
 	mux.HandleFunc("/records", m.handleRecords)
 	mux.HandleFunc("/reset", m.handleReset)
 	mux.HandleFunc("/", m.handleWebhook) // catch-all for POST webhooks
@@ -89,11 +71,6 @@ func (m *webhookMockServer) SetPublicKey(key *rsa.PublicKey) {
 	m.mu.Lock()
 	m.publicKey = key
 	m.mu.Unlock()
-}
-
-func (m *webhookMockServer) handleWalletList(w http.ResponseWriter, r *http.Request) {
-	w.Header().Set("Content-Type", "application/json")
-	_, _ = w.Write(m.walletList)
 }
 
 func (m *webhookMockServer) handleWebhook(w http.ResponseWriter, r *http.Request) {
