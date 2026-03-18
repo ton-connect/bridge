@@ -11,11 +11,6 @@ import (
 	"time"
 )
 
-const (
-	testClientID = "a3f9c8e21d7b4a5e9c0f6b1d8e72c4fa9b0e1d5c7a6f84b2e93d0c1a5f7e8b42"
-	testToID     = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
-)
-
 func TestService_SendAndVerifySignature(t *testing.T) {
 	svc, err := NewService("", "")
 	if err != nil {
