@@ -68,6 +68,17 @@ TON Connect Bridge uses pub/sub architecture to synchronize state across multipl
 - `ntp.Client`: NTP-synchronized time (recommended for multi-instance deployments)
 - `ntp.LocalTimeProvider`: Local system time (single instance or testing)
 
+## Multitenant Webhooks
+
+Bridge v3 supports per-wallet webhook notifications. When a message is sent with a `wallet` parameter, the bridge looks up the wallet's webhook URL from the [TON Connect wallet list](https://github.com/ton-connect/wallets-list) and sends a signed notification asynchronously.
+
+- Wallet webhook URLs are fetched from a remote wallet list and cached in memory
+- Webhook requests are signed with RSA-SHA256 (public key available at `/bridge/webhook/public-key`)
+- Delivery is async and non-blocking — slow or failing webhooks don't affect message delivery
+- Unknown wallets or missing `wallet` parameter are silently skipped
+
+See [WEBHOOKS.md](WEBHOOKS.md) for full details on configuration, payload format, and signature verification.
+
 ## Scaling Requirements
 
 **Redis Version:**

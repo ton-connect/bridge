@@ -45,9 +45,13 @@ Complete reference for all environment variables supported by TON Connect Bridge
 
 ## Webhooks
 
+Per-wallet webhook delivery with cryptographic signatures. See [WEBHOOKS.md](WEBHOOKS.md) for full details.
+
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `WEBHOOK_URL` | string | - | URL for bridge event notifications |
+| `WALLET_LIST_URL` | string | `https://raw.githubusercontent.com/ton-connect/wallets-list/refs/heads/main/wallets-v2.json` | URL to fetch wallet webhook endpoints from |
+| `WALLET_LIST_REFRESH_INTERVAL` | int | `3600` | Re-fetch interval for wallet list (seconds). `0` disables refresh |
+| `WEBHOOK_PRIVATE_KEY_PATH` | string | - | Path to RSA private key PEM file. Auto-generated if unset |
 | `COPY_TO_URL` | string | - | Mirror all messages to URL (debugging/analytics) |
 
 ## TON Analytics
