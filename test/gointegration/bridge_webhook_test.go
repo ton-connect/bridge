@@ -15,6 +15,7 @@ import (
 const (
 	webhookMockPort   = 9091
 	webhookWalletName = "testwallet"
+	webhookWalletAuth = "test-webhook-secret"
 )
 
 // Shared mock — started once, used by all webhook tests.
@@ -150,6 +151,10 @@ func TestBridge_WebhookSentOnMessage(t *testing.T) {
 	}
 	if rec.SignatureOK != nil && !*rec.SignatureOK {
 		t.Error("webhook signature is INVALID")
+	}
+	expectedAuth := "Bearer " + webhookWalletAuth
+	if rec.Authorization != expectedAuth {
+		t.Errorf("Authorization: got %q, want %q", rec.Authorization, expectedAuth)
 	}
 }
 

@@ -33,7 +33,7 @@ services:
       TON_ANALYTICS_NETWORK_ID: "-239"
       TON_ANALYTICS_BRIDGE_VERSION: "test-1.0.0"
       TON_ANALYTICS_BRIDGE_URL: "http://bridge-instance1:8080"
-      WEBHOOK_CONFIG: '{"testwallet":{"url":"http://gointegration:9091/"}}'
+      WEBHOOK_CONFIG: '{"testwallet":{"url":"http://gointegration:9091/","auth":"test-webhook-secret"}}'
     ports:
       - "8081:8081"  # bridge
       - "9103:9103"  # pprof and metrics

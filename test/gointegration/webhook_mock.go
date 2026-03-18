@@ -18,12 +18,13 @@ import (
 
 // webhookRecord stores a single received webhook.
 type webhookRecord struct {
-	ClientID    string `json:"client_id"`
-	To          string `json:"to"`
-	Message     string `json:"message"`
-	TraceID     string `json:"trace_id"`
-	Signature   string `json:"signature,omitempty"`
-	SignatureOK *bool  `json:"signature_ok,omitempty"`
+	ClientID      string `json:"client_id"`
+	To            string `json:"to"`
+	Message       string `json:"message"`
+	TraceID       string `json:"trace_id"`
+	Signature     string `json:"signature,omitempty"`
+	SignatureOK   *bool  `json:"signature_ok,omitempty"`
+	Authorization string `json:"authorization,omitempty"`
 }
 
 // webhookMockServer is an HTTP server that receives webhooks.
@@ -90,15 +91,15 @@ func (m *webhookMockServer) handleWebhook(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	sig := r.Header.Get("X-Webhook-Signature")
-	rec.Signature = sig
+	rec.Signature = r.Header.Get("X-Webhook-Signature")
+	rec.Authorization = r.Header.Get("Authorization")
 
 	m.mu.RLock()
 	pubKey := m.publicKey
 	m.mu.RUnlock()
 
-	if sig != "" && pubKey != nil {
-		ok := verifyRSASignature(pubKey, body, sig)
+	if rec.Signature != "" && pubKey != nil {
+		ok := verifyRSASignature(pubKey, body, rec.Signature)
 		rec.SignatureOK = &ok
 	}
 
