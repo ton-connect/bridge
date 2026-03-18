@@ -41,9 +41,9 @@ type Service struct {
 
 // NewService creates the service, loads or generates the RSA private key,
 // and parses the webhook config from a JSON string.
-// webhookURLsJSON is a JSON object like {"wallet_name":{"url":"https://...","auth":"token"}}.
+// webhookConfigJSON is a JSON object like {"wallet_name":{"url":"https://...","auth":"token"}}.
 // An empty string means no webhooks are configured.
-func NewService(webhookURLsJSON string, privateKeyPath string) (*Service, error) {
+func NewService(webhookConfigJSON string, privateKeyPath string) (*Service, error) {
 	s := &Service{
 		webhooks: make(map[string]WalletConfig),
 	}
@@ -64,8 +64,8 @@ func NewService(webhookURLsJSON string, privateKeyPath string) (*Service, error)
 		log.Info("Webhook RSA private key generated (2048-bit)")
 	}
 
-	if webhookURLsJSON != "" {
-		if err := json.Unmarshal([]byte(webhookURLsJSON), &s.webhooks); err != nil {
+	if webhookConfigJSON != "" {
+		if err := json.Unmarshal([]byte(webhookConfigJSON), &s.webhooks); err != nil {
 			return nil, fmt.Errorf("parse WEBHOOK_CONFIG: %w", err)
 		}
 	}
