@@ -74,6 +74,7 @@ Bridge v3 supports per-wallet webhook notifications. When a message is sent with
 
 - Per-wallet webhook configuration (URL, auth token) is provided via the `WEBHOOK_CONFIG` environment variable
 - Webhook requests are signed with RSA-SHA256 (public key available at `/bridge/webhook/public-key`)
+- Webhook payload format: `{topic, hash}`
 - Delivery is async and non-blocking — slow or failing webhooks don't affect message delivery
 - Unknown wallets or missing `wallet` parameter are silently skipped
 

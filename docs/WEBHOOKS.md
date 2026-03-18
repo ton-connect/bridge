@@ -17,7 +17,7 @@ Bridge v3 supports per-wallet webhook delivery. When a message is sent via `/bri
          │
          ▼
   POST URL_A (async, non-blocking)
-    Body: { client_id, to, message, trace_id }
+    Body: { topic, hash }
     Header: X-Webhook-Signature: <RSA-SHA256 signature>
     Header: Authorization: Bearer token_A
 ```
@@ -25,15 +25,14 @@ Bridge v3 supports per-wallet webhook delivery. When a message is sent via `/bri
 1. At startup, the bridge parses the `WEBHOOK_CONFIG` JSON into an in-memory map of wallet name to webhook configuration (URL and optional auth token).
 2. When a message is sent with a `wallet` query parameter, the bridge looks up the config for that wallet.
 3. If found, the bridge sends a signed POST request asynchronously. If the wallet has an `auth` token, it is attached as a `Bearer` token in the `Authorization` header. Unknown wallets or missing `wallet` parameter are silently skipped.
+4. The outgoing JSON payload uses `topic` from the `/bridge/message` query parameter and `hash` as the raw request body. If `topic` is omitted, the bridge sends an empty string.
 
 ## Webhook Payload
 
 ```json
 {
-  "client_id": "sender-address",
-  "to": "recipient-address",
-  "message": "base64-encoded-message",
-  "trace_id": "trace-123"
+  "topic": "sendTransaction",
+  "hash": "base64-encoded-message"
 }
 ```
 
@@ -49,7 +48,7 @@ Content-Type: application/json
 X-Webhook-Signature: <base64-encoded signature>
 Authorization: Bearer <token>          (only when wallet has "auth" configured)
 
-{"client_id":"...","to":"...","message":"...","trace_id":"..."}
+{"topic":"...","hash":"..."}
 ```
 
 The `X-Webhook-Signature` header contains a **base64-encoded RSA-PKCS1v15-SHA256** signature computed over the raw JSON request body.
@@ -97,19 +96,15 @@ After successful verification, parse the JSON body:
 
 ```json
 {
-  "client_id": "sender-address",
-  "to": "recipient-address",
-  "message": "base64-encoded-message",
-  "trace_id": "trace-123"
+  "topic": "sendTransaction",
+  "hash": "base64-encoded-message"
 }
 ```
 
 | Field | Description |
 |-------|-------------|
-| `client_id` | Address of the client that sent the message |
-| `to` | Address of the intended recipient |
-| `message` | The message content (base64-encoded) |
-| `trace_id` | Trace identifier for request correlation |
+| `topic` | Value of the `/bridge/message` `topic` query parameter. Empty string if omitted |
+| `hash` | Raw `/bridge/message` request body. In typical TON Connect flows this is the base64-encoded encrypted message |
 
 Return `200 OK` to acknowledge receipt. Any non-200 response is logged as a delivery failure by the bridge.
 
@@ -181,10 +176,8 @@ func verifySignature(body []byte, signatureB64 string) error {
 }
 
 type WebhookPayload struct {
-    ClientID string `json:"client_id"`
-    To       string `json:"to"`
-    Message  string `json:"message"`
-    TraceID  string `json:"trace_id"`
+    Topic string `json:"topic"`
+    Hash  string `json:"hash"`
 }
 
 func webhookHandler(w http.ResponseWriter, r *http.Request) {
@@ -214,8 +207,8 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    log.Printf("Webhook received: from=%s to=%s trace=%s",
-        payload.ClientID, payload.To, payload.TraceID)
+    log.Printf("Webhook received: topic=%s hash=%s",
+        payload.Topic, payload.Hash)
 
     w.WriteHeader(http.StatusOK)
 }
@@ -282,7 +275,7 @@ def webhook():
 
     # Step 4: process payload
     payload = json.loads(body)
-    print(f"Webhook: from={payload['client_id']} to={payload['to']}")
+    print(f"Webhook: topic={payload['topic']} hash={payload['hash']}")
 
     return "OK", 200
 
@@ -324,7 +317,7 @@ app.post("/webhook", (req, res) => {
 
   // Step 4: process payload
   const payload = JSON.parse(body);
-  console.log(`Webhook: from=${payload.client_id} to=${payload.to}`);
+  console.log(`Webhook: topic=${payload.topic} hash=${payload.hash}`);
 
   res.sendStatus(200);
 });

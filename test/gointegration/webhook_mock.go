@@ -18,10 +18,8 @@ import (
 
 // webhookRecord stores a single received webhook.
 type webhookRecord struct {
-	ClientID      string `json:"client_id"`
-	To            string `json:"to"`
-	Message       string `json:"message"`
-	TraceID       string `json:"trace_id"`
+	Topic         string `json:"topic"`
+	Hash          string `json:"hash"`
 	Signature     string `json:"signature,omitempty"`
 	SignatureOK   *bool  `json:"signature_ok,omitempty"`
 	Authorization string `json:"authorization,omitempty"`

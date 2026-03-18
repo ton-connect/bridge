@@ -34,11 +34,9 @@ func TestService_SendAndVerifySignature(t *testing.T) {
 	mock := NewMock(pubKey)
 	defer mock.Close()
 
-	data := Data{
-		ClientID: testClientID,
-		To:       testToID,
-		Message:  "dGVzdCBtZXNzYWdl",
-		TraceID:  "trace-123",
+	data := WebhookData{
+		Topic: "sendTransaction",
+		Hash:  "dGVzdCBtZXNzYWdl",
 	}
 
 	svc.Send(WalletConfig{URL: mock.URL()}, data)
@@ -52,17 +50,11 @@ func TestService_SendAndVerifySignature(t *testing.T) {
 	}
 
 	rec := records[0]
-	if rec.Payload.ClientID != testClientID {
-		t.Errorf("client_id: got %q, want %q", rec.Payload.ClientID, testClientID)
+	if rec.Payload.Topic != "sendTransaction" {
+		t.Errorf("topic: got %q, want %q", rec.Payload.Topic, "sendTransaction")
 	}
-	if rec.Payload.To != testToID {
-		t.Errorf("to: got %q, want %q", rec.Payload.To, testToID)
-	}
-	if rec.Payload.Message != "dGVzdCBtZXNzYWdl" {
-		t.Errorf("message: got %q, want %q", rec.Payload.Message, "dGVzdCBtZXNzYWdl")
-	}
-	if rec.Payload.TraceID != "trace-123" {
-		t.Errorf("trace_id: got %q, want %q", rec.Payload.TraceID, "trace-123")
+	if rec.Payload.Hash != "dGVzdCBtZXNzYWdl" {
+		t.Errorf("hash: got %q, want %q", rec.Payload.Hash, "dGVzdCBtZXNzYWdl")
 	}
 	if rec.Signature == "" {
 		t.Error("expected X-Webhook-Signature header")
@@ -89,11 +81,9 @@ func TestService_InvalidSignatureRejected(t *testing.T) {
 	mock := NewMock(otherPub)
 	defer mock.Close()
 
-	svc.Send(WalletConfig{URL: mock.URL()}, Data{
-		ClientID: testClientID,
-		To:       testToID,
-		Message:  "msg",
-		TraceID:  "t",
+	svc.Send(WalletConfig{URL: mock.URL()}, WebhookData{
+		Topic: "test",
+		Hash:  "msg",
 	})
 
 	time.Sleep(50 * time.Millisecond)
@@ -170,8 +160,8 @@ func TestService_AuthTokenSent(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	svc.Send(WalletConfig{URL: mock.URL(), Auth: "my-secret-token"}, Data{
-		ClientID: "c", To: "t", Message: "m", TraceID: "tr",
+	svc.Send(WalletConfig{URL: mock.URL(), Auth: "my-secret-token"}, WebhookData{
+		Topic: "test", Hash: "m",
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -193,8 +183,8 @@ func TestService_NoAuthTokenWhenEmpty(t *testing.T) {
 		t.Fatalf("NewService: %v", err)
 	}
 
-	svc.Send(WalletConfig{URL: mock.URL()}, Data{
-		ClientID: "c", To: "t", Message: "m", TraceID: "tr",
+	svc.Send(WalletConfig{URL: mock.URL()}, WebhookData{
+		Topic: "test", Hash: "m",
 	})
 	time.Sleep(50 * time.Millisecond)
 
@@ -280,10 +270,10 @@ func TestService_EndToEnd(t *testing.T) {
 		t.Fatal("testwallet config not found")
 	}
 
-	messages := []Data{
-		{ClientID: testClientID, To: testToID, Message: "msg1", TraceID: "t1"},
-		{ClientID: testClientID, To: testToID, Message: "msg2", TraceID: "t2"},
-		{ClientID: testClientID, To: testToID, Message: "msg3", TraceID: "t3"},
+	messages := []WebhookData{
+		{Topic: "topic1", Hash: "msg1"},
+		{Topic: "topic2", Hash: "msg2"},
+		{Topic: "topic3", Hash: "msg3"},
 	}
 	for _, msg := range messages {
 		svc.Send(walletCfg, msg)
@@ -299,11 +289,11 @@ func TestService_EndToEnd(t *testing.T) {
 
 	for i, rec := range records {
 		expected := messages[i]
-		if rec.Payload.Message != expected.Message {
-			t.Errorf("webhook %d: message got %q, want %q", i, rec.Payload.Message, expected.Message)
+		if rec.Payload.Topic != expected.Topic {
+			t.Errorf("webhook %d: topic got %q, want %q", i, rec.Payload.Topic, expected.Topic)
 		}
-		if rec.Payload.TraceID != expected.TraceID {
-			t.Errorf("webhook %d: trace_id got %q, want %q", i, rec.Payload.TraceID, expected.TraceID)
+		if rec.Payload.Hash != expected.Hash {
+			t.Errorf("webhook %d: hash got %q, want %q", i, rec.Payload.Hash, expected.Hash)
 		}
 		if rec.SignatureOK == nil || !*rec.SignatureOK {
 			t.Errorf("webhook %d: signature invalid", i)
@@ -325,7 +315,7 @@ func TestMock_Reset(t *testing.T) {
 	defer mock.Close()
 
 	svc, _ := NewService("", "")
-	svc.Send(WalletConfig{URL: mock.URL()}, Data{ClientID: "c", To: "t", Message: "m", TraceID: "tr"})
+	svc.Send(WalletConfig{URL: mock.URL()}, WebhookData{Topic: "test", Hash: "m"})
 	time.Sleep(50 * time.Millisecond)
 
 	if len(mock.Records()) != 1 {
@@ -346,7 +336,7 @@ func TestService_WebhookToDownServer(t *testing.T) {
 	url := mock.URL()
 	mock.Close()
 
-	svc.Send(WalletConfig{URL: url}, Data{ClientID: "c", To: "t", Message: "m", TraceID: "tr"})
+	svc.Send(WalletConfig{URL: url}, WebhookData{Topic: "test", Hash: "m"})
 	// No panic = pass
 }
 
@@ -355,7 +345,7 @@ func TestMock_WithoutPublicKey(t *testing.T) {
 	defer mock.Close()
 
 	svc, _ := NewService("", "")
-	svc.Send(WalletConfig{URL: mock.URL()}, Data{ClientID: "c", To: "t", Message: "m", TraceID: "tr"})
+	svc.Send(WalletConfig{URL: mock.URL()}, WebhookData{Topic: "test", Hash: "m"})
 	time.Sleep(50 * time.Millisecond)
 
 	records := mock.Records()

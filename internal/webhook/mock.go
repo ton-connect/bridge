@@ -17,7 +17,7 @@ import (
 
 // Record represents a single received webhook.
 type Record struct {
-	Payload       Data
+	Payload       WebhookData
 	Signature     string
 	SignatureOK   *bool
 	RawBody       []byte
@@ -91,7 +91,7 @@ func (m *Mock) handle(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var payload Data
+	var payload WebhookData
 	if err := json.Unmarshal(body, &payload); err != nil {
 		http.Error(w, "bad json", http.StatusBadRequest)
 		return

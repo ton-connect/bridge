@@ -46,6 +46,7 @@ Complete reference for all environment variables supported by TON Connect Bridge
 ## Webhooks
 
 Per-wallet webhook delivery with cryptographic signatures. See [WEBHOOKS.md](WEBHOOKS.md) for full details.
+Webhook payload format: `{topic,hash}`.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|

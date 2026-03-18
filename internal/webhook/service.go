@@ -17,12 +17,10 @@ import (
 	log "github.com/sirupsen/logrus"
 )
 
-// Data is the payload sent to wallet webhook endpoints.
-type Data struct {
-	ClientID string `json:"client_id"`
-	To       string `json:"to"`
-	Message  string `json:"message"`
-	TraceID  string `json:"trace_id"`
+// WebhookData matches the legacy webhook payload used on master.
+type WebhookData struct {
+	Topic string `json:"topic"`
+	Hash  string `json:"hash"`
 }
 
 // WalletConfig holds per-wallet webhook configuration.
@@ -81,7 +79,7 @@ func (s *Service) GetWalletConfig(wallet string) (WalletConfig, bool) {
 }
 
 // Send sends a signed webhook to the given wallet config with the provided data.
-func (s *Service) Send(cfg WalletConfig, data Data) {
+func (s *Service) Send(cfg WalletConfig, data WebhookData) {
 	if err := s.send(cfg, data); err != nil {
 		log.Errorf("failed to send wallet webhook to '%s': %v", cfg.URL, err)
 	}
@@ -102,7 +100,7 @@ func (s *Service) PublicKeyPEM() ([]byte, error) {
 	}), nil
 }
 
-func (s *Service) send(cfg WalletConfig, data Data) error {
+func (s *Service) send(cfg WalletConfig, data WebhookData) error {
 	body, err := json.Marshal(data)
 	if err != nil {
 		return fmt.Errorf("marshal webhook data: %w", err)

@@ -1,6 +1,7 @@
 package handlerv1
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -11,6 +12,7 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/ton-connect/bridge/internal/utils"
 	"github.com/ton-connect/bridge/internal/v1/storage"
+	"github.com/ton-connect/bridge/internal/webhook"
 )
 
 const (
@@ -165,7 +167,7 @@ func TestHandler(t *testing.T) {
 				t.Fatalf("failed to create RealIPExtractor: %v", err)
 			}
 
-			h := NewHandler(memStorage, 10*time.Second, extractor, nil, nil)
+			h := NewHandler(memStorage, 10*time.Second, extractor, nil, nil, nil)
 
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
@@ -184,4 +186,65 @@ func TestHandler(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandler_WalletWebhook(t *testing.T) {
+	e := echo.New()
+
+	mock := webhook.NewMock(nil)
+	defer mock.Close()
+
+	walletWebhookSvc, err := webhook.NewService(
+		fmt.Sprintf(`{"testwallet":{"url":"%s"}}`, mock.URL()),
+		"",
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	values := url.Values{}
+	values.Set("client_id", defaultClientID)
+	values.Set("to", defaultToID)
+	values.Set("ttl", "60")
+	values.Set("wallet", "testwallet")
+	values.Set("topic", "sendTransaction")
+	values.Set("no_request_source", "true")
+
+	req := httptest.NewRequest(http.MethodPost, "/bridge/message?"+values.Encode(), strings.NewReader("payload"))
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	memStorage := storage.NewMemStorage(nil, nil)
+	extractor, err := utils.NewRealIPExtractor([]string{})
+	if err != nil {
+		t.Fatalf("failed to create RealIPExtractor: %v", err)
+	}
+
+	h := NewHandler(memStorage, 10*time.Second, extractor, nil, nil, walletWebhookSvc)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	if err := h.SendMessageHandler(c); err != nil {
+		t.Fatalf("SendMessageHandler returned error: %v", err)
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		records := mock.Records()
+		if len(records) == 1 {
+			if records[0].Payload.Topic != "sendTransaction" {
+				t.Fatalf("topic: got %q, want %q", records[0].Payload.Topic, "sendTransaction")
+			}
+			if records[0].Payload.Hash != "payload" {
+				t.Fatalf("hash: got %q, want %q", records[0].Payload.Hash, "payload")
+			}
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	t.Fatalf("timed out waiting for wallet webhook")
 }

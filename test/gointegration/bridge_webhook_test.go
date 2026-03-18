@@ -66,6 +66,7 @@ func setupSharedWebhookMock() {
 		q.Set("client_id", probeClientID)
 		q.Set("to", probeToID)
 		q.Set("ttl", "60")
+		q.Set("topic", "probe")
 		q.Set("wallet", webhookWalletName)
 		u.RawQuery = q.Encode()
 		resp, err := http.Post(u.String(), "text/plain", strings.NewReader("probe"))
@@ -132,19 +133,19 @@ func TestBridge_WebhookSentOnMessage(t *testing.T) {
 	toID := randomSessionID(t)
 	payload := base64.StdEncoding.EncodeToString([]byte("hello webhook"))
 
-	sendMessage(t, clientID, toID, payload, map[string]string{"wallet": webhookWalletName})
+	sendMessage(t, clientID, toID, payload, map[string]string{
+		"wallet": webhookWalletName,
+		"topic":  "sendTransaction",
+	})
 
 	records := pollWebhooks(t, sharedWebhookMock, 1, 5*time.Second)
 	rec := records[0]
 
-	if rec.ClientID != clientID {
-		t.Errorf("client_id: got %q, want %q", rec.ClientID, clientID)
+	if rec.Topic != "sendTransaction" {
+		t.Errorf("topic: got %q, want %q", rec.Topic, "sendTransaction")
 	}
-	if rec.To != toID {
-		t.Errorf("to: got %q, want %q", rec.To, toID)
-	}
-	if rec.Message != payload {
-		t.Errorf("message: got %q, want %q", rec.Message, payload)
+	if rec.Hash != payload {
+		t.Errorf("hash: got %q, want %q", rec.Hash, payload)
 	}
 	if rec.Signature == "" {
 		t.Error("expected X-Webhook-Signature header")
@@ -214,7 +215,10 @@ func TestBridge_WebhookMultipleMessages(t *testing.T) {
 
 	for i := 0; i < count; i++ {
 		payload := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("msg-%d", i)))
-		sendMessage(t, clientID, toID, payload, map[string]string{"wallet": webhookWalletName})
+		sendMessage(t, clientID, toID, payload, map[string]string{
+			"wallet": webhookWalletName,
+			"topic":  "sendTransaction",
+		})
 	}
 
 	records := pollWebhooks(t, sharedWebhookMock, count, 5*time.Second)
@@ -225,7 +229,10 @@ func TestBridge_WebhookMultipleMessages(t *testing.T) {
 		if rec.SignatureOK != nil && !*rec.SignatureOK {
 			t.Errorf("webhook #%d: invalid signature", i)
 		}
-		receivedMessages[rec.Message] = true
+		if rec.Topic != "sendTransaction" {
+			t.Errorf("webhook #%d: topic got %q, want %q", i, rec.Topic, "sendTransaction")
+		}
+		receivedMessages[rec.Hash] = true
 	}
 	for i := 0; i < count; i++ {
 		expected := base64.StdEncoding.EncodeToString([]byte(fmt.Sprintf("msg-%d", i)))
