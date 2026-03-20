@@ -157,6 +157,7 @@ func main() {
 		InlineConfigJSON: config.Config.WebhookConfig,
 		ConfigSource:     config.Config.WebhookConfigSource,
 		RefreshInterval:  config.ParseWebhookConfigRefreshInterval(),
+		PrivateKeyPEM:    config.Config.WebhookPrivateKey,
 		PrivateKeyPath:   config.Config.WebhookPrivateKeyPath,
 	})
 	if err != nil {

@@ -5,7 +5,7 @@ Bridge supports per-wallet webhook delivery. When a message is sent via `/bridge
 ## How It Works
 
 ```
-  WEBHOOK_CONFIG={"WalletA":{"url":"URL_A","auth":"token_A"},"WalletB":{"url":"URL_B"}}
+  WEBHOOK_CONFIG={"wallets":{"WalletA":{"url":"URL_A","auth":"token_A"},"WalletB":{"url":"URL_B"}}}
          │
          ▼ (parsed at startup)
     webhooks map[string]WalletConfig
@@ -355,16 +355,18 @@ The public key is always available at `GET /bridge/webhook/public-key`.
 
 ### `WEBHOOK_CONFIG` format
 
-A JSON object where keys are wallet names and values are configuration objects. This same format is used for both `WEBHOOK_CONFIG` and the content loaded from `WEBHOOK_CONFIG_SOURCE`:
+A JSON object with a `wallets` key containing a map of wallet names to configuration objects. This same format is used for both `WEBHOOK_CONFIG` and the content loaded from `WEBHOOK_CONFIG_SOURCE`:
 
 ```bash
 WEBHOOK_CONFIG='{
-  "testwallet": {
-    "url": "https://testwallet.example.com/webhook",
-    "auth": "secret-token-for-testwallet"
-  },
-  "otherwallet": {
-    "url": "https://other.example.com/hook"
+  "wallets": {
+    "testwallet": {
+      "url": "https://testwallet.example.com/webhook",
+      "auth": "secret-token-for-testwallet"
+    },
+    "otherwallet": {
+      "url": "https://other.example.com/hook"
+    }
   }
 }'
 ```

@@ -50,7 +50,7 @@ Webhook payload format: `{topic,hash}`.
 
 | Variable | Type | Default | Description |
 |----------|------|---------|-------------|
-| `WEBHOOK_CONFIG` | string (JSON) | `""` | Per-wallet webhook config, e.g. `{"wallet1":{"url":"https://...","auth":"token"}}`. The bridge POSTs to `url/<client_id>` |
+| `WEBHOOK_CONFIG` | string (JSON) | `""` | Per-wallet webhook config, e.g. `{"wallets":{"wallet1":{"url":"https://...","auth":"token"}}}`. The bridge POSTs to `url/<client_id>` |
 | `WEBHOOK_CONFIG_SOURCE` | string | `""` | Optional local path, `file://` URL, or `http(s)://` URL that returns the same JSON structure as `WEBHOOK_CONFIG` |
 | `WEBHOOK_CONFIG_REFRESH_INTERVAL` | duration | `1m` | Refresh interval for `WEBHOOK_CONFIG_SOURCE` |
 | `WEBHOOK_PRIVATE_KEY_PATH` | string | - | Path to RSA private key PEM file. Auto-generated if unset |

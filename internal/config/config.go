@@ -54,9 +54,10 @@ var Config = struct {
 	CopyToURL              string `env:"COPY_TO_URL"`
 
 	// Wallet Webhooks (multitenant)
-	WebhookConfig                string `env:"WEBHOOK_CONFIG"`        // JSON map: {"wallet_name":{"url":"...","auth":"..."},...}
+	WebhookConfig                string `env:"WEBHOOK_CONFIG"`        // JSON: {"wallets":{"wallet_name":{"url":"...","auth":"..."},...}}
 	WebhookConfigSource          string `env:"WEBHOOK_CONFIG_SOURCE"` // local path, file:// URL, or http(s) URL with the same JSON structure as WEBHOOK_CONFIG
 	WebhookConfigRefreshInterval string `env:"WEBHOOK_CONFIG_REFRESH_INTERVAL" envDefault:"1m"`
+	WebhookPrivateKey            string `env:"WEBHOOK_PRIVATE_KEY"`      // PEM-encoded RSA private key (inline)
 	WebhookPrivateKeyPath        string `env:"WEBHOOK_PRIVATE_KEY_PATH"` // path to RSA private key PEM file
 
 	// NTP Configuration

@@ -103,10 +103,10 @@ func TestService_InvalidSignatureRejected(t *testing.T) {
 }
 
 func TestService_ParseWebhookConfig(t *testing.T) {
-	configJSON := `{
+	configJSON := `{"wallets":{
 		"testwallet":{"url":"https://webhook.example.com","auth":"secret-1"},
 		"otherwallet":{"url":"https://other.example.com/hook"}
-	}`
+	}}`
 
 	svc, err := NewService(configJSON, "")
 	if err != nil {
@@ -247,13 +247,73 @@ func TestService_LoadPrivateKeyFromFile(t *testing.T) {
 	}
 }
 
+func TestService_LoadPrivateKeyFromInlinePEM(t *testing.T) {
+	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		t.Fatalf("generate key: %v", err)
+	}
+	pemData := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(key),
+	})
+
+	svc, err := NewServiceWithOptions(Options{
+		PrivateKeyPEM: string(pemData),
+	})
+	if err != nil {
+		t.Fatalf("NewServiceWithOptions: %v", err)
+	}
+
+	pubPEM, err := svc.PublicKeyPEM()
+	if err != nil {
+		t.Fatalf("PublicKeyPEM: %v", err)
+	}
+	if len(pubPEM) == 0 {
+		t.Error("expected non-empty PEM output")
+	}
+
+	// Verify it's the same key
+	pubKey, _ := ParsePublicKeyPEM(pubPEM)
+	if pubKey.N.Cmp(key.PublicKey.N) != 0 {
+		t.Error("public key does not match the inline private key")
+	}
+}
+
+func TestService_InlinePEMTakesPrecedenceOverFile(t *testing.T) {
+	// Generate two different keys
+	inlineKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	inlinePEM := pem.EncodeToMemory(&pem.Block{
+		Type:  "RSA PRIVATE KEY",
+		Bytes: x509.MarshalPKCS1PrivateKey(inlineKey),
+	})
+
+	tmpFile := t.TempDir() + "/test_private.pem"
+	if err := generateTestKeyFile(tmpFile); err != nil {
+		t.Fatalf("generate test key: %v", err)
+	}
+
+	svc, err := NewServiceWithOptions(Options{
+		PrivateKeyPEM:  string(inlinePEM),
+		PrivateKeyPath: tmpFile,
+	})
+	if err != nil {
+		t.Fatalf("NewServiceWithOptions: %v", err)
+	}
+
+	pubPEM, _ := svc.PublicKeyPEM()
+	pubKey, _ := ParsePublicKeyPEM(pubPEM)
+	if pubKey.N.Cmp(inlineKey.PublicKey.N) != 0 {
+		t.Error("expected inline PEM key to take precedence over file")
+	}
+}
+
 func TestService_EndToEnd(t *testing.T) {
 	// 1. Create a mock without verification first (we need its URL for the config)
 	mock := NewMock(nil)
 	defer mock.Close()
 
 	// 2. Create service with webhook config pointing to mock
-	configJSON := fmt.Sprintf(`{"testwallet":{"url":"%s","auth":"e2e-token"}}`, mock.URL())
+	configJSON := fmt.Sprintf(`{"wallets":{"testwallet":{"url":"%s","auth":"e2e-token"}}}`, mock.URL())
 	svc, err := NewService(configJSON, "")
 	if err != nil {
 		t.Fatalf("NewService: %v", err)
@@ -364,7 +424,7 @@ func TestMock_WithoutPublicKey(t *testing.T) {
 
 func TestService_LoadsWebhookConfigFromFileSource(t *testing.T) {
 	path := t.TempDir() + "/webhooks.json"
-	if err := os.WriteFile(path, []byte(`{"filewallet":{"url":"https://file.example.com/hook","auth":"file-token"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"wallets":{"filewallet":{"url":"https://file.example.com/hook","auth":"file-token"}}}`), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -391,7 +451,7 @@ func TestService_LoadsWebhookConfigFromFileSource(t *testing.T) {
 
 func TestService_LoadsWebhookConfigFromHTTPSource(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		_, _ = fmt.Fprint(w, `{"httpwallet":{"url":"https://http.example.com/hook","auth":"http-token"}}`)
+		_, _ = fmt.Fprint(w, `{"wallets":{"httpwallet":{"url":"https://http.example.com/hook","auth":"http-token"}}}`)
 	}))
 	defer server.Close()
 
@@ -418,18 +478,18 @@ func TestService_LoadsWebhookConfigFromHTTPSource(t *testing.T) {
 
 func TestService_MergesInlineAndSourceWebhookConfig(t *testing.T) {
 	path := t.TempDir() + "/webhooks.json"
-	if err := os.WriteFile(path, []byte(`{
+	if err := os.WriteFile(path, []byte(`{"wallets":{
 		"sourcewallet":{"url":"https://source.example.com/hook"},
 		"shared":{"url":"https://source.example.com/shared","auth":"source-token"}
-	}`), 0o600); err != nil {
+	}}`), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
 	svc, err := NewServiceWithOptions(Options{
-		InlineConfigJSON: `{
+		InlineConfigJSON: `{"wallets":{
 			"inlinewallet":{"url":"https://inline.example.com/hook","auth":"inline-token"},
 			"shared":{"url":"https://inline.example.com/shared","auth":"inline-token"}
-		}`,
+		}}`,
 		ConfigSource:    path,
 		RefreshInterval: time.Second,
 	})
@@ -462,7 +522,7 @@ func TestService_MergesInlineAndSourceWebhookConfig(t *testing.T) {
 
 func TestService_RefreshesWebhookConfigFromSource(t *testing.T) {
 	path := t.TempDir() + "/webhooks.json"
-	if err := os.WriteFile(path, []byte(`{"refreshwallet":{"url":"https://old.example.com/hook","auth":"old-token"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"wallets":{"refreshwallet":{"url":"https://old.example.com/hook","auth":"old-token"}}}`), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
@@ -480,7 +540,7 @@ func TestService_RefreshesWebhookConfigFromSource(t *testing.T) {
 		t.Fatalf("initial refreshwallet: got %+v, exists=%v", cfg, ok)
 	}
 
-	if err := os.WriteFile(path, []byte(`{"refreshwallet":{"url":"https://new.example.com/hook","auth":"new-token"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"wallets":{"refreshwallet":{"url":"https://new.example.com/hook","auth":"new-token"}}}`), 0o600); err != nil {
 		t.Fatalf("WriteFile updated config: %v", err)
 	}
 
@@ -489,7 +549,7 @@ func TestService_RefreshesWebhookConfigFromSource(t *testing.T) {
 
 func TestService_SourceRequiresPositiveRefreshInterval(t *testing.T) {
 	path := t.TempDir() + "/webhooks.json"
-	if err := os.WriteFile(path, []byte(`{"wallet":{"url":"https://example.com/hook"}}`), 0o600); err != nil {
+	if err := os.WriteFile(path, []byte(`{"wallets":{"wallet":{"url":"https://example.com/hook"}}}`), 0o600); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 

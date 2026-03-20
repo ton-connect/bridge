@@ -40,7 +40,8 @@ type Options struct {
 	InlineConfigJSON string
 	ConfigSource     string
 	RefreshInterval  time.Duration
-	PrivateKeyPath   string
+	PrivateKeyPEM    string // PEM-encoded RSA private key (inline)
+	PrivateKeyPath   string // path to RSA private key PEM file
 }
 
 // Service delivers signed webhook notifications to wallet endpoints.
@@ -81,7 +82,14 @@ func NewServiceWithOptions(opts Options) (*Service, error) {
 		refreshInterval: opts.RefreshInterval,
 	}
 
-	if opts.PrivateKeyPath != "" {
+	if opts.PrivateKeyPEM != "" {
+		key, err := parsePrivateKeyPEM([]byte(opts.PrivateKeyPEM))
+		if err != nil {
+			return nil, fmt.Errorf("parse WEBHOOK_PRIVATE_KEY: %w", err)
+		}
+		s.privateKey = key
+		log.Info("Webhook RSA private key loaded from environment")
+	} else if opts.PrivateKeyPath != "" {
 		key, err := loadPrivateKey(opts.PrivateKeyPath)
 		if err != nil {
 			return nil, fmt.Errorf("load webhook private key: %w", err)
@@ -341,16 +349,24 @@ func (s *Service) loadWebhookConfigSource() ([]byte, error) {
 	}
 }
 
+// webhookConfigRoot is the top-level JSON structure for wallet webhook config.
+type webhookConfigRoot struct {
+	Wallets map[string]WalletConfig `json:"wallets"`
+}
+
 func (s *Service) parseWebhookConfigJSON(raw string) (map[string]WalletConfig, error) {
-	cfg := make(map[string]WalletConfig)
 	if raw == "" {
-		return cfg, nil
+		return make(map[string]WalletConfig), nil
 	}
 
-	if err := json.Unmarshal([]byte(raw), &cfg); err != nil {
+	var root webhookConfigRoot
+	if err := json.Unmarshal([]byte(raw), &root); err != nil {
 		return nil, err
 	}
-	return cfg, nil
+	if root.Wallets == nil {
+		return make(map[string]WalletConfig), nil
+	}
+	return root.Wallets, nil
 }
 
 func (s *Service) cloneWebhookConfigMap(src map[string]WalletConfig) map[string]WalletConfig {
@@ -374,6 +390,10 @@ func loadPrivateKey(path string) (*rsa.PrivateKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read private key file: %w", err)
 	}
+	return parsePrivateKeyPEM(data)
+}
+
+func parsePrivateKeyPEM(data []byte) (*rsa.PrivateKey, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode PEM block")
