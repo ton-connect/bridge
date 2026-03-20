@@ -57,7 +57,7 @@ func (s *Service) WritePoisonStream(w http.ResponseWriter, flusher http.Flusher,
 		case <-done:
 			return
 		case <-time.After(time.Duration(delay) * time.Second):
-			garbage := make([]byte, 32)
+			garbage := make([]byte, randIntRange(32, 512))
 			_, _ = io.ReadFull(rand.Reader, garbage)
 			data := hex.EncodeToString(garbage)
 			_, err := fmt.Fprintf(w, "event: message\ndata: %s\n\n", data)

@@ -124,7 +124,7 @@ func (b *Blocklist) refresh(ctx context.Context) {
 		log.Warnf("failed to fetch blocklist: %v", err)
 		return
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck
 
 	if resp.StatusCode != http.StatusOK {
 		BlocklistRefreshErrorsMetric.Inc()

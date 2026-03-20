@@ -14,7 +14,7 @@ func TestBlocklistParsing(t *testing.T) {
 	body := "evil.com\nscam.org\n# comment\n\n  spaces.io  \nMIXED.Case\n"
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, body)
+		fmt.Fprint(w, body) //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -43,7 +43,7 @@ func TestBlocklistParsing(t *testing.T) {
 
 func TestBlocklistSubdomainMatching(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "evil.com\n")
+		fmt.Fprint(w, "evil.com\n") //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -72,7 +72,7 @@ func TestBlocklistSubdomainMatching(t *testing.T) {
 
 func TestBlocklistOriginExtraction(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprint(w, "evil.com\n")
+		fmt.Fprint(w, "evil.com\n") //nolint:errcheck
 	}))
 	defer srv.Close()
 
@@ -105,7 +105,7 @@ func TestBlocklistRefreshKeepsOldSetOnFailure(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		count := requestCount.Add(1)
 		if count == 1 {
-			fmt.Fprint(w, "evil.com\n")
+			fmt.Fprint(w, "evil.com\n") //nolint:errcheck
 		} else {
 			w.WriteHeader(http.StatusInternalServerError)
 		}
