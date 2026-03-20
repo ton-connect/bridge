@@ -71,7 +71,17 @@ func (b *Blocklist) IsBlocked(origin string) bool {
 		return false
 	}
 
-	host := extractHost(origin)
+	var host string
+	u, err := url.Parse(origin)
+	if err == nil && u.Host != "" {
+		host = u.Hostname()
+	} else {
+		host = origin
+		if idx := strings.LastIndex(host, ":"); idx != -1 && host[:idx] != "" {
+			host = host[:idx]
+		}
+	}
+
 	if host == "" {
 		return false
 	}
@@ -89,23 +99,6 @@ func (b *Blocklist) IsBlocked(origin string) bool {
 		}
 	}
 	return false
-}
-
-func extractHost(origin string) string {
-	u, err := url.Parse(origin)
-	if err == nil && u.Host != "" {
-		host := u.Hostname() // strips port
-		return host
-	}
-	// fallback: treat as bare host, strip port
-	host := origin
-	if idx := strings.LastIndex(host, ":"); idx != -1 {
-		h := host[:idx]
-		if h != "" {
-			return h
-		}
-	}
-	return host
 }
 
 func (b *Blocklist) refresh(ctx context.Context) {
