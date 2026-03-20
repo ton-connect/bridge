@@ -1,8 +1,8 @@
 package webhook
 
 import (
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -222,8 +222,8 @@ func TestService_PublicKeyPEM(t *testing.T) {
 		t.Fatalf("ParsePublicKeyPEM: %v", err)
 	}
 
-	if pubKey.N == nil {
-		t.Error("parsed public key has nil modulus")
+	if len(pubKey) != ed25519.PublicKeySize {
+		t.Errorf("parsed public key has wrong size: got %d, want %d", len(pubKey), ed25519.PublicKeySize)
 	}
 }
 
@@ -248,13 +248,17 @@ func TestService_LoadPrivateKeyFromFile(t *testing.T) {
 }
 
 func TestService_LoadPrivateKeyFromInlinePEM(t *testing.T) {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	pubSeed, privKey, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatalf("generate key: %v", err)
 	}
+	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(privKey)
+	if err != nil {
+		t.Fatalf("marshal PKCS8: %v", err)
+	}
 	pemData := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
+		Type:  "PRIVATE KEY",
+		Bytes: pkcs8Bytes,
 	})
 
 	svc, err := NewServiceWithOptions(Options{
@@ -274,17 +278,18 @@ func TestService_LoadPrivateKeyFromInlinePEM(t *testing.T) {
 
 	// Verify it's the same key
 	pubKey, _ := ParsePublicKeyPEM(pubPEM)
-	if pubKey.N.Cmp(key.PublicKey.N) != 0 {
+	if !pubKey.Equal(pubSeed) {
 		t.Error("public key does not match the inline private key")
 	}
 }
 
 func TestService_InlinePEMTakesPrecedenceOverFile(t *testing.T) {
-	// Generate two different keys
-	inlineKey, _ := rsa.GenerateKey(rand.Reader, 2048)
+	// Generate inline key
+	inlinePub, inlinePriv, _ := ed25519.GenerateKey(rand.Reader)
+	pkcs8Bytes, _ := x509.MarshalPKCS8PrivateKey(inlinePriv)
 	inlinePEM := pem.EncodeToMemory(&pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(inlineKey),
+		Type:  "PRIVATE KEY",
+		Bytes: pkcs8Bytes,
 	})
 
 	tmpFile := t.TempDir() + "/test_private.pem"
@@ -302,7 +307,7 @@ func TestService_InlinePEMTakesPrecedenceOverFile(t *testing.T) {
 
 	pubPEM, _ := svc.PublicKeyPEM()
 	pubKey, _ := ParsePublicKeyPEM(pubPEM)
-	if pubKey.N.Cmp(inlineKey.PublicKey.N) != 0 {
+	if !pubKey.Equal(inlinePub) {
 		t.Error("expected inline PEM key to take precedence over file")
 	}
 }
@@ -322,9 +327,7 @@ func TestService_EndToEnd(t *testing.T) {
 	// 3. Now set the mock's public key from the service
 	pubPEM, _ := svc.PublicKeyPEM()
 	pubKey, _ := ParsePublicKeyPEM(pubPEM)
-	mock.mu.Lock()
-	mock.publicKey = pubKey
-	mock.mu.Unlock()
+	mock.SetPublicKey(pubKey)
 
 	// 4. Lookup and send
 	walletCfg, ok := svc.GetWalletConfig("testwallet")
@@ -579,7 +582,11 @@ func waitForWalletConfig(t *testing.T, svc *Service, wallet, wantURL, wantAuth s
 }
 
 func generateTestKeyFile(path string) error {
-	key, err := rsa.GenerateKey(rand.Reader, 2048)
+	_, key, err := ed25519.GenerateKey(rand.Reader)
+	if err != nil {
+		return err
+	}
+	pkcs8Bytes, err := x509.MarshalPKCS8PrivateKey(key)
 	if err != nil {
 		return err
 	}
@@ -589,7 +596,7 @@ func generateTestKeyFile(path string) error {
 	}
 	defer func() { _ = f.Close() }()
 	return pem.Encode(f, &pem.Block{
-		Type:  "RSA PRIVATE KEY",
-		Bytes: x509.MarshalPKCS1PrivateKey(key),
+		Type:  "PRIVATE KEY",
+		Bytes: pkcs8Bytes,
 	})
 }

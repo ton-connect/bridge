@@ -200,12 +200,12 @@ func TestBridge_WebhookPublicKeyEndpoint(t *testing.T) {
 		t.Error("expected PEM public key in response")
 	}
 
-	pubKey, err := parseRSAPublicKeyPEM(body)
+	pubKey, err := parseEd25519PublicKeyPEM(body)
 	if err != nil {
 		t.Fatalf("parse public key: %v", err)
 	}
-	if pubKey.N == nil {
-		t.Error("parsed key has nil modulus")
+	if len(pubKey) == 0 {
+		t.Error("parsed key is empty")
 	}
 }
 

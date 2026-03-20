@@ -18,7 +18,7 @@ Bridge supports per-wallet webhook delivery. When a message is sent via `/bridge
          ▼
   POST URL_A/<client_id> (async, non-blocking)
     Body: { topic, hash }
-    Header: X-Webhook-Signature: <RSA-SHA256 signature>
+    Header: X-Webhook-Signature: <Ed25519 signature>
     Header: Authorization: Bearer token_A
 ```
 
@@ -52,7 +52,7 @@ Authorization: Bearer <token>          (only when wallet has "auth" configured)
 {"topic":"...","hash":"..."}
 ```
 
-The `X-Webhook-Signature` header contains a **base64-encoded RSA-PKCS1v15-SHA256** signature computed over the raw JSON request body.
+The `X-Webhook-Signature` header contains a **base64-encoded Ed25519** signature computed over the raw JSON request body.
 
 When a wallet's `auth` field is set in `WEBHOOK_CONFIG`, the outgoing webhook request includes an `Authorization: Bearer <token>` header. This lets the receiving server authenticate that the request came from an authorized bridge instance before even checking the cryptographic signature. Each wallet can have its own token.
 
@@ -66,15 +66,15 @@ Make a GET request to the bridge's public key endpoint. Cache the result — the
 GET https://<bridge-host>/bridge/webhook/public-key
 ```
 
-Response is a PEM-encoded RSA public key:
+Response is a PEM-encoded Ed25519 public key:
 
 ```
 -----BEGIN PUBLIC KEY-----
-MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A...
+MCowBQYDK2VwAyEA...
 -----END PUBLIC KEY-----
 ```
 
-Parse the PEM into an RSA public key object in your language of choice and store it in memory.
+Parse the PEM into an Ed25519 public key object in your language of choice and store it in memory.
 
 #### 2. Receive the webhook POST
 
@@ -87,9 +87,8 @@ On each incoming request:
 #### 3. Verify the signature
 
 1. **Base64-decode** the `X-Webhook-Signature` header value (standard base64, not URL-safe).
-2. **SHA-256 hash** the raw request body bytes.
-3. **RSA PKCS1v15 verify** the hash against the decoded signature using the public key fetched in step 1.
-4. If verification fails, reject the request with `401` or `403`.
+2. **Ed25519 verify** the raw request body bytes against the decoded signature using the public key fetched in step 1.
+3. If verification fails, reject the request with `401` or `403`.
 
 #### 4. Process the payload
 
@@ -117,9 +116,7 @@ Return `200 OK` to acknowledge receipt. Any non-200 response is logged as a deli
 package main
 
 import (
-    "crypto"
-    "crypto/rsa"
-    "crypto/sha256"
+    "crypto/ed25519"
     "crypto/x509"
     "encoding/base64"
     "encoding/json"
@@ -130,9 +127,9 @@ import (
     "net/http"
 )
 
-var bridgePublicKey *rsa.PublicKey
+var bridgePublicKey ed25519.PublicKey
 
-// fetchPublicKey fetches and parses the bridge's RSA public key.
+// fetchPublicKey fetches and parses the bridge's Ed25519 public key.
 // Call once at startup; re-fetch if the bridge rotates its key.
 func fetchPublicKey(bridgeURL string) error {
     resp, err := http.Get(bridgeURL + "/bridge/webhook/public-key")
@@ -156,24 +153,22 @@ func fetchPublicKey(bridgeURL string) error {
         return fmt.Errorf("parse public key: %w", err)
     }
 
-    rsaPub, ok := pub.(*rsa.PublicKey)
+    edPub, ok := pub.(ed25519.PublicKey)
     if !ok {
-        return fmt.Errorf("not an RSA public key")
+        return fmt.Errorf("not an Ed25519 public key")
     }
 
-    bridgePublicKey = rsaPub
+    bridgePublicKey = edPub
     return nil
 }
 
-// verifySignature checks the RSA-SHA256 signature over the raw body.
-func verifySignature(body []byte, signatureB64 string) error {
+// verifySignature checks the Ed25519 signature over the raw body.
+func verifySignature(body []byte, signatureB64 string) bool {
     sig, err := base64.StdEncoding.DecodeString(signatureB64)
     if err != nil {
-        return fmt.Errorf("decode signature: %w", err)
+        return false
     }
-
-    hash := sha256.Sum256(body)
-    return rsa.VerifyPKCS1v15(bridgePublicKey, crypto.SHA256, hash[:], sig)
+    return ed25519.Verify(bridgePublicKey, body, sig)
 }
 
 type WebhookPayload struct {
@@ -196,7 +191,7 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    if err := verifySignature(body, sig); err != nil {
+    if !verifySignature(body, sig) {
         http.Error(w, "invalid signature", http.StatusForbidden)
         return
     }
@@ -228,35 +223,28 @@ func main() {
 
 ```python
 import base64
-import hashlib
 import json
 
 import requests
-from cryptography.hazmat.primitives.asymmetric import padding, utils
+from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PublicKey
 from cryptography.hazmat.primitives.serialization import load_pem_public_key
 from flask import Flask, request, abort
 
 app = Flask(__name__)
-bridge_public_key = None
+bridge_public_key: Ed25519PublicKey = None
 
 def fetch_public_key(bridge_url: str):
-    """Fetch and cache the bridge's RSA public key."""
+    """Fetch and cache the bridge's Ed25519 public key."""
     global bridge_public_key
     resp = requests.get(f"{bridge_url}/bridge/webhook/public-key")
     resp.raise_for_status()
     bridge_public_key = load_pem_public_key(resp.content)
 
 def verify_signature(body: bytes, signature_b64: str) -> bool:
-    """Verify RSA-PKCS1v15-SHA256 signature over raw body."""
+    """Verify Ed25519 signature over raw body."""
     signature = base64.b64decode(signature_b64)
-    digest = hashlib.sha256(body).digest()
     try:
-        bridge_public_key.verify(
-            signature,
-            digest,
-            padding.PKCS1v15(),
-            utils.Prehashed(hashlib.sha256),
-        )
+        bridge_public_key.verify(signature, body)
         return True
     except Exception:
         return False
@@ -291,17 +279,17 @@ if __name__ == "__main__":
 const crypto = require("crypto");
 const express = require("express");
 
-let bridgePublicKey;
+let bridgePublicKey; // KeyObject
 
 async function fetchPublicKey(bridgeUrl) {
   const resp = await fetch(`${bridgeUrl}/bridge/webhook/public-key`);
-  bridgePublicKey = await resp.text();
+  const pem = await resp.text();
+  bridgePublicKey = crypto.createPublicKey(pem);
 }
 
 function verifySignature(body, signatureB64) {
-  const verifier = crypto.createVerify("SHA256");
-  verifier.update(body);
-  return verifier.verify(bridgePublicKey, signatureB64, "base64");
+  const sig = Buffer.from(signatureB64, "base64");
+  return crypto.verify(null, body, bridgePublicKey, sig);
 }
 
 const app = express();
@@ -337,10 +325,13 @@ fetchPublicKey("https://bridge.example.com").then(() => {
 
 ## Key Management
 
-The bridge uses an RSA-2048 key pair for signing webhooks:
+The bridge uses an Ed25519 key pair for signing webhooks:
 
-- **Auto-generated:** If `WEBHOOK_PRIVATE_KEY_PATH` is not set, the bridge generates a new key pair at startup. The key lives only in memory and changes on restart.
-- **File-based:** Set `WEBHOOK_PRIVATE_KEY_PATH` to a PEM-encoded RSA private key file for persistent signing across restarts.
+- **Auto-generated:** If neither `WEBHOOK_PRIVATE_KEY` nor `WEBHOOK_PRIVATE_KEY_PATH` is set, the bridge generates a new key pair at startup. The key lives only in memory and changes on restart.
+- **Inline:** Set `WEBHOOK_PRIVATE_KEY` to the PEM-encoded Ed25519 private key directly (useful for environments where file mounts are inconvenient).
+- **File-based:** Set `WEBHOOK_PRIVATE_KEY_PATH` to a PEM-encoded Ed25519 private key file for persistent signing across restarts.
+
+If both `WEBHOOK_PRIVATE_KEY` and `WEBHOOK_PRIVATE_KEY_PATH` are set, the inline value takes precedence.
 
 The public key is always available at `GET /bridge/webhook/public-key`.
 
@@ -351,7 +342,8 @@ The public key is always available at `GET /bridge/webhook/public-key`.
 | `WEBHOOK_CONFIG` | string (JSON) | `""` | Per-wallet webhook configuration (see format below) |
 | `WEBHOOK_CONFIG_SOURCE` | string | `""` | Optional local path, `file://` URL, or `http(s)://` URL that returns the same JSON object format as `WEBHOOK_CONFIG` |
 | `WEBHOOK_CONFIG_REFRESH_INTERVAL` | duration | `1m` | Refresh interval for `WEBHOOK_CONFIG_SOURCE` |
-| `WEBHOOK_PRIVATE_KEY_PATH` | string | - | Path to RSA private key PEM file. If unset, a 2048-bit key is generated at startup |
+| `WEBHOOK_PRIVATE_KEY` | string | - | PEM-encoded Ed25519 private key (inline). Takes precedence over `WEBHOOK_PRIVATE_KEY_PATH` |
+| `WEBHOOK_PRIVATE_KEY_PATH` | string | - | Path to Ed25519 private key PEM file. If neither this nor `WEBHOOK_PRIVATE_KEY` is set, a key is generated at startup |
 
 ### `WEBHOOK_CONFIG` format
 
@@ -382,7 +374,7 @@ An empty string (or unset) means no inline webhooks are configured. Invalid JSON
 
 ### `GET /bridge/webhook/public-key`
 
-Returns the PEM-encoded RSA public key used to sign webhooks.
+Returns the PEM-encoded Ed25519 public key used to sign webhooks.
 
 **Response:** `200 OK` with `application/x-pem-file` content type, or `404` if no key is available.
 

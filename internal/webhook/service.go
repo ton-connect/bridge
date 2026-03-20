@@ -2,10 +2,8 @@ package webhook
 
 import (
 	"bytes"
-	"crypto"
+	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/rsa"
-	"crypto/sha256"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -40,14 +38,14 @@ type Options struct {
 	InlineConfigJSON string
 	ConfigSource     string
 	RefreshInterval  time.Duration
-	PrivateKeyPEM    string // PEM-encoded RSA private key (inline)
-	PrivateKeyPath   string // path to RSA private key PEM file
+	PrivateKeyPEM    string // PEM-encoded Ed25519 private key (inline)
+	PrivateKeyPath   string // path to Ed25519 private key PEM file
 }
 
 // Service delivers signed webhook notifications to wallet endpoints.
 // The webhook config map can be built from inline JSON and an optional file/URL source.
 type Service struct {
-	privateKey *rsa.PrivateKey
+	privateKey ed25519.PrivateKey
 
 	mu             sync.RWMutex
 	webhooks       map[string]WalletConfig // app_name → config
@@ -61,7 +59,7 @@ type Service struct {
 	closeOnce       sync.Once
 }
 
-// NewService creates the service, loads or generates the RSA private key,
+// NewService creates the service, loads or generates the Ed25519 private key,
 // and parses the inline webhook config JSON.
 func NewService(webhookConfigJSON string, privateKeyPath string) (*Service, error) {
 	return NewServiceWithOptions(Options{
@@ -88,21 +86,21 @@ func NewServiceWithOptions(opts Options) (*Service, error) {
 			return nil, fmt.Errorf("parse WEBHOOK_PRIVATE_KEY: %w", err)
 		}
 		s.privateKey = key
-		log.Info("Webhook RSA private key loaded from environment")
+		log.Info("Webhook Ed25519 private key loaded from environment")
 	} else if opts.PrivateKeyPath != "" {
 		key, err := loadPrivateKey(opts.PrivateKeyPath)
 		if err != nil {
 			return nil, fmt.Errorf("load webhook private key: %w", err)
 		}
 		s.privateKey = key
-		log.Info("Webhook RSA private key loaded from file")
+		log.Info("Webhook Ed25519 private key loaded from file")
 	} else {
-		key, err := rsa.GenerateKey(rand.Reader, 2048)
+		_, key, err := ed25519.GenerateKey(rand.Reader)
 		if err != nil {
 			return nil, fmt.Errorf("generate webhook private key: %w", err)
 		}
 		s.privateKey = key
-		log.Info("Webhook RSA private key generated (2048-bit)")
+		log.Info("Webhook Ed25519 private key generated")
 	}
 
 	inlineWebhooks, err := s.parseWebhookConfigJSON(opts.InlineConfigJSON)
@@ -167,7 +165,7 @@ func (s *Service) PublicKeyPEM() ([]byte, error) {
 	if s.privateKey == nil {
 		return nil, fmt.Errorf("no private key loaded")
 	}
-	pubBytes, err := x509.MarshalPKIXPublicKey(&s.privateKey.PublicKey)
+	pubBytes, err := x509.MarshalPKIXPublicKey(s.privateKey.Public())
 	if err != nil {
 		return nil, fmt.Errorf("marshal public key: %w", err)
 	}
@@ -199,11 +197,7 @@ func (s *Service) send(cfg WalletConfig, clientID string, data WebhookData) erro
 	}
 
 	if s.privateKey != nil {
-		hash := sha256.Sum256(body)
-		signature, err := rsa.SignPKCS1v15(rand.Reader, s.privateKey, crypto.SHA256, hash[:])
-		if err != nil {
-			return fmt.Errorf("sign webhook body: %w", err)
-		}
+		signature := ed25519.Sign(s.privateKey, body)
 		req.Header.Set("X-Webhook-Signature", base64.StdEncoding.EncodeToString(signature))
 	}
 
@@ -385,7 +379,7 @@ func (s *Service) mergeWebhookConfigs(base, overlay map[string]WalletConfig) map
 	return merged
 }
 
-func loadPrivateKey(path string) (*rsa.PrivateKey, error) {
+func loadPrivateKey(path string) (ed25519.PrivateKey, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("read private key file: %w", err)
@@ -393,22 +387,18 @@ func loadPrivateKey(path string) (*rsa.PrivateKey, error) {
 	return parsePrivateKeyPEM(data)
 }
 
-func parsePrivateKeyPEM(data []byte) (*rsa.PrivateKey, error) {
+func parsePrivateKeyPEM(data []byte) (ed25519.PrivateKey, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode PEM block")
 	}
-	key, err := x509.ParsePKCS1PrivateKey(block.Bytes)
+	keyIface, err := x509.ParsePKCS8PrivateKey(block.Bytes)
 	if err != nil {
-		keyIface, err2 := x509.ParsePKCS8PrivateKey(block.Bytes)
-		if err2 != nil {
-			return nil, fmt.Errorf("parse private key (PKCS1: %w, PKCS8: %w)", err, err2)
-		}
-		rsaKey, ok := keyIface.(*rsa.PrivateKey)
-		if !ok {
-			return nil, fmt.Errorf("private key is not RSA")
-		}
-		return rsaKey, nil
+		return nil, fmt.Errorf("parse private key: %w", err)
 	}
-	return key, nil
+	edKey, ok := keyIface.(ed25519.PrivateKey)
+	if !ok {
+		return nil, fmt.Errorf("private key is not Ed25519")
+	}
+	return edKey, nil
 }

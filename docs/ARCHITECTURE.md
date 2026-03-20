@@ -75,7 +75,7 @@ Bridge supports per-wallet webhook notifications. When a message is sent with a 
 - Per-wallet webhook configuration can be provided inline via `WEBHOOK_CONFIG` and optionally overlaid from `WEBHOOK_CONFIG_SOURCE`
 - Source-backed webhook config is refreshed on the `WEBHOOK_CONFIG_REFRESH_INTERVAL` ticker
 - The bridge sends webhook requests to `<configured-url>/<client_id>`
-- Webhook requests are signed with RSA-SHA256 (public key available at `/bridge/webhook/public-key`)
+- Webhook requests are signed with Ed25519 (public key available at `/bridge/webhook/public-key`)
 - Webhook payload format: `{topic, hash}`
 - Delivery is async and non-blocking — slow or failing webhooks don't affect message delivery
 - Unknown wallets or missing `wallet` parameter are silently skipped

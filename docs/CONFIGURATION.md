@@ -53,7 +53,8 @@ Webhook payload format: `{topic,hash}`.
 | `WEBHOOK_CONFIG` | string (JSON) | `""` | Per-wallet webhook config, e.g. `{"wallets":{"wallet1":{"url":"https://...","auth":"token"}}}`. The bridge POSTs to `url/<client_id>` |
 | `WEBHOOK_CONFIG_SOURCE` | string | `""` | Optional local path, `file://` URL, or `http(s)://` URL that returns the same JSON structure as `WEBHOOK_CONFIG` |
 | `WEBHOOK_CONFIG_REFRESH_INTERVAL` | duration | `1m` | Refresh interval for `WEBHOOK_CONFIG_SOURCE` |
-| `WEBHOOK_PRIVATE_KEY_PATH` | string | - | Path to RSA private key PEM file. Auto-generated if unset |
+| `WEBHOOK_PRIVATE_KEY` | string | - | PEM-encoded Ed25519 private key (inline). Takes precedence over file path |
+| `WEBHOOK_PRIVATE_KEY_PATH` | string | - | Path to Ed25519 private key PEM file. Auto-generated if unset |
 | `COPY_TO_URL` | string | - | Mirror all messages to URL (debugging/analytics) |
 
 When both `WEBHOOK_CONFIG` and `WEBHOOK_CONFIG_SOURCE` are set, the bridge uses `WEBHOOK_CONFIG` as the base config and overlays entries loaded from `WEBHOOK_CONFIG_SOURCE`. Source entries are refreshed periodically.

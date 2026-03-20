@@ -1,9 +1,7 @@
 package webhook
 
 import (
-	"crypto"
-	"crypto/rsa"
-	"crypto/sha256"
+	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -31,12 +29,12 @@ type Mock struct {
 
 	mu        sync.RWMutex
 	records   []Record
-	publicKey *rsa.PublicKey
+	publicKey ed25519.PublicKey
 }
 
 // NewMock creates a mock webhook server. If publicKey is provided,
 // signatures will be verified on each received webhook.
-func NewMock(publicKey *rsa.PublicKey) *Mock {
+func NewMock(publicKey ed25519.PublicKey) *Mock {
 	m := &Mock{
 		records:   make([]Record, 0),
 		publicKey: publicKey,
@@ -67,7 +65,7 @@ func (m *Mock) Records() []Record {
 }
 
 // SetPublicKey updates the public key used for signature verification.
-func (m *Mock) SetPublicKey(key *rsa.PublicKey) {
+func (m *Mock) SetPublicKey(key ed25519.PublicKey) {
 	m.mu.Lock()
 	m.publicKey = key
 	m.mu.Unlock()
@@ -122,17 +120,16 @@ func (m *Mock) handle(w http.ResponseWriter, r *http.Request) {
 	_, _ = fmt.Fprint(w, `{"status":"ok"}`)
 }
 
-func verifySignature(pubKey *rsa.PublicKey, body []byte, sigBase64 string) bool {
+func verifySignature(pubKey ed25519.PublicKey, body []byte, sigBase64 string) bool {
 	sig, err := base64.StdEncoding.DecodeString(sigBase64)
 	if err != nil {
 		return false
 	}
-	hash := sha256.Sum256(body)
-	return rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, hash[:], sig) == nil
+	return ed25519.Verify(pubKey, body, sig)
 }
 
 // ParsePublicKeyPEM parses a PEM-encoded public key.
-func ParsePublicKeyPEM(data []byte) (*rsa.PublicKey, error) {
+func ParsePublicKeyPEM(data []byte) (ed25519.PublicKey, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("failed to decode PEM")
@@ -141,9 +138,9 @@ func ParsePublicKeyPEM(data []byte) (*rsa.PublicKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse public key: %w", err)
 	}
-	rsaPub, ok := pub.(*rsa.PublicKey)
+	edPub, ok := pub.(ed25519.PublicKey)
 	if !ok {
-		return nil, fmt.Errorf("not an RSA public key")
+		return nil, fmt.Errorf("not an Ed25519 public key")
 	}
-	return rsaPub, nil
+	return edPub, nil
 }

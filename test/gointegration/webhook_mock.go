@@ -1,9 +1,7 @@
 package bridge_test
 
 import (
-	"crypto"
-	"crypto/rsa"
-	"crypto/sha256"
+	"crypto/ed25519"
 	"crypto/x509"
 	"encoding/base64"
 	"encoding/json"
@@ -33,7 +31,7 @@ type webhookMockServer struct {
 	listener  net.Listener
 	mu        sync.RWMutex
 	records   []webhookRecord
-	publicKey *rsa.PublicKey
+	publicKey ed25519.PublicKey
 }
 
 // newWebhookMockServer creates and starts the mock on the given addr (e.g. ":9091").
@@ -67,7 +65,7 @@ func (m *webhookMockServer) Port() int {
 	return m.listener.Addr().(*net.TCPAddr).Port
 }
 
-func (m *webhookMockServer) SetPublicKey(key *rsa.PublicKey) {
+func (m *webhookMockServer) SetPublicKey(key ed25519.PublicKey) {
 	m.mu.Lock()
 	m.publicKey = key
 	m.mu.Unlock()
@@ -99,7 +97,7 @@ func (m *webhookMockServer) handleWebhook(w http.ResponseWriter, r *http.Request
 	m.mu.RUnlock()
 
 	if rec.Signature != "" && pubKey != nil {
-		ok := verifyRSASignature(pubKey, body, rec.Signature)
+		ok := verifyEd25519Signature(pubKey, body, rec.Signature)
 		rec.SignatureOK = &ok
 	}
 
@@ -141,18 +139,17 @@ func (m *webhookMockServer) getRecords() []webhookRecord {
 	return out
 }
 
-// verifyRSASignature checks an RSA-PKCS1v15-SHA256 signature.
-func verifyRSASignature(pubKey *rsa.PublicKey, body []byte, sigBase64 string) bool {
+// verifyEd25519Signature checks an Ed25519 signature.
+func verifyEd25519Signature(pubKey ed25519.PublicKey, body []byte, sigBase64 string) bool {
 	sig, err := base64.StdEncoding.DecodeString(sigBase64)
 	if err != nil {
 		return false
 	}
-	hash := sha256.Sum256(body)
-	return rsa.VerifyPKCS1v15(pubKey, crypto.SHA256, hash[:], sig) == nil
+	return ed25519.Verify(pubKey, body, sig)
 }
 
 // fetchBridgePublicKey fetches and parses the PEM public key from the bridge.
-func fetchBridgePublicKey(bridgeBaseURL string) (*rsa.PublicKey, error) {
+func fetchBridgePublicKey(bridgeBaseURL string) (ed25519.PublicKey, error) {
 	// bridgeBaseURL is like "http://bridge:8081/bridge"
 	// public key endpoint is at "/bridge/webhook/public-key"
 	resp, err := http.Get(strings.TrimRight(bridgeBaseURL, "/") + "/webhook/public-key")
@@ -167,10 +164,10 @@ func fetchBridgePublicKey(bridgeBaseURL string) (*rsa.PublicKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("read: %w", err)
 	}
-	return parseRSAPublicKeyPEM(data)
+	return parseEd25519PublicKeyPEM(data)
 }
 
-func parseRSAPublicKeyPEM(data []byte) (*rsa.PublicKey, error) {
+func parseEd25519PublicKeyPEM(data []byte) (ed25519.PublicKey, error) {
 	block, _ := pem.Decode(data)
 	if block == nil {
 		return nil, fmt.Errorf("decode PEM failed")
@@ -179,9 +176,9 @@ func parseRSAPublicKeyPEM(data []byte) (*rsa.PublicKey, error) {
 	if err != nil {
 		return nil, fmt.Errorf("parse: %w", err)
 	}
-	rsaPub, ok := pub.(*rsa.PublicKey)
+	edPub, ok := pub.(ed25519.PublicKey)
 	if !ok {
-		return nil, fmt.Errorf("not RSA")
+		return nil, fmt.Errorf("not Ed25519")
 	}
-	return rsaPub, nil
+	return edPub, nil
 }
