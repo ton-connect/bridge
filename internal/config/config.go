@@ -30,13 +30,13 @@ var Config = struct {
 	PostgresLazyConnect           bool   `env:"POSTGRES_LAZY_CONNECT" envDefault:"false"`
 
 	// Performance & Limits
-	HeartbeatInterval      int      `env:"HEARTBEAT_INTERVAL" envDefault:"10"`
-	RPSLimit               int      `env:"RPS_LIMIT" envDefault:"10"`
-	ConnectionsLimit       int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`
-	MaxBodySize            int64    `env:"MAX_BODY_SIZE" envDefault:"10485760"` // 10 MB
-	SSEMaxLifetime         int      `env:"SSE_MAX_LIFETIME" envDefault:"7200"`  // 2 hours in seconds
-	SSEMaxLifetimeJitter   int      `env:"SSE_MAX_LIFETIME_JITTER" envDefault:"900"` // up to 15 min in seconds
-	RateLimitsByPassToken  []string `env:"RATE_LIMITS_BY_PASS_TOKEN"`
+	HeartbeatInterval     int      `env:"HEARTBEAT_INTERVAL" envDefault:"10"`
+	RPSLimit              int      `env:"RPS_LIMIT" envDefault:"10"`
+	ConnectionsLimit      int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`
+	MaxBodySize           int64    `env:"MAX_BODY_SIZE" envDefault:"10485760"`      // 10 MB
+	SSEMaxLifetime        int      `env:"SSE_MAX_LIFETIME" envDefault:"7200"`       // 2 hours in seconds
+	SSEMaxLifetimeJitter  int      `env:"SSE_MAX_LIFETIME_JITTER" envDefault:"900"` // up to 15 min in seconds
+	RateLimitsByPassToken []string `env:"RATE_LIMITS_BY_PASS_TOKEN"`
 
 	// Security
 	CorsEnable         bool     `env:"CORS_ENABLE" envDefault:"true"`
