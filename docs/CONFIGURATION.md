@@ -120,9 +120,6 @@ NTP_SERVERS=time.google.com,time.cloudflare.com,pool.ntp.org
 NTP_SYNC_INTERVAL=300
 SSE_MAX_LIFETIME=7200
 SSE_MAX_LIFETIME_JITTER=900
-ANTISCAM_ENABLED=true
-BLACK_LISTED_DOMAINS_URL="https://your-blocklist-source.example.com/domains.txt"
-BLACK_LIST_REFRESH_INTERVAL=600
 ```
 
 ## Using Environment Files
