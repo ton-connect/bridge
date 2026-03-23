@@ -195,7 +195,7 @@ func TestHandler_WalletWebhook(t *testing.T) {
 	defer mock.Close()
 
 	walletWebhookSvc, err := webhook.NewService(
-		fmt.Sprintf(`{"testwallet":{"url":"%s"}}`, mock.URL()),
+		fmt.Sprintf(`{"wallets":{"testwallet":{"url":"%s"}}}`, mock.URL()),
 		"",
 	)
 	if err != nil {
@@ -259,7 +259,7 @@ func TestHandler_NoWalletWebhookWithoutTopic(t *testing.T) {
 	defer mock.Close()
 
 	walletWebhookSvc, err := webhook.NewService(
-		fmt.Sprintf(`{"testwallet":{"url":"%s"}}`, mock.URL()),
+		fmt.Sprintf(`{"wallets":{"testwallet":{"url":"%s"}}}`, mock.URL()),
 		"",
 	)
 	if err != nil {
