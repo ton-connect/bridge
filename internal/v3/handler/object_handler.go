@@ -54,7 +54,7 @@ func (h *ObjectHandler) StoreHandler(c echo.Context) error {
 		return c.String(http.StatusBadRequest, fmt.Sprintf("ttl exceeds maximum allowed value of %d", h.maxTTL))
 	}
 
-	body, err := io.ReadAll(c.Request().Body)
+	body, err := io.ReadAll(io.LimitReader(c.Request().Body, h.maxSize+1))
 	if err != nil {
 		return c.String(http.StatusBadRequest, "failed to read request body")
 	}
