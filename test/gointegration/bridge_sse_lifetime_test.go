@@ -61,7 +61,7 @@ func TestSSEMaxLifetime_ConnectionClosedAfterTimeout(t *testing.T) {
 
 	// Wait for connection to be closed by the server
 	start := time.Now()
-	_, err = gw.WaitMessage(ctx)
+	_, _ = gw.WaitMessage(ctx)
 	elapsed := time.Since(start)
 
 	// The connection should close after ~2 seconds (no jitter)
@@ -311,7 +311,7 @@ func TestSSEMaxLifetime_MultipleMessagesThenClose(t *testing.T) {
 
 	// Now wait for the connection to be closed by the server
 	start := time.Now()
-	_, err = receiver.WaitMessage(ctx)
+	_, _ = receiver.WaitMessage(ctx)
 	elapsed := time.Since(start)
 
 	// Should close within the remaining lifetime (~3s from start, minus time already spent)
