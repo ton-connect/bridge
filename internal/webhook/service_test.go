@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -562,6 +563,128 @@ func TestService_SourceRequiresPositiveRefreshInterval(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for zero refresh interval with config source")
+	}
+}
+
+func TestService_RetrySucceedsAfterTransientFailure(t *testing.T) {
+	var attempts atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		if n < 3 {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	svc, err := NewServiceWithOptions(Options{
+		Retry: &RetryConfig{
+			MaxAttempts: 3,
+			InitialWait: 10 * time.Millisecond,
+			MaxWait:     50 * time.Millisecond,
+			Multiplier:  2.0,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewServiceWithOptions: %v", err)
+	}
+
+	sendErr := svc.send(WalletConfig{URL: server.URL}, testClientID, WebhookData{Topic: "test", Hash: "m"})
+	if sendErr != nil {
+		t.Fatalf("expected success after retries, got: %v", sendErr)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Fatalf("expected 3 attempts, got %d", got)
+	}
+}
+
+func TestService_RetryExhausted(t *testing.T) {
+	var attempts atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	svc, err := NewServiceWithOptions(Options{
+		Retry: &RetryConfig{
+			MaxAttempts: 3,
+			InitialWait: 10 * time.Millisecond,
+			MaxWait:     50 * time.Millisecond,
+			Multiplier:  2.0,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewServiceWithOptions: %v", err)
+	}
+
+	sendErr := svc.send(WalletConfig{URL: server.URL}, testClientID, WebhookData{Topic: "test", Hash: "m"})
+	if sendErr == nil {
+		t.Fatal("expected error after all retries exhausted")
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Fatalf("expected 3 attempts, got %d", got)
+	}
+}
+
+func TestService_RetryDisabledWithOneAttempt(t *testing.T) {
+	var attempts atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+
+	svc, err := NewServiceWithOptions(Options{
+		Retry: &RetryConfig{
+			MaxAttempts: 1,
+			InitialWait: 10 * time.Millisecond,
+			MaxWait:     50 * time.Millisecond,
+			Multiplier:  2.0,
+		},
+	})
+	if err != nil {
+		t.Fatalf("NewServiceWithOptions: %v", err)
+	}
+
+	sendErr := svc.send(WalletConfig{URL: server.URL}, testClientID, WebhookData{Topic: "test", Hash: "m"})
+	if sendErr == nil {
+		t.Fatal("expected error with single attempt")
+	}
+	if got := attempts.Load(); got != 1 {
+		t.Fatalf("expected 1 attempt, got %d", got)
+	}
+}
+
+func TestService_RetryDefaultConfig(t *testing.T) {
+	var attempts atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := attempts.Add(1)
+		if n < 3 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	// No Retry option — uses DefaultRetryConfig (3 attempts)
+	svc, err := NewServiceWithOptions(Options{})
+	if err != nil {
+		t.Fatalf("NewServiceWithOptions: %v", err)
+	}
+
+	sendErr := svc.send(WalletConfig{URL: server.URL}, testClientID, WebhookData{Topic: "test", Hash: "m"})
+	if sendErr != nil {
+		t.Fatalf("expected success with default retry config, got: %v", sendErr)
+	}
+	if got := attempts.Load(); got != 3 {
+		t.Fatalf("expected 3 attempts with default config, got %d", got)
 	}
 }
 

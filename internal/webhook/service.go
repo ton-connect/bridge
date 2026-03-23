@@ -33,6 +33,24 @@ type WalletConfig struct {
 	Auth string `json:"auth,omitempty"`
 }
 
+// RetryConfig controls exponential backoff for webhook delivery.
+type RetryConfig struct {
+	MaxAttempts int           // total attempts (1 = no retry)
+	InitialWait time.Duration // delay before first retry
+	MaxWait     time.Duration // cap on backoff delay
+	Multiplier  float64       // backoff multiplier (e.g. 2.0)
+}
+
+// DefaultRetryConfig returns sensible defaults for webhook retries.
+func DefaultRetryConfig() RetryConfig {
+	return RetryConfig{
+		MaxAttempts: 3,
+		InitialWait: 1 * time.Second,
+		MaxWait:     10 * time.Second,
+		Multiplier:  2.0,
+	}
+}
+
 // Options configures the webhook service.
 type Options struct {
 	InlineConfigJSON string
@@ -40,6 +58,7 @@ type Options struct {
 	RefreshInterval  time.Duration
 	PrivateKeyPEM    string // PEM-encoded Ed25519 private key (inline)
 	PrivateKeyPath   string // path to Ed25519 private key PEM file
+	Retry            *RetryConfig
 }
 
 // Service delivers signed webhook notifications to wallet endpoints.
@@ -52,6 +71,7 @@ type Service struct {
 	inlineWebhooks map[string]WalletConfig
 	configSource   string
 	httpClient     *http.Client
+	retry          RetryConfig
 
 	refreshInterval time.Duration
 	stopCh          chan struct{}
@@ -70,6 +90,14 @@ func NewService(webhookConfigJSON string, privateKeyPath string) (*Service, erro
 
 // NewServiceWithOptions creates the service from inline config plus an optional file/URL source.
 func NewServiceWithOptions(opts Options) (*Service, error) {
+	retry := DefaultRetryConfig()
+	if opts.Retry != nil {
+		retry = *opts.Retry
+	}
+	if retry.MaxAttempts < 1 {
+		retry.MaxAttempts = 1
+	}
+
 	s := &Service{
 		webhooks:       make(map[string]WalletConfig),
 		inlineWebhooks: make(map[string]WalletConfig),
@@ -77,6 +105,7 @@ func NewServiceWithOptions(opts Options) (*Service, error) {
 		httpClient: &http.Client{
 			Timeout: 10 * time.Second,
 		},
+		retry:           retry,
 		refreshInterval: opts.RefreshInterval,
 	}
 
@@ -186,14 +215,43 @@ func (s *Service) send(cfg WalletConfig, clientID string, data WebhookData) erro
 		return err
 	}
 
+	wait := s.retry.InitialWait
+	var lastErr error
+
+	for attempt := 1; attempt <= s.retry.MaxAttempts; attempt++ {
+		lastErr = s.doSend(webhookURL, cfg.Auth, body)
+		if lastErr == nil {
+			return nil
+		}
+
+		if attempt < s.retry.MaxAttempts {
+			log.WithFields(log.Fields{
+				"url":     webhookURL,
+				"attempt": attempt,
+				"wait":    wait,
+				"error":   lastErr,
+			}).Warn("Webhook delivery failed, retrying")
+
+			time.Sleep(wait)
+			wait = time.Duration(float64(wait) * s.retry.Multiplier)
+			if wait > s.retry.MaxWait {
+				wait = s.retry.MaxWait
+			}
+		}
+	}
+
+	return fmt.Errorf("after %d attempts: %w", s.retry.MaxAttempts, lastErr)
+}
+
+func (s *Service) doSend(webhookURL, auth string, body []byte) error {
 	req, err := http.NewRequest(http.MethodPost, webhookURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("create request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	if cfg.Auth != "" {
-		req.Header.Set("Authorization", "Bearer "+cfg.Auth)
+	if auth != "" {
+		req.Header.Set("Authorization", "Bearer "+auth)
 	}
 
 	if s.privateKey != nil {
@@ -201,7 +259,7 @@ func (s *Service) send(cfg WalletConfig, clientID string, data WebhookData) erro
 		req.Header.Set("X-Webhook-Signature", base64.StdEncoding.EncodeToString(signature))
 	}
 
-	res, err := http.DefaultClient.Do(req)
+	res, err := s.httpClient.Do(req)
 	if err != nil {
 		return fmt.Errorf("send request: %w", err)
 	}
