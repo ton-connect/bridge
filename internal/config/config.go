@@ -48,8 +48,8 @@ var Config = struct {
 	EnableExpiredCache    bool `env:"ENABLE_EXPIRED_CACHE" envDefault:"true"`
 
 	// Object Storage
-	ObjectStorageMaxTTL  int `env:"OBJECT_STORAGE_MAX_TTL" envDefault:"300"`
-	ObjectStorageMaxSize int `env:"OBJECT_STORAGE_MAX_SIZE" envDefault:"102400"` // 100 KB
+	ObjectStorageMaxTTL  int64 `env:"OBJECT_STORAGE_MAX_TTL" envDefault:"300"`
+	ObjectStorageMaxSize int64 `env:"OBJECT_STORAGE_MAX_SIZE" envDefault:"102400"` // 100 KB
 
 	// Events & Webhooks
 	DisconnectEventsTTL    int64  `env:"DISCONNECT_EVENTS_TTL" envDefault:"3600"`

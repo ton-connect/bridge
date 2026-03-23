@@ -1,4 +1,4 @@
-package objectstorage
+package handlerv3
 
 import (
 	"fmt"
@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
 )
 
 // allowedContentTypes is the whitelist of Content-Type values accepted for stored objects.
@@ -17,18 +18,18 @@ var allowedContentTypes = map[string]bool{
 	"application/xml":  true,
 }
 
-// Handler provides HTTP endpoints for storing and retrieving objects.
-type Handler struct {
-	storage ObjectStorage
+// ObjectHandler provides HTTP endpoints for storing and retrieving objects.
+type ObjectHandler struct {
+	storage storagev3.Storage
 	maxTTL  int64
-	maxSize int
+	maxSize int64
 	baseURL string
 }
 
-// NewHandler creates a Handler with the given storage backend, max TTL (seconds),
+// NewObjectHandler creates an ObjectHandler with the given storage backend, max TTL (seconds),
 // max object size (bytes), and optional base URL for generating object retrieval links.
-func NewHandler(storage ObjectStorage, maxTTL int64, maxSize int, baseURL string) *Handler {
-	return &Handler{
+func NewObjectHandler(storage storagev3.Storage, maxTTL int64, maxSize int64, baseURL string) *ObjectHandler {
+	return &ObjectHandler{
 		storage: storage,
 		maxTTL:  maxTTL,
 		maxSize: maxSize,
@@ -38,7 +39,7 @@ func NewHandler(storage ObjectStorage, maxTTL int64, maxSize int, baseURL string
 
 // StoreHandler handles POST /objects. It validates the TTL query parameter, Content-Type header,
 // and body size, then stores the object and returns the retrieval URL.
-func (h *Handler) StoreHandler(c echo.Context) error {
+func (h *ObjectHandler) StoreHandler(c echo.Context) error {
 	ttlStr := c.QueryParam("ttl")
 	if ttlStr == "" {
 		return c.String(http.StatusBadRequest, "missing ttl query parameter")
@@ -62,7 +63,7 @@ func (h *Handler) StoreHandler(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "empty body")
 	}
 
-	if len(body) > h.maxSize {
+	if int64(len(body)) > h.maxSize {
 		return c.String(http.StatusBadRequest, fmt.Sprintf("object exceeds maximum allowed size of %d bytes", h.maxSize))
 	}
 
@@ -74,7 +75,7 @@ func (h *Handler) StoreHandler(c echo.Context) error {
 		return c.String(http.StatusBadRequest, "unsupported Content-Type")
 	}
 
-	id, err := h.storage.Store(c.Request().Context(), body, contentType, ttl)
+	id, err := h.storage.StoreObject(c.Request().Context(), body, contentType, ttl)
 	if err != nil {
 		return c.String(http.StatusInternalServerError, "failed to store object")
 	}
@@ -86,13 +87,13 @@ func (h *Handler) StoreHandler(c echo.Context) error {
 
 // GetHandler handles GET /objects/:id. It retrieves the object by ID and returns it
 // with the original Content-Type.
-func (h *Handler) GetHandler(c echo.Context) error {
+func (h *ObjectHandler) GetHandler(c echo.Context) error {
 	id := c.Param("id")
 	if id == "" {
 		return c.String(http.StatusBadRequest, "missing id")
 	}
 
-	object, contentType, err := h.storage.Get(c.Request().Context(), id)
+	object, contentType, err := h.storage.GetObject(c.Request().Context(), id)
 	if err != nil {
 		return c.NoContent(http.StatusNotFound)
 	}
@@ -103,7 +104,7 @@ func (h *Handler) GetHandler(c echo.Context) error {
 // buildGetURL constructs the full URL for retrieving a stored object.
 // Uses baseURL if configured, otherwise derives scheme and host from the request,
 // respecting X-Forwarded-Proto for TLS termination at a reverse proxy.
-func (h *Handler) buildGetURL(c echo.Context, id string) string {
+func (h *ObjectHandler) buildGetURL(c echo.Context, id string) string {
 	if h.baseURL != "" {
 		return fmt.Sprintf("%s/objects/%s", h.baseURL, id)
 	}

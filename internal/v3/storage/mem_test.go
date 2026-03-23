@@ -1,6 +1,7 @@
 package storagev3
 
 import (
+	"bytes"
 	"context"
 	"reflect"
 	"testing"
@@ -237,5 +238,100 @@ done:
 	expected := []int64{3, 4}
 	if !reflect.DeepEqual(receivedIds, expected) {
 		t.Errorf("Expected to receive messages %v, got %v", expected, receivedIds)
+	}
+}
+
+func TestMemStorage_StoreAndGetObject(t *testing.T) {
+	s := NewMemStorage(nil, nil)
+	ctx := context.Background()
+
+	id, err := s.StoreObject(ctx, []byte("hello world"), "text/plain", 60)
+	if err != nil {
+		t.Fatalf("StoreObject failed: %v", err)
+	}
+	if id == "" {
+		t.Fatal("StoreObject returned empty ID")
+	}
+
+	obj, ct, err := s.GetObject(ctx, id)
+	if err != nil {
+		t.Fatalf("GetObject failed: %v", err)
+	}
+	if !bytes.Equal(obj, []byte("hello world")) {
+		t.Fatalf("expected 'hello world', got '%s'", obj)
+	}
+	if ct != "text/plain" {
+		t.Fatalf("expected content type 'text/plain', got '%s'", ct)
+	}
+}
+
+func TestMemStorage_GetObjectNonExistent(t *testing.T) {
+	s := NewMemStorage(nil, nil)
+	ctx := context.Background()
+
+	_, _, err := s.GetObject(ctx, "nonexistent")
+	if err == nil {
+		t.Fatal("expected error for non-existent object")
+	}
+}
+
+func TestMemStorage_ObjectExpiration(t *testing.T) {
+	s := NewMemStorage(nil, nil)
+	ctx := context.Background()
+
+	id, err := s.StoreObject(ctx, []byte("expiring"), "application/json", 1)
+	if err != nil {
+		t.Fatalf("StoreObject failed: %v", err)
+	}
+
+	// Should exist immediately
+	obj, ct, err := s.GetObject(ctx, id)
+	if err != nil {
+		t.Fatalf("GetObject failed immediately after store: %v", err)
+	}
+	if !bytes.Equal(obj, []byte("expiring")) {
+		t.Fatalf("expected 'expiring', got '%s'", obj)
+	}
+	if ct != "application/json" {
+		t.Fatalf("expected content type 'application/json', got '%s'", ct)
+	}
+
+	// Wait for expiration
+	time.Sleep(2 * time.Second)
+
+	_, _, err = s.GetObject(ctx, id)
+	if err == nil {
+		t.Fatal("expected error for expired object")
+	}
+}
+
+func TestMemStorage_ObjectDeduplication(t *testing.T) {
+	s := NewMemStorage(nil, nil)
+	ctx := context.Background()
+
+	id1, err := s.StoreObject(ctx, []byte("same content"), "text/plain", 60)
+	if err != nil {
+		t.Fatalf("StoreObject failed: %v", err)
+	}
+
+	id2, err := s.StoreObject(ctx, []byte("same content"), "text/plain", 60)
+	if err != nil {
+		t.Fatalf("StoreObject failed: %v", err)
+	}
+
+	if id1 != id2 {
+		t.Fatalf("same content should produce same ID, got %s and %s", id1, id2)
+	}
+}
+
+func TestMemStorage_ObjectDifferentContent(t *testing.T) {
+	s := NewMemStorage(nil, nil)
+	ctx := context.Background()
+
+	id1, _ := s.StoreObject(ctx, []byte("content A"), "text/plain", 60)
+	id2, _ := s.StoreObject(ctx, []byte("content B"), "text/plain", 60)
+
+	if id1 == id2 {
+		t.Fatal("different content should produce different IDs")
 	}
 }

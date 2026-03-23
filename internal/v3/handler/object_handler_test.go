@@ -1,4 +1,4 @@
-package objectstorage
+package handlerv3
 
 import (
 	"net/http"
@@ -7,19 +7,20 @@ import (
 	"testing"
 
 	"github.com/labstack/echo/v4"
+	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
 )
 
-const testMaxSize = 100 * 1024 // 100 KB
+const testMaxSize int64 = 100 * 1024 // 100 KB
 
-func setupTestHandler() (*Handler, *echo.Echo) {
-	storage := NewMemObjectStorage()
-	handler := NewHandler(storage, 300, testMaxSize, "")
+func setupTestObjectHandler() (*ObjectHandler, *echo.Echo) {
+	storage := storagev3.NewMemStorage(nil, nil)
+	handler := NewObjectHandler(storage, 300, testMaxSize, "")
 	e := echo.New()
 	return handler, e
 }
 
 func TestStoreAndRetrieve(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	// Store an object
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("hello world"))
@@ -70,7 +71,7 @@ func TestStoreAndRetrieve(t *testing.T) {
 }
 
 func TestStoreDeduplication(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	// Store same object twice
 	req1 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("same content"))
@@ -97,7 +98,7 @@ func TestStoreDeduplication(t *testing.T) {
 }
 
 func TestStoreDifferentContent(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	req1 := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("content A"))
 	req1.Header.Set("Content-Type", "text/plain")
@@ -117,7 +118,7 @@ func TestStoreDifferentContent(t *testing.T) {
 }
 
 func TestStoreMissingTTL(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/object", strings.NewReader("test"))
 	req.Header.Set("Content-Type", "text/plain")
@@ -133,7 +134,7 @@ func TestStoreMissingTTL(t *testing.T) {
 }
 
 func TestStoreTTLTooHigh(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=9999", strings.NewReader("test"))
 	req.Header.Set("Content-Type", "text/plain")
@@ -149,7 +150,7 @@ func TestStoreTTLTooHigh(t *testing.T) {
 }
 
 func TestStoreInvalidTTL(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=abc", strings.NewReader("test"))
 	req.Header.Set("Content-Type", "text/plain")
@@ -165,7 +166,7 @@ func TestStoreInvalidTTL(t *testing.T) {
 }
 
 func TestStoreNegativeTTL(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=-1", strings.NewReader("test"))
 	req.Header.Set("Content-Type", "text/plain")
@@ -181,7 +182,7 @@ func TestStoreNegativeTTL(t *testing.T) {
 }
 
 func TestStoreEmptyBody(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(""))
 	req.Header.Set("Content-Type", "text/plain")
@@ -197,9 +198,9 @@ func TestStoreEmptyBody(t *testing.T) {
 }
 
 func TestStoreObjectTooLarge(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
-	largeObject := strings.Repeat("a", testMaxSize+1)
+	largeObject := strings.Repeat("a", int(testMaxSize)+1)
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(largeObject))
 	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
@@ -214,9 +215,9 @@ func TestStoreObjectTooLarge(t *testing.T) {
 }
 
 func TestStoreObjectExactlyAtLimit(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
-	exactObject := strings.Repeat("a", testMaxSize)
+	exactObject := strings.Repeat("a", int(testMaxSize))
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(exactObject))
 	req.Header.Set("Content-Type", "text/plain")
 	rec := httptest.NewRecorder()
@@ -231,7 +232,7 @@ func TestStoreObjectExactlyAtLimit(t *testing.T) {
 }
 
 func TestGetNonExistent(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	req := httptest.NewRequest(http.MethodGet, "/objects/nonexistent", nil)
 	rec := httptest.NewRecorder()
@@ -247,7 +248,7 @@ func TestGetNonExistent(t *testing.T) {
 	}
 }
 
-func storeObject(t *testing.T, handler *Handler, e *echo.Echo, body string, contentType string) string {
+func storeObject(t *testing.T, handler *ObjectHandler, e *echo.Echo, body string, contentType string) string {
 	t.Helper()
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader(body))
 	req.Header.Set("Content-Type", contentType)
@@ -261,7 +262,7 @@ func storeObject(t *testing.T, handler *Handler, e *echo.Echo, body string, cont
 }
 
 func TestGetReturnsStoredContentType(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	tests := []struct {
 		name        string
@@ -301,7 +302,7 @@ func TestGetReturnsStoredContentType(t *testing.T) {
 }
 
 func TestStoreUnsupportedContentType(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("hello"))
 	req.Header.Set("Content-Type", "text/html")
@@ -320,7 +321,7 @@ func TestStoreUnsupportedContentType(t *testing.T) {
 }
 
 func TestStoreDefaultContentType(t *testing.T) {
-	handler, e := setupTestHandler()
+	handler, e := setupTestObjectHandler()
 
 	// POST without Content-Type header should default to text/plain
 	req := httptest.NewRequest(http.MethodPost, "/objects?ttl=60", strings.NewReader("hello"))
@@ -354,8 +355,8 @@ func TestStoreDefaultContentType(t *testing.T) {
 }
 
 func TestBuildGetURLWithBaseURL(t *testing.T) {
-	storage := NewMemObjectStorage()
-	handler := NewHandler(storage, 300, testMaxSize, "https://bridge.example.com")
+	storage := storagev3.NewMemStorage(nil, nil)
+	handler := NewObjectHandler(storage, 300, testMaxSize, "https://bridge.example.com")
 	e := echo.New()
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)
@@ -370,8 +371,8 @@ func TestBuildGetURLWithBaseURL(t *testing.T) {
 }
 
 func TestBuildGetURLFromRequest(t *testing.T) {
-	storage := NewMemObjectStorage()
-	handler := NewHandler(storage, 300, testMaxSize, "")
+	storage := storagev3.NewMemStorage(nil, nil)
+	handler := NewObjectHandler(storage, 300, testMaxSize, "")
 	e := echo.New()
 
 	req := httptest.NewRequest(http.MethodGet, "/", nil)

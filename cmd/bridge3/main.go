@@ -18,7 +18,6 @@ import (
 	"github.com/ton-connect/bridge/internal/config"
 	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
 	"github.com/ton-connect/bridge/internal/ntp"
-	"github.com/ton-connect/bridge/internal/objectstorage"
 	"github.com/ton-connect/bridge/internal/utils"
 	handlerv3 "github.com/ton-connect/bridge/internal/v3/handler"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
@@ -160,13 +159,7 @@ func main() {
 	e.POST("/bridge/verify", h.ConnectVerifyHandler)
 
 	// Object Storage
-	var objStore objectstorage.ObjectStorage
-	if vs, ok := dbConn.(*storagev3.ValkeyStorage); ok {
-		objStore = vs.NewObjectStorage()
-	} else {
-		objStore = objectstorage.NewMemObjectStorage()
-	}
-	objHandler := objectstorage.NewHandler(objStore, int64(config.Config.ObjectStorageMaxTTL), config.Config.ObjectStorageMaxSize, "")
+	objHandler := handlerv3.NewObjectHandler(dbConn, config.Config.ObjectStorageMaxTTL, config.Config.ObjectStorageMaxSize, "")
 	e.POST("/objects", objHandler.StoreHandler)
 	e.GET("/objects/:id", objHandler.GetHandler)
 
