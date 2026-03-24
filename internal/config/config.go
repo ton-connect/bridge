@@ -30,10 +30,10 @@ var Config = struct {
 	PostgresLazyConnect           bool   `env:"POSTGRES_LAZY_CONNECT" envDefault:"false"`
 
 	// Performance & Limits
-	HeartbeatInterval            int      `env:"HEARTBEAT_INTERVAL" envDefault:"10"`
-	RPSLimit                     int      `env:"RPS_LIMIT" envDefault:"10"`
-	ConnectionsLimit             int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`
-	MaxBodySize                  int64    `env:"MAX_BODY_SIZE" envDefault:"10485760"` // 10 MB
+	HeartbeatInterval          int      `env:"HEARTBEAT_INTERVAL" envDefault:"10"`
+	RPSLimit                   int      `env:"RPS_LIMIT" envDefault:"10"`
+	ConnectionsLimit           int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`
+	MaxBodySize                int64    `env:"MAX_BODY_SIZE" envDefault:"10485760"` // 10 MB
 	RecipientRateLimitInterval int      `env:"RECIPIENT_RATE_LIMIT_INTERVAL" envDefault:"10"`
 	RateLimitsByPassToken      []string `env:"RATE_LIMITS_BY_PASS_TOKEN"`
 
