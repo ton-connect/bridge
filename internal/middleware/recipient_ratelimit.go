@@ -20,6 +20,7 @@ type RecipientRateLimiter struct {
 	mu        sync.Mutex
 	limiters  map[string]*rateLimiterEntry
 	interval  time.Duration
+	burst     int
 	cleanupCh chan struct{}
 }
 
@@ -28,12 +29,16 @@ type rateLimiterEntry struct {
 	lastSeen time.Time
 }
 
-// NewRecipientRateLimiter creates a rate limiter that allows 1 push per interval per recipient.
+// NewRecipientRateLimiter creates a rate limiter that allows rpi pushes per interval per recipient.
 // If interval is 0, rate limiting is disabled.
-func NewRecipientRateLimiter(interval time.Duration) *RecipientRateLimiter {
+func NewRecipientRateLimiter(interval time.Duration, rpi int) *RecipientRateLimiter {
+	if rpi < 1 {
+		rpi = 1
+	}
 	rl := &RecipientRateLimiter{
 		limiters:  make(map[string]*rateLimiterEntry),
 		interval:  interval,
+		burst:     rpi,
 		cleanupCh: make(chan struct{}),
 	}
 	if interval > 0 {
@@ -54,8 +59,7 @@ func (rl *RecipientRateLimiter) Allow(to string) bool {
 
 	entry, exists := rl.limiters[to]
 	if !exists {
-		// 1 event per interval, burst of 1
-		lim := rate.NewLimiter(rate.Every(rl.interval), 1)
+		lim := rate.NewLimiter(rate.Every(rl.interval/time.Duration(rl.burst)), rl.burst)
 		entry = &rateLimiterEntry{limiter: lim, lastSeen: time.Now()}
 		rl.limiters[to] = entry
 	}

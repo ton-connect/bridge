@@ -21,11 +21,11 @@ This directory contains performance testing tools for the Ton Connect Bridge Ser
 
 > **Tip: Bypass Bridge Rate Limits in Local/Test**
 
-If your bridge server is configured with request rate limiting (e.g. `RPS_LIMIT`), you can bypass these limits for benchmark and development purposes by setting the environment variable `RATE_LIMITS_BY_PASS_TOKEN` to a known token, such as `test-token`.  
+If your bridge server is configured with request rate limiting (e.g. `RPS_LIMIT`), you can bypass these limits for benchmark and development purposes by setting the environment variable `RATE_LIMITS_BYPASS_TOKEN` to a known token, such as `test-token`.  
 The benchmark script will use this token via its `Authorization: Bearer` header, so you should make sure your bridge instantiation command includes this variable:
 
 ```bash
-RATE_LIMITS_BY_PASS_TOKEN=test-token \
+RATE_LIMITS_BYPASS_TOKEN=test-token \
 STORAGE=valkey VALKEY_URI=redis://127.0.0.1:6379 \
 PORT=8081 CORS_ENABLE=true RPS_LIMIT=100 CONNECTIONS_LIMIT=8000 \
 LOG_LEVEL=error ./bridge

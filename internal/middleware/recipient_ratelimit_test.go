@@ -7,7 +7,7 @@ import (
 )
 
 func TestRecipientRateLimiter_DisabledWhenZeroInterval(t *testing.T) {
-	rl := NewRecipientRateLimiter(0)
+	rl := NewRecipientRateLimiter(0, 1)
 	defer rl.Stop()
 
 	for i := 0; i < 100; i++ {
@@ -18,7 +18,7 @@ func TestRecipientRateLimiter_DisabledWhenZeroInterval(t *testing.T) {
 }
 
 func TestRecipientRateLimiter_AllowsFirstRequest(t *testing.T) {
-	rl := NewRecipientRateLimiter(time.Second)
+	rl := NewRecipientRateLimiter(time.Second, 1)
 	defer rl.Stop()
 
 	if !rl.Allow("recipient1") {
@@ -27,7 +27,7 @@ func TestRecipientRateLimiter_AllowsFirstRequest(t *testing.T) {
 }
 
 func TestRecipientRateLimiter_BlocksSecondRequest(t *testing.T) {
-	rl := NewRecipientRateLimiter(time.Second)
+	rl := NewRecipientRateLimiter(time.Second, 1)
 	defer rl.Stop()
 
 	if !rl.Allow("recipient1") {
@@ -39,7 +39,7 @@ func TestRecipientRateLimiter_BlocksSecondRequest(t *testing.T) {
 }
 
 func TestRecipientRateLimiter_IndependentRecipients(t *testing.T) {
-	rl := NewRecipientRateLimiter(time.Second)
+	rl := NewRecipientRateLimiter(time.Second, 1)
 	defer rl.Stop()
 
 	if !rl.Allow("recipient1") {
@@ -57,7 +57,7 @@ func TestRecipientRateLimiter_IndependentRecipients(t *testing.T) {
 }
 
 func TestRecipientRateLimiter_AllowsAfterInterval(t *testing.T) {
-	rl := NewRecipientRateLimiter(50 * time.Millisecond)
+	rl := NewRecipientRateLimiter(50*time.Millisecond, 1)
 	defer rl.Stop()
 
 	if !rl.Allow("recipient1") {
@@ -75,7 +75,7 @@ func TestRecipientRateLimiter_AllowsAfterInterval(t *testing.T) {
 }
 
 func TestRecipientRateLimiter_ConcurrentAccess(t *testing.T) {
-	rl := NewRecipientRateLimiter(time.Second)
+	rl := NewRecipientRateLimiter(time.Second, 1)
 	defer rl.Stop()
 
 	var wg sync.WaitGroup
@@ -102,7 +102,7 @@ func TestRecipientRateLimiter_ConcurrentAccess(t *testing.T) {
 }
 
 func TestRecipientRateLimiter_Cleanup(t *testing.T) {
-	rl := NewRecipientRateLimiter(10 * time.Millisecond)
+	rl := NewRecipientRateLimiter(10*time.Millisecond, 1)
 	defer rl.Stop()
 
 	rl.Allow("recipient1")
@@ -123,5 +123,115 @@ func TestRecipientRateLimiter_Cleanup(t *testing.T) {
 
 	if count != 0 {
 		t.Fatalf("expected stale limiter to be cleaned up, got %d entries", count)
+	}
+}
+
+func TestRecipientRateLimiter_BurstAllowsNRequests(t *testing.T) {
+	rl := NewRecipientRateLimiter(time.Second, 3)
+	defer rl.Stop()
+
+	for i := 0; i < 3; i++ {
+		if !rl.Allow("recipient1") {
+			t.Fatalf("expected request %d to be allowed within burst", i+1)
+		}
+	}
+	if rl.Allow("recipient1") {
+		t.Fatal("expected request 4 to be blocked after burst exhausted")
+	}
+}
+
+func TestRecipientRateLimiter_BurstRefillsAfterFullInterval(t *testing.T) {
+	rl := NewRecipientRateLimiter(90*time.Millisecond, 3)
+	defer rl.Stop()
+
+	for i := 0; i < 3; i++ {
+		if !rl.Allow("recipient1") {
+			t.Fatalf("expected request %d to be allowed within burst", i+1)
+		}
+	}
+	if rl.Allow("recipient1") {
+		t.Fatal("expected request 4 to be blocked after burst exhausted")
+	}
+
+	time.Sleep(100 * time.Millisecond)
+
+	for i := 0; i < 3; i++ {
+		if !rl.Allow("recipient1") {
+			t.Fatalf("expected request %d to be allowed after full interval refill", i+1)
+		}
+	}
+	if rl.Allow("recipient1") {
+		t.Fatal("expected request 4 to be blocked again after second burst exhausted")
+	}
+}
+
+func TestRecipientRateLimiter_BurstPartialRefill(t *testing.T) {
+	rl := NewRecipientRateLimiter(90*time.Millisecond, 3)
+	defer rl.Stop()
+
+	for i := 0; i < 3; i++ {
+		if !rl.Allow("recipient1") {
+			t.Fatalf("expected request %d to be allowed within burst", i+1)
+		}
+	}
+
+	time.Sleep(40 * time.Millisecond)
+
+	if !rl.Allow("recipient1") {
+		t.Fatal("expected one request to be allowed after partial refill")
+	}
+	if rl.Allow("recipient1") {
+		t.Fatal("expected second request to be blocked after partial refill consumed")
+	}
+}
+
+func TestRecipientRateLimiter_BurstIndependentRecipients(t *testing.T) {
+	rl := NewRecipientRateLimiter(time.Second, 3)
+	defer rl.Stop()
+
+	for i := 0; i < 3; i++ {
+		if !rl.Allow("recipient1") {
+			t.Fatalf("expected request %d to recipient1 to be allowed", i+1)
+		}
+	}
+	if rl.Allow("recipient1") {
+		t.Fatal("expected recipient1 to be blocked after burst exhausted")
+	}
+
+	for i := 0; i < 3; i++ {
+		if !rl.Allow("recipient2") {
+			t.Fatalf("expected request %d to recipient2 to be allowed", i+1)
+		}
+	}
+	if rl.Allow("recipient2") {
+		t.Fatal("expected recipient2 to be blocked after burst exhausted")
+	}
+}
+
+func TestRecipientRateLimiter_ConcurrentBurst(t *testing.T) {
+	rl := NewRecipientRateLimiter(time.Second, 3)
+	defer rl.Stop()
+
+	const goroutines = 20
+	var wg sync.WaitGroup
+	allowed := make([]int, goroutines)
+
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func(idx int) {
+			defer wg.Done()
+			if rl.Allow("recipient1") {
+				allowed[idx] = 1
+			}
+		}(i)
+	}
+	wg.Wait()
+
+	total := 0
+	for _, v := range allowed {
+		total += v
+	}
+	if total != 3 {
+		t.Fatalf("expected exactly 3 allowed requests with burst=3, got %d", total)
 	}
 }

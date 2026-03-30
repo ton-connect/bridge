@@ -13,7 +13,7 @@ import (
 
 func TestRecipientRateLimitMiddleware_AllowsFirstRequest(t *testing.T) {
 	e := echo.New()
-	limiter := bridge_middleware.NewRecipientRateLimiter(time.Second)
+	limiter := bridge_middleware.NewRecipientRateLimiter(time.Second, 1)
 	defer limiter.Stop()
 
 	mw := RecipientRateLimitMiddleware(limiter, func(c echo.Context) bool { return false })
@@ -35,7 +35,7 @@ func TestRecipientRateLimitMiddleware_AllowsFirstRequest(t *testing.T) {
 
 func TestRecipientRateLimitMiddleware_BlocksSecondRequest(t *testing.T) {
 	e := echo.New()
-	limiter := bridge_middleware.NewRecipientRateLimiter(time.Second)
+	limiter := bridge_middleware.NewRecipientRateLimiter(time.Second, 1)
 	defer limiter.Stop()
 
 	mw := RecipientRateLimitMiddleware(limiter, func(c echo.Context) bool { return false })
@@ -73,7 +73,7 @@ func TestRecipientRateLimitMiddleware_BlocksSecondRequest(t *testing.T) {
 
 func TestRecipientRateLimitMiddleware_SkipperBypasses(t *testing.T) {
 	e := echo.New()
-	limiter := bridge_middleware.NewRecipientRateLimiter(time.Second)
+	limiter := bridge_middleware.NewRecipientRateLimiter(time.Second, 1)
 	defer limiter.Stop()
 
 	mw := RecipientRateLimitMiddleware(limiter, func(c echo.Context) bool { return true })
@@ -96,7 +96,7 @@ func TestRecipientRateLimitMiddleware_SkipperBypasses(t *testing.T) {
 
 func TestRecipientRateLimitMiddleware_NoToParam(t *testing.T) {
 	e := echo.New()
-	limiter := bridge_middleware.NewRecipientRateLimiter(time.Second)
+	limiter := bridge_middleware.NewRecipientRateLimiter(time.Second, 1)
 	defer limiter.Stop()
 
 	mw := RecipientRateLimitMiddleware(limiter, func(c echo.Context) bool { return false })
@@ -119,7 +119,7 @@ func TestRecipientRateLimitMiddleware_NoToParam(t *testing.T) {
 
 func TestRecipientRateLimitMiddleware_DifferentRecipients(t *testing.T) {
 	e := echo.New()
-	limiter := bridge_middleware.NewRecipientRateLimiter(time.Second)
+	limiter := bridge_middleware.NewRecipientRateLimiter(time.Second, 1)
 	defer limiter.Stop()
 
 	mw := RecipientRateLimitMiddleware(limiter, func(c echo.Context) bool { return false })

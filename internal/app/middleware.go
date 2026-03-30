@@ -21,7 +21,7 @@ func SkipRateLimitsByToken(request *http.Request) bool {
 		return false
 	}
 	token := strings.TrimPrefix(authorization, "Bearer ")
-	exist := slices.Contains(config.Config.RateLimitsByPassToken, token)
+	exist := slices.Contains(config.Config.RateLimitsBypassToken, token)
 	if exist {
 		TokenUsageMetric.WithLabelValues(token).Inc()
 		return true

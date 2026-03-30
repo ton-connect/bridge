@@ -141,7 +141,7 @@ func main() {
 		return false
 	}))
 	recipientRateLimitInterval := time.Duration(config.Config.RecipientRateLimitInterval) * time.Second
-	e.Use(app.RecipientRateLimitMiddleware(bridge_middleware.NewRecipientRateLimiter(recipientRateLimitInterval), func(c echo.Context) bool {
+	e.Use(app.RecipientRateLimitMiddleware(bridge_middleware.NewRecipientRateLimiter(recipientRateLimitInterval, config.Config.RecipientRateLimitRPI), func(c echo.Context) bool {
 		if app.SkipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/message" {
 			return true
 		}
