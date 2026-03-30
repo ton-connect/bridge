@@ -21,12 +21,30 @@ func SkipRateLimitsByToken(request *http.Request) bool {
 		return false
 	}
 	token := strings.TrimPrefix(authorization, "Bearer ")
-	exist := slices.Contains(config.Config.RateLimitsByPassToken, token)
+	exist := slices.Contains(config.Config.RateLimitsBypassToken, token)
 	if exist {
 		TokenUsageMetric.WithLabelValues(token).Inc()
 		return true
 	}
 	return false
+}
+
+// RecipientRateLimitMiddleware creates middleware for per-recipient rate limiting
+func RecipientRateLimitMiddleware(limiter *bridge_middleware.RecipientRateLimiter, skipper func(c echo.Context) bool) echo.MiddlewareFunc {
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			if skipper(c) {
+				return next(c)
+			}
+			to := c.QueryParam("to")
+			if to != "" && !limiter.Allow(to) {
+				return c.JSON(http.StatusTooManyRequests, map[string]string{
+					"error": "too many requests to this recipient",
+				})
+			}
+			return next(c)
+		}
+	}
 }
 
 // ConnectionsLimitMiddleware creates middleware for limiting concurrent connections

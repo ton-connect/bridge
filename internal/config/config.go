@@ -30,11 +30,14 @@ var Config = struct {
 	PostgresLazyConnect           bool   `env:"POSTGRES_LAZY_CONNECT" envDefault:"false"`
 
 	// Performance & Limits
-	HeartbeatInterval     int      `env:"HEARTBEAT_INTERVAL" envDefault:"10"`
-	RPSLimit              int      `env:"RPS_LIMIT" envDefault:"10"`
-	ConnectionsLimit      int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`
-	MaxBodySize           int64    `env:"MAX_BODY_SIZE" envDefault:"10485760"` // 10 MB
-	RateLimitsByPassToken []string `env:"RATE_LIMITS_BY_PASS_TOKEN"`
+	HeartbeatInterval          int      `env:"HEARTBEAT_INTERVAL" envDefault:"10"`
+	RPSLimit                   int      `env:"RPS_LIMIT" envDefault:"10"`
+	ConnectionsLimit           int      `env:"CONNECTIONS_LIMIT" envDefault:"50"`
+	MaxBodySize                int64    `env:"MAX_BODY_SIZE" envDefault:"10485760"` // 10 MB
+	RecipientRateLimitInterval int      `env:"RECIPIENT_RATE_LIMIT_INTERVAL" envDefault:"0"`
+	RecipientRateLimitRPI      int      `env:"RECIPIENT_RATE_LIMIT_RPI" envDefault:"1"`          // Requests per interval
+	RecipientRateLimitMaxSize  int      `env:"RECIPIENT_RATE_LIMIT_MAX_SIZE" envDefault:"10000"` // Max tracked recipients (LRU eviction, 0 = unlimited)
+	RateLimitsBypassToken      []string `env:"RATE_LIMITS_BYPASS_TOKEN"`
 
 	// Security
 	CorsEnable         bool     `env:"CORS_ENABLE" envDefault:"true"`

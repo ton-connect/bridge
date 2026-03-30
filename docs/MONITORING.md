@@ -152,7 +152,7 @@ rate(http_requests_total[5m]) * 100
 #### `bridge_token_usage`
 **Type:** Counter  
 **Labels:** `token`  
-**Description:** Usage count per bypass token (from `RATE_LIMITS_BY_PASS_TOKEN`).
+**Description:** Usage count per bypass token (from `RATE_LIMITS_BYPASS_TOKEN`).
 
 **Usage:**
 ```promql
