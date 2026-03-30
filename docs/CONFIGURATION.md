@@ -28,6 +28,7 @@ Complete reference for all environment variables supported by TON Connect Bridge
 | `MAX_BODY_SIZE` | int | `10485760` | Max HTTP request body size (bytes) for `/bridge/message` |
 | `RECIPIENT_RATE_LIMIT_INTERVAL` | int | `0` | Per-recipient push rate limit interval (seconds). 0 = disabled |
 | `RECIPIENT_RATE_LIMIT_RPI` | int | `1` | Requests per interval allowed per recipient |
+| `RECIPIENT_RATE_LIMIT_MAX_SIZE` | int | `10000` | Max tracked recipients for rate limiting (LRU eviction). 0 = unlimited |
 | `RATE_LIMITS_BYPASS_TOKEN` | string | - | Bypass tokens (comma-separated) |
 
 ## Security

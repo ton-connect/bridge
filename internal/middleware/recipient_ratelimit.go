@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"container/list"
 	"sync"
 	"time"
 
@@ -16,27 +17,34 @@ var recipientRateLimitedMetric = promauto.NewCounter(prometheus.CounterOpts{
 })
 
 // RecipientRateLimiter enforces a per-recipient (to) push rate limit using a leaky bucket.
+// When maxSize > 0, it uses LRU eviction to bound memory usage.
 type RecipientRateLimiter struct {
 	mu        sync.Mutex
-	limiters  map[string]*rateLimiterEntry
+	limiters  map[string]*list.Element
+	evictList *list.List
+	maxSize   int
 	interval  time.Duration
 	burst     int
 	cleanupCh chan struct{}
 }
 
 type rateLimiterEntry struct {
+	key      string
 	limiter  *rate.Limiter
 	lastSeen time.Time
 }
 
 // NewRecipientRateLimiter creates a rate limiter that allows rpi pushes per interval per recipient.
+// maxSize bounds the number of tracked recipients; 0 means unlimited.
 // If interval is 0, rate limiting is disabled.
-func NewRecipientRateLimiter(interval time.Duration, rpi int) *RecipientRateLimiter {
+func NewRecipientRateLimiter(interval time.Duration, rpi int, maxSize int) *RecipientRateLimiter {
 	if rpi < 1 {
 		rpi = 1
 	}
 	rl := &RecipientRateLimiter{
-		limiters:  make(map[string]*rateLimiterEntry),
+		limiters:  make(map[string]*list.Element),
+		evictList: list.New(),
+		maxSize:   maxSize,
 		interval:  interval,
 		burst:     rpi,
 		cleanupCh: make(chan struct{}),
@@ -57,12 +65,21 @@ func (rl *RecipientRateLimiter) Allow(to string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	entry, exists := rl.limiters[to]
+	elem, exists := rl.limiters[to]
 	if !exists {
+		// Evict oldest if at capacity
+		if rl.maxSize > 0 && rl.evictList.Len() >= rl.maxSize {
+			rl.removeOldest()
+		}
 		lim := rate.NewLimiter(rate.Every(rl.interval/time.Duration(rl.burst)), rl.burst)
-		entry = &rateLimiterEntry{limiter: lim, lastSeen: time.Now()}
-		rl.limiters[to] = entry
+		entry := &rateLimiterEntry{key: to, limiter: lim, lastSeen: time.Now()}
+		elem = rl.evictList.PushFront(entry)
+		rl.limiters[to] = elem
+	} else {
+		rl.evictList.MoveToFront(elem)
 	}
+
+	entry := elem.Value.(*rateLimiterEntry)
 	entry.lastSeen = time.Now()
 
 	if !entry.limiter.Allow() {
@@ -71,6 +88,22 @@ func (rl *RecipientRateLimiter) Allow(to string) bool {
 		return false
 	}
 	return true
+}
+
+// removeOldest evicts the least recently used entry. Must be called with mu held.
+func (rl *RecipientRateLimiter) removeOldest() {
+	elem := rl.evictList.Back()
+	if elem == nil {
+		return
+	}
+	rl.removeElement(elem)
+}
+
+// removeElement removes a specific element from the cache. Must be called with mu held.
+func (rl *RecipientRateLimiter) removeElement(elem *list.Element) {
+	rl.evictList.Remove(elem)
+	entry := elem.Value.(*rateLimiterEntry)
+	delete(rl.limiters, entry.key)
 }
 
 // cleanup periodically removes stale limiters for recipients that haven't been seen recently.
@@ -83,9 +116,17 @@ func (rl *RecipientRateLimiter) cleanup() {
 		case <-ticker.C:
 			rl.mu.Lock()
 			cutoff := time.Now().Add(-5 * rl.interval)
-			for key, entry := range rl.limiters {
+			// Iterate from back (oldest) and remove stale entries
+			for {
+				elem := rl.evictList.Back()
+				if elem == nil {
+					break
+				}
+				entry := elem.Value.(*rateLimiterEntry)
 				if entry.lastSeen.Before(cutoff) {
-					delete(rl.limiters, key)
+					rl.removeElement(elem)
+				} else {
+					break
 				}
 			}
 			rl.mu.Unlock()
