@@ -18,7 +18,7 @@ import (
 // startLocalBridge starts a local bridge server with the given SSE lifetime config.
 // It reuses MemStorage and the v3 handler to create a fully functional bridge
 // that can be used with the existing BridgeGateway helpers.
-func startLocalBridge(t *testing.T, maxLifetimeSec, jitterSec int) *httptest.Server {
+func startLocalBridge(t *testing.T, maxLifetimeSec int64, jitterSec int64) *httptest.Server {
 	t.Helper()
 
 	config.Config.SSEMaxLifetime = maxLifetimeSec

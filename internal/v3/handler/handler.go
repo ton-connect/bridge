@@ -3,13 +3,12 @@ package handlerv3
 import (
 	"bytes"
 	"context"
-	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
-	"math/big"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -631,6 +630,6 @@ func sseMaxLifetimeWithJitter() time.Duration {
 	if jitterMax <= 0 {
 		return base
 	}
-	n, _ := rand.Int(rand.Reader, big.NewInt(int64(jitterMax)))
-	return base + time.Duration(n.Int64())*time.Second
+	jitterSeconds := rand.Int63n(jitterMax)
+	return base + time.Duration(jitterSeconds)*time.Second
 }
