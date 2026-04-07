@@ -2,47 +2,54 @@
 set -e
 
 # Usage: pr-metrics-compare.sh <metrics-dir>
-# Reads JSON metrics files from <metrics-dir> and generates comparison tables.
+# Reads averaged JSON metrics and generates collapsed comparison tables with summaries.
 # Expected files: <metrics-dir>/metrics-<storage>-pr/metrics-<storage>-pr.json
 #                 <metrics-dir>/metrics-<storage>-base/metrics-<storage>-base.json
 
 METRICS_DIR="${1:-.}"
 STORAGES="memory postgres nginx cluster-valkey dnsmasq"
-
-pct_change() {
-  local base="$1" pr="$2"
-  if [ "$base" = "0" ] || [ -z "$base" ]; then
-    if [ "$pr" = "0" ] || [ -z "$pr" ]; then
-      echo "—"
-    else
-      echo "+∞"
-    fi
-    return
-  fi
-  local diff
-  diff=$(awk "BEGIN {d = (($pr - $base) / $base) * 100; printf \"%.1f\", d}" 2>/dev/null || echo "0.0")
-  if [ "$diff" = "0.0" ] || [ "$diff" = "-0.0" ]; then
-    echo "—"
-  elif echo "$diff" | grep -q "^-"; then
-    echo "${diff}%"
-  else
-    echo "+${diff}%"
-  fi
-}
+THRESHOLD=50
 
 json_val() {
   local file="$1" field="$2"
   if [ -f "$file" ]; then
-    python3 -c "import json,sys; d=json.load(open('$file')); print(d.get('$field','0'))" 2>/dev/null || echo "0"
+    python3 -c "import json; d=json.load(open('$file')); print(d.get('$field','0'))" 2>/dev/null || echo "0"
   else
     echo "—"
   fi
 }
 
-row() {
-  local label="$1" base_val="$2" pr_val="$3" suffix="$4"
-  echo "| $label | ${base_val}${suffix} | ${pr_val}${suffix} | $(pct_change "$base_val" "$pr_val") |"
+raw_pct() {
+  local base="$1" pr="$2"
+  if [ "$base" = "0" ] || [ -z "$base" ]; then
+    echo "0"
+    return
+  fi
+  awk "BEGIN {printf \"%.1f\", (($pr - $base) / $base) * 100}" 2>/dev/null || echo "0"
 }
+
+fmt_pct() {
+  local val="$1"
+  if [ "$val" = "0" ] || [ "$val" = "0.0" ] || [ "$val" = "-0.0" ]; then
+    echo "—"
+  elif echo "$val" | grep -q "^-"; then
+    echo "${val}%"
+  else
+    echo "+${val}%"
+  fi
+}
+
+# metric definitions: "key|label|suffix"
+METRICS="cpu_seconds|CPU|s
+goroutines|Goroutines|
+threads|Threads|
+heap_mb|Heap|MB
+rss_mb|RAM|MB
+total_alloc_mb|Total Alloc|MB
+allocs_count|Allocs|
+gc_cycles|GC Cycles|
+gc_avg_ms|GC Avg|ms
+open_fds|FDs|"
 
 first=true
 for storage in $STORAGES; do
@@ -53,24 +60,48 @@ for storage in $STORAGES; do
     continue
   fi
 
+  # Build summary
+  summary_parts=""
+  while IFS='|' read -r key label suffix; do
+    bv=$(json_val "$base_file" "$key")
+    pv=$(json_val "$pr_file" "$key")
+    pct=$(raw_pct "$bv" "$pv")
+    abs_pct=$(echo "$pct" | sed 's/^-//')
+    over=$(awk "BEGIN {print ($abs_pct >= $THRESHOLD) ? 1 : 0}" 2>/dev/null || echo "0")
+    if [ "$over" = "1" ]; then
+      if [ -n "$summary_parts" ]; then
+        summary_parts="$summary_parts, $label $(fmt_pct "$pct")"
+      else
+        summary_parts="$label $(fmt_pct "$pct")"
+      fi
+    fi
+  done <<< "$METRICS"
+
+  if [ -z "$summary_parts" ]; then
+    summary_tag="✅"
+  else
+    summary_tag="⚠️ $summary_parts"
+  fi
+
   if [ "$first" = true ]; then
     first=false
   else
     echo ""
   fi
 
-  echo "**${storage}**"
+  echo "<details>"
+  echo "<summary><b>${storage}</b> — ${summary_tag}</summary>"
   echo ""
   echo "| Metric | master | PR | Δ |"
   echo "|--------|--------|-----|---|"
-  row "CPU"         "$(json_val "$base_file" cpu_seconds)"   "$(json_val "$pr_file" cpu_seconds)"   "s"
-  row "Goroutines"  "$(json_val "$base_file" goroutines)"    "$(json_val "$pr_file" goroutines)"    ""
-  row "Threads"     "$(json_val "$base_file" threads)"       "$(json_val "$pr_file" threads)"       ""
-  row "Heap"        "$(json_val "$base_file" heap_mb)"       "$(json_val "$pr_file" heap_mb)"       "MB"
-  row "RAM"         "$(json_val "$base_file" rss_mb)"        "$(json_val "$pr_file" rss_mb)"        "MB"
-  row "Total Alloc" "$(json_val "$base_file" total_alloc_mb)" "$(json_val "$pr_file" total_alloc_mb)" "MB"
-  row "Allocs"      "$(json_val "$base_file" allocs_count)"  "$(json_val "$pr_file" allocs_count)"  ""
-  row "GC Cycles"   "$(json_val "$base_file" gc_cycles)"     "$(json_val "$pr_file" gc_cycles)"     ""
-  row "GC Avg"      "$(json_val "$base_file" gc_avg_ms)"     "$(json_val "$pr_file" gc_avg_ms)"     "ms"
-  row "FDs"         "$(json_val "$base_file" open_fds)"      "$(json_val "$pr_file" open_fds)"      ""
+
+  while IFS='|' read -r key label suffix; do
+    bv=$(json_val "$base_file" "$key")
+    pv=$(json_val "$pr_file" "$key")
+    pct=$(raw_pct "$bv" "$pv")
+    echo "| $label | ${bv}${suffix} | ${pv}${suffix} | $(fmt_pct "$pct") |"
+  done <<< "$METRICS"
+
+  echo ""
+  echo "</details>"
 done

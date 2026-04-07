@@ -60,10 +60,16 @@ jobs:
           echo "Go integration tests failed with exit code $rc"
         fi
 
-    - name: Get PR branch metrics
+    - name: Clean up containers after tests
+      if: always()
+      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml down -v
+
+    - name: Collect PR branch metrics (5 runs avg)
       if: github.event_name == 'pull_request'
       run: |
-        ./scripts/pr-metrics.sh "${{ matrix.storage }}" localhost 9103 json > metrics-${{ matrix.storage }}-pr.json
+        ./scripts/pr-metrics-avg.sh "${{ matrix.storage }}" \
+          "docker/docker-compose.${{ matrix.storage }}.yml" 5 \
+          "./scripts/pr-metrics.sh" > metrics-${{ matrix.storage }}-pr.json
 
     - name: Upload PR metrics artifact
       if: github.event_name == 'pull_request'
@@ -73,13 +79,11 @@ jobs:
         path: metrics-${{ matrix.storage }}-pr.json
         retention-days: 1
 
-    - name: Clean up PR branch containers
-      if: always()
-      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml down -v
-
-    - name: Save metrics script before checkout
+    - name: Save scripts before checkout
       if: github.event_name == 'pull_request'
-      run: cp scripts/pr-metrics.sh /tmp/pr-metrics.sh
+      run: |
+        cp scripts/pr-metrics.sh /tmp/pr-metrics.sh
+        cp scripts/pr-metrics-avg.sh /tmp/pr-metrics-avg.sh
 
     - name: Checkout master for baseline metrics
       if: github.event_name == 'pull_request'
@@ -88,19 +92,12 @@ jobs:
         ref: master
         clean: false
 
-    - name: Start bridge (master)
-      if: github.event_name == 'pull_request'
-      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml up --build -d bridge
-
-    - name: Run baseline tests (master)
+    - name: Collect master branch metrics (5 runs avg)
       if: github.event_name == 'pull_request'
       run: |
-        docker compose -f docker/docker-compose.${{ matrix.storage }}.yml run --rm gointegration || true
-
-    - name: Get master branch metrics
-      if: github.event_name == 'pull_request'
-      run: |
-        /tmp/pr-metrics.sh "${{ matrix.storage }}" localhost 9103 json > metrics-${{ matrix.storage }}-base.json
+        /tmp/pr-metrics-avg.sh "${{ matrix.storage }}" \
+          "docker/docker-compose.${{ matrix.storage }}.yml" 5 \
+          "/tmp/pr-metrics.sh" > metrics-${{ matrix.storage }}-base.json
 
     - name: Upload master metrics artifact
       if: github.event_name == 'pull_request'
@@ -109,10 +106,6 @@ jobs:
         name: metrics-${{ matrix.storage }}-base
         path: metrics-${{ matrix.storage }}-base.json
         retention-days: 1
-
-    - name: Clean up master containers
-      if: always()
-      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml down -v
 
     - name: Restore PR branch
       if: github.event_name == 'pull_request'
