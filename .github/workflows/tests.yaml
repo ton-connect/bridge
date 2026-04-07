@@ -60,56 +60,63 @@ jobs:
           echo "Go integration tests failed with exit code $rc"
         fi
 
-    - name: Get performance metrics
+    - name: Get PR branch metrics
       if: github.event_name == 'pull_request'
       run: |
-        ./scripts/pr-metrics.sh "${{ matrix.storage }}" > metrics-${{ matrix.storage }}.md
+        ./scripts/pr-metrics.sh "${{ matrix.storage }}" localhost 9103 json > metrics-${{ matrix.storage }}-pr.json
 
-    - name: Update PR comment with current metrics
-      if: github.event_name == 'pull_request'
-      continue-on-error: true
-      uses: actions/github-script@v8
-      with:
-        script: |
-          const fs = require('fs');
-          const metrics = fs.readFileSync('metrics-${{ matrix.storage }}.md', 'utf8');
-          
-          const { data: comments } = await github.rest.issues.listComments({
-            owner: context.repo.owner,
-            repo: context.repo.repo,
-            issue_number: context.issue.number,
-          });
-          
-          const marker = '<!-- metrics-${{ matrix.storage }} -->';
-          const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes(marker));
-          
-          if (botComment) {
-            await github.rest.issues.updateComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              comment_id: botComment.id,
-              body: `${marker}\n# 📊 Performance Metrics\n\n${metrics}`
-            });
-          } else {
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: context.issue.number,
-              body: `${marker}\n# 📊 Performance Metrics\n\n${metrics}`
-            });
-          }
-
-    - name: Upload metrics artifact
+    - name: Upload PR metrics artifact
       if: github.event_name == 'pull_request'
       uses: actions/upload-artifact@v5
       with:
-        name: metrics-${{ matrix.storage }}
-        path: metrics-${{ matrix.storage }}.md
+        name: metrics-${{ matrix.storage }}-pr
+        path: metrics-${{ matrix.storage }}-pr.json
         retention-days: 1
 
-    - name: Clean up containers
+    - name: Clean up PR branch containers
       if: always()
       run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml down -v
+
+    - name: Save metrics script before checkout
+      if: github.event_name == 'pull_request'
+      run: cp scripts/pr-metrics.sh /tmp/pr-metrics.sh
+
+    - name: Checkout master for baseline metrics
+      if: github.event_name == 'pull_request'
+      uses: actions/checkout@v6
+      with:
+        ref: master
+        clean: false
+
+    - name: Start bridge (master)
+      if: github.event_name == 'pull_request'
+      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml up --build -d bridge
+
+    - name: Run baseline tests (master)
+      if: github.event_name == 'pull_request'
+      run: |
+        docker compose -f docker/docker-compose.${{ matrix.storage }}.yml run --rm gointegration || true
+
+    - name: Get master branch metrics
+      if: github.event_name == 'pull_request'
+      run: |
+        /tmp/pr-metrics.sh "${{ matrix.storage }}" localhost 9103 json > metrics-${{ matrix.storage }}-base.json
+
+    - name: Upload master metrics artifact
+      if: github.event_name == 'pull_request'
+      uses: actions/upload-artifact@v5
+      with:
+        name: metrics-${{ matrix.storage }}-base
+        path: metrics-${{ matrix.storage }}-base.json
+        retention-days: 1
+
+    - name: Clean up master containers
+      if: always()
+      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml down -v
+
+    - name: Restore PR branch
+      if: github.event_name == 'pull_request'
+      uses: actions/checkout@v6
 
     - name: Fail job if any tests failed
       if: ${{ fromJSON(steps.bridge_sdk_tests.outputs.sdk_rc) != 0 || fromJSON(steps.go_integration_tests.outputs.go_rc) != 0 }}
@@ -118,3 +125,55 @@ jobs:
         echo "  Bridge SDK tests: exit code ${{ steps.bridge_sdk_tests.outputs.sdk_rc }}"
         echo "  Go integration tests: exit code ${{ steps.go_integration_tests.outputs.go_rc }}"
         exit 1
+
+  metrics-comment:
+    name: metrics-comment
+    if: github.event_name == 'pull_request' && always()
+    needs: integration
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Download all metrics artifacts
+      uses: actions/download-artifact@v5
+      with:
+        pattern: metrics-*
+        path: metrics
+
+    - name: Generate comparison table
+      run: |
+        ./scripts/pr-metrics-compare.sh metrics > metrics-comment.md
+
+    - name: Post comparison comment
+      continue-on-error: true
+      uses: actions/github-script@v8
+      with:
+        script: |
+          const fs = require('fs');
+          const table = fs.readFileSync('metrics-comment.md', 'utf8');
+
+          const { data: comments } = await github.rest.issues.listComments({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            issue_number: context.issue.number,
+          });
+
+          const marker = '<!-- metrics-comparison -->';
+          const body = `${marker}\n# 📊 Performance Metrics — PR vs master\n\n${table}\n`;
+          const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes(marker));
+
+          if (botComment) {
+            await github.rest.issues.updateComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              comment_id: botComment.id,
+              body
+            });
+          } else {
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.issue.number,
+              body
+            });
+          }
