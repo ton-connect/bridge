@@ -6,7 +6,7 @@ on:
   pull_request:
     branches: [ master ]
 
-    
+
 jobs:
   unit:
      name: unit
@@ -60,56 +60,9 @@ jobs:
           echo "Go integration tests failed with exit code $rc"
         fi
 
-    - name: Clean up containers after tests
+    - name: Clean up containers
       if: always()
       run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml down -v
-
-    - name: Collect PR branch metrics (5 runs avg)
-      if: github.event_name == 'pull_request'
-      run: |
-        ./scripts/pr-metrics-avg.sh "${{ matrix.storage }}" \
-          "docker/docker-compose.${{ matrix.storage }}.yml" 5 \
-          "./scripts/pr-metrics.sh" > metrics-${{ matrix.storage }}-pr.json
-
-    - name: Upload PR metrics artifact
-      if: github.event_name == 'pull_request'
-      uses: actions/upload-artifact@v5
-      with:
-        name: metrics-${{ matrix.storage }}-pr
-        path: metrics-${{ matrix.storage }}-pr.json
-        retention-days: 1
-
-    - name: Save scripts before checkout
-      if: github.event_name == 'pull_request'
-      run: |
-        cp scripts/pr-metrics.sh /tmp/pr-metrics.sh
-        cp scripts/pr-metrics-avg.sh /tmp/pr-metrics-avg.sh
-
-    - name: Checkout master for baseline metrics
-      if: github.event_name == 'pull_request'
-      uses: actions/checkout@v6
-      with:
-        ref: master
-        clean: false
-
-    - name: Collect master branch metrics (5 runs avg)
-      if: github.event_name == 'pull_request'
-      run: |
-        /tmp/pr-metrics-avg.sh "${{ matrix.storage }}" \
-          "docker/docker-compose.${{ matrix.storage }}.yml" 5 \
-          "/tmp/pr-metrics.sh" > metrics-${{ matrix.storage }}-base.json
-
-    - name: Upload master metrics artifact
-      if: github.event_name == 'pull_request'
-      uses: actions/upload-artifact@v5
-      with:
-        name: metrics-${{ matrix.storage }}-base
-        path: metrics-${{ matrix.storage }}-base.json
-        retention-days: 1
-
-    - name: Restore PR branch
-      if: github.event_name == 'pull_request'
-      uses: actions/checkout@v6
 
     - name: Fail job if any tests failed
       if: ${{ fromJSON(steps.bridge_sdk_tests.outputs.sdk_rc) != 0 || fromJSON(steps.go_integration_tests.outputs.go_rc) != 0 }}
@@ -119,10 +72,78 @@ jobs:
         echo "  Go integration tests: exit code ${{ steps.go_integration_tests.outputs.go_rc }}"
         exit 1
 
+  metrics:
+    name: metrics-${{ matrix.storage }}-run${{ matrix.run }}
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        storage: [memory, postgres, nginx, dnsmasq, cluster-valkey]
+        run: [1, 2, 3, 4, 5]
+
+    steps:
+    - uses: actions/checkout@v6
+
+    - name: Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
+
+    - name: Start bridge (PR)
+      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml up --build -d bridge
+
+    - name: Run tests (PR)
+      run: |
+        docker compose -f docker/docker-compose.${{ matrix.storage }}.yml run --rm gointegration || true
+
+    - name: Collect PR metrics
+      run: |
+        ./scripts/pr-metrics.sh "${{ matrix.storage }}" localhost 9103 json > metrics-${{ matrix.storage }}-run${{ matrix.run }}-pr.json
+
+    - name: Upload PR metrics
+      uses: actions/upload-artifact@v5
+      with:
+        name: metrics-${{ matrix.storage }}-run${{ matrix.run }}-pr
+        path: metrics-${{ matrix.storage }}-run${{ matrix.run }}-pr.json
+        retention-days: 1
+
+    - name: Clean up PR containers
+      if: always()
+      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml down -v
+
+    - name: Save metrics script
+      run: cp scripts/pr-metrics.sh /tmp/pr-metrics.sh
+
+    - name: Checkout master
+      uses: actions/checkout@v6
+      with:
+        ref: master
+        clean: false
+
+    - name: Start bridge (master)
+      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml up --build -d bridge
+
+    - name: Run tests (master)
+      run: |
+        docker compose -f docker/docker-compose.${{ matrix.storage }}.yml run --rm gointegration || true
+
+    - name: Collect master metrics
+      run: |
+        /tmp/pr-metrics.sh "${{ matrix.storage }}" localhost 9103 json > metrics-${{ matrix.storage }}-run${{ matrix.run }}-base.json
+
+    - name: Upload master metrics
+      uses: actions/upload-artifact@v5
+      with:
+        name: metrics-${{ matrix.storage }}-run${{ matrix.run }}-base
+        path: metrics-${{ matrix.storage }}-run${{ matrix.run }}-base.json
+        retention-days: 1
+
+    - name: Clean up master containers
+      if: always()
+      run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml down -v
+
   metrics-comment:
     name: metrics-comment
     if: github.event_name == 'pull_request' && always()
-    needs: integration
+    needs: [integration, metrics]
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -132,6 +153,34 @@ jobs:
       with:
         pattern: metrics-*
         path: metrics
+
+    - name: Average metrics across runs
+      run: |
+        for storage in memory postgres nginx cluster-valkey dnsmasq; do
+          for branch in pr base; do
+            mkdir -p "metrics/metrics-${storage}-${branch}"
+            python3 -c "
+        import json, glob, os
+
+        files = sorted(glob.glob('metrics/metrics-${storage}-run*-${branch}/*.json'))
+        if not files:
+            print('{}')
+            exit()
+
+        all_data = [json.load(open(f)) for f in files]
+        n = len(all_data)
+        result = {'storage': '${storage}'}
+
+        int_keys = {'cores','goroutines','threads','allocs_count','gc_cycles','open_fds','max_fds'}
+        for key in ['cpu_seconds','cores','goroutines','threads','heap_mb','rss_mb','total_alloc_mb','allocs_count','gc_cycles','gc_avg_ms','open_fds','max_fds','fd_percent']:
+            vals = [float(d.get(key, '0')) for d in all_data]
+            avg = sum(vals) / n
+            result[key] = str(int(round(avg))) if key in int_keys else f'{avg:.2f}'
+
+        print(json.dumps(result))
+        " > "metrics/metrics-${storage}-${branch}/metrics-${storage}-${branch}.json"
+          done
+        done
 
     - name: Generate comparison table
       run: |
