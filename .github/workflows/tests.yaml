@@ -126,7 +126,7 @@ jobs:
   metrics-comment:
     name: metrics-comment
     if: github.event_name == 'pull_request' && always()
-    needs: [integration, metrics]
+    needs: metrics
     runs-on: ubuntu-latest
     steps:
     - uses: actions/checkout@v6
@@ -156,7 +156,7 @@ jobs:
           });
 
           const marker = '<!-- metrics-comparison -->';
-          const body = `${marker}\n# 📊 Performance Metrics — PR vs master\n\n${table}\n`;
+          const body = `${marker}\n# 📊 Performance Metrics — PR vs main\n\n${table}\n`;
           const botComment = comments.find(c => c.user.type === 'Bot' && c.body.includes(marker));
 
           if (botComment) {

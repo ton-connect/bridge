@@ -92,7 +92,7 @@ for storage in $STORAGES; do
   echo "<details>"
   echo "<summary><b>${storage}</b> — ${summary_tag}</summary>"
   echo ""
-  echo "| Metric | master | PR | Δ |"
+  echo "| Metric | main | PR | Δ |"
   echo "|--------|--------|-----|---|"
 
   while IFS='|' read -r key label suffix; do
