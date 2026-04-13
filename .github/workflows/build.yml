@@ -45,7 +45,7 @@ jobs:
 
     steps:
       - name: Compute params
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         id: params
         env:
           COMPONENT: ${{ inputs.component }}
@@ -145,7 +145,7 @@ jobs:
 
     steps:
       - name: Compute params
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         id: params
         env:
           COMPONENT: ${{ inputs.component }}
