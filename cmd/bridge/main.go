@@ -81,7 +81,7 @@ func main() {
 		DisableStackAll:   true,
 		DisablePrintStack: false,
 	}))
-	e.Use(middleware.Logger())
+	e.Use(bridge_middleware.RequestLogger())
 	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
 		Skipper: func(c echo.Context) bool {
 			if app.SkipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/message" {
