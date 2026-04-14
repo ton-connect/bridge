@@ -10,9 +10,9 @@ var (
 		Name: "antiscam_blocked_pushes_total",
 		Help: "Total number of push messages silently dropped by antiscam filter",
 	})
-	PoisonedConnectionsMetric = promauto.NewCounter(prometheus.CounterOpts{
-		Name: "antiscam_poisoned_connections_total",
-		Help: "Total number of SSE connections poisoned by antiscam filter",
+	BlockedConnectionsMetric = promauto.NewCounter(prometheus.CounterOpts{
+		Name: "antiscam_blocked_connections_total",
+		Help: "Total number of SSE connections rejected by antiscam filter",
 	})
 	BlocklistSizeMetric = promauto.NewGauge(prometheus.GaugeOpts{
 		Name: "antiscam_blocklist_size",

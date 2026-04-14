@@ -101,6 +101,20 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		http.Error(c.Response().Writer, "streaming unsupported", http.StatusInternalServerError)
 		return c.JSON(utils.HttpResError("streaming unsupported", http.StatusBadRequest))
 	}
+	params := c.QueryParams()
+
+	traceIdParam, ok := params["trace_id"]
+	traceIdValue := ""
+	if ok && len(traceIdParam) > 0 {
+		traceIdValue = traceIdParam[0]
+	}
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdValue, ok && len(traceIdParam) > 0)
+
+	origin := c.Request().Header.Get("Origin")
+	if h.antiscamService.CheckSSE(origin, traceId) {
+		return c.NoContent(http.StatusForbidden)
+	}
+
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "private, no-cache, no-transform")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -112,14 +126,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		return err
 	}
 	c.Response().Flush()
-	params := c.QueryParams()
-
-	traceIdParam, ok := params["trace_id"]
-	traceIdValue := ""
-	if ok && len(traceIdParam) > 0 {
-		traceIdValue = traceIdParam[0]
-	}
-	traceId := handler_common.ParseOrGenerateTraceID(traceIdValue, ok && len(traceIdParam) > 0)
 
 	heartbeatType := "legacy"
 	if heartbeatParam, exists := params["heartbeat"]; exists && len(heartbeatParam) > 0 {
@@ -179,12 +185,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		}
 	}
 	clientIdsPerConnectionMetric.Observe(float64(len(clientIds)))
-
-	origin := c.Request().Header.Get("Origin")
-	if h.antiscamService.CheckSSE(origin, traceId) {
-		h.antiscamService.WritePoisonStream(c.Response().Writer, c.Response(), c.Request().Context().Done())
-		return nil
-	}
 
 	session := h.CreateSession(clientIds, lastEventId, traceId)
 
