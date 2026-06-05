@@ -19,6 +19,8 @@ WORKDIR /app
 # COPY test/ ./test/
 
 COPY Makefile go.mod go.sum .
+COPY internal/ ./internal/
+COPY tonmetrics/ ./tonmetrics/
 COPY test/ ./test/
 
 # Default command - run the Makefile integration target which runs go tests

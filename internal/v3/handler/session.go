@@ -16,6 +16,7 @@ type Session struct {
 	messageCh   chan models.SseMessage
 	Closer      chan interface{}
 	lastEventId int64
+	closeOnce   sync.Once
 }
 
 func NewSession(s storagev3.Storage, clientIds []string, lastEventId int64) *Session {
@@ -35,19 +36,21 @@ func (s *Session) GetMessages() <-chan models.SseMessage {
 	return s.messageCh
 }
 
-// Close stops the session and cleans up resources
+// Close stops the session and cleans up resources. Safe to call multiple times.
 func (s *Session) Close() {
-	log := log.WithField("prefix", "Session.Close")
-	s.mux.Lock()
-	defer s.mux.Unlock()
+	s.closeOnce.Do(func() {
+		log := log.WithField("prefix", "Session.Close")
+		s.mux.Lock()
+		defer s.mux.Unlock()
 
-	err := s.storage.Unsub(context.Background(), s.ClientIds, s.messageCh)
-	if err != nil {
-		log.Errorf("failed to unsubscribe from storage: %v", err)
-	}
+		err := s.storage.Unsub(context.Background(), s.ClientIds, s.messageCh)
+		if err != nil {
+			log.Errorf("failed to unsubscribe from storage: %v", err)
+		}
 
-	close(s.Closer)
-	close(s.messageCh)
+		close(s.Closer)
+		close(s.messageCh)
+	})
 }
 
 // Start begins the session by subscribing to storage

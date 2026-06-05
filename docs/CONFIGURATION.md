@@ -36,6 +36,19 @@ Complete reference for all environment variables supported by TON Connect Bridge
 | `TRUSTED_PROXY_RANGES` | string | `0.0.0.0/0` | Trusted proxy CIDRs for `X-Forwarded-For` (comma-separated)<br>Example: `10.0.0.0/8,172.16.0.0/12,192.168.0.0/16` |
 | `SELF_SIGNED_TLS` | bool | `false` | ⚠️ **Dev only**: Self-signed TLS cert. Use nginx/Cloudflare in prod |
 
+## SSE Connection Lifetime
+
+Long-lived SSE connections can cause load balancing instability — once a client connects, it stays pinned to a single backend indefinitely. To address this, the bridge forcefully closes SSE connections after a configurable maximum lifetime, prompting clients to reconnect (and potentially land on a different backend).
+
+A random jitter is added to each connection's lifetime to prevent all connections from closing simultaneously.
+
+| Variable | Type | Default | Description |
+|----------|------|---------|-------------|
+| `SSE_MAX_LIFETIME` | int | `7200` | Maximum SSE connection lifetime (seconds). Default: 2 hours |
+| `SSE_MAX_LIFETIME_JITTER` | int | `900` | Random jitter added to each connection's lifetime (seconds). Default: up to 15 minutes |
+
+Each connection gets its own random lifetime of `SSE_MAX_LIFETIME + rand(0..SSE_MAX_LIFETIME_JITTER)` seconds. Clients using the standard `EventSource` API will automatically reconnect with `Last-Event-ID`, so no messages are lost.
+
 ## Caching
 
 | Variable | Type | Default | Description |
@@ -105,6 +118,8 @@ BRIDGE_URL="https://use-your-own-bridge.myapp.com"
 NTP_ENABLED=true
 NTP_SERVERS=time.google.com,time.cloudflare.com,pool.ntp.org
 NTP_SYNC_INTERVAL=300
+SSE_MAX_LIFETIME=7200
+SSE_MAX_LIFETIME_JITTER=900
 ```
 
 ## Using Environment Files

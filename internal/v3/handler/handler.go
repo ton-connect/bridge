@@ -8,12 +8,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
 	"sync"
-
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -206,8 +206,19 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		h.removeConnection(session, traceId)
 		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
 	}()
+
+	// Force-close the session after max lifetime. This runs outside the select loop
+	// so it works even when messages are flowing continuously.
+	maxLifetime := sseMaxLifetimeWithJitter()
+	lifetimeTimer := time.AfterFunc(maxLifetime, func() {
+		log.Infof("SSE connection max lifetime reached (%v), closing", maxLifetime)
+		session.Close()
+	})
+	defer lifetimeTimer.Stop()
+
 	ticker := time.NewTicker(h.heartbeatInterval)
 	defer ticker.Stop()
+
 	session.Start()
 loop:
 	for {
@@ -610,4 +621,15 @@ func (h *handler) failValidation(
 		))
 	}
 	return c.JSON(utils.HttpResError(msg, http.StatusBadRequest))
+}
+
+// sseMaxLifetimeWithJitter returns the configured SSE max lifetime plus a random jitter.
+func sseMaxLifetimeWithJitter() time.Duration {
+	base := time.Duration(config.Config.SSEMaxLifetime) * time.Second
+	jitterMax := config.Config.SSEMaxLifetimeJitter
+	if jitterMax <= 0 {
+		return base
+	}
+	jitterSeconds := rand.Int63n(jitterMax)
+	return base + time.Duration(jitterSeconds)*time.Second
 }
