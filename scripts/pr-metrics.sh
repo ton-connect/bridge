@@ -4,6 +4,7 @@ set -e
 STORAGE_TYPE="${1:-unknown}"
 BRIDGE_HOST="${2:-localhost}"
 BRIDGE_PORT="${3:-9103}"
+OUTPUT_FORMAT="${4:-markdown}"
 
 echo "Waiting for bridge service at $BRIDGE_HOST:$BRIDGE_PORT..." >&2
 for i in {1..30}; do
@@ -62,11 +63,17 @@ ALLOCS_COUNT=$(echo "$METRICS_DATA" | awk '/^go_memstats_mallocs_total / {print 
 THREADS_DATA=$(curl -s "http://$BRIDGE_HOST:$BRIDGE_PORT/debug/pprof/threadcreate?debug=1" 2>/dev/null || echo "")
 THREADS=$(echo "$THREADS_DATA" | head -1 | grep -o 'total [0-9]\+' | grep -o '[0-9]\+' || echo "0")
 
-# Output compact markdown to stdout
-echo "**Performance Metrics** ($STORAGE_TYPE storage)"
-echo ""
-echo "- **CPU:** ${PROCESS_CPU_FORMATTED}s (${GOMAXPROCS} cores) • **Goroutines:** $GOROUTINES • **Threads:** $THREADS"
-echo "- **Memory:** ${HEAP_ALLOC_MB}MB heap • ${RSS_MB}MB RAM • ${TOTAL_ALLOCS_MB}MB total • $ALLOCS_COUNT allocs"
-echo "- **GC:** $GC_COUNT cycles (${GC_AVG_MS}ms avg)"
-echo "- **FDs:** $OPEN_FDS/$MAX_FDS (${FD_USAGE_PERCENT}%)"
-echo ""
+# Output
+if [ "$OUTPUT_FORMAT" = "json" ]; then
+  cat <<ENDJSON
+{"storage":"$STORAGE_TYPE","cpu_seconds":"$PROCESS_CPU_FORMATTED","cores":"$GOMAXPROCS","goroutines":"$GOROUTINES","threads":"$THREADS","heap_mb":"$HEAP_ALLOC_MB","rss_mb":"$RSS_MB","total_alloc_mb":"$TOTAL_ALLOCS_MB","allocs_count":"$ALLOCS_COUNT","gc_cycles":"$GC_COUNT","gc_avg_ms":"$GC_AVG_MS","open_fds":"$OPEN_FDS","max_fds":"$MAX_FDS","fd_percent":"$FD_USAGE_PERCENT"}
+ENDJSON
+else
+  echo "**Performance Metrics** ($STORAGE_TYPE storage)"
+  echo ""
+  echo "- **CPU:** ${PROCESS_CPU_FORMATTED}s (${GOMAXPROCS} cores) • **Goroutines:** $GOROUTINES • **Threads:** $THREADS"
+  echo "- **Memory:** ${HEAP_ALLOC_MB}MB heap • ${RSS_MB}MB RAM • ${TOTAL_ALLOCS_MB}MB total • $ALLOCS_COUNT allocs"
+  echo "- **GC:** $GC_COUNT cycles (${GC_AVG_MS}ms avg)"
+  echo "- **FDs:** $OPEN_FDS/$MAX_FDS (${FD_USAGE_PERCENT}%)"
+  echo ""
+fi
