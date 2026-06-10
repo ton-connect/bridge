@@ -1,0 +1,5 @@
+# Release pointer: the published deployment tracks exactly this commit.
+# Changes to this file intentionally do not trigger image builds.
+release:
+  branch: master
+  sha: 7db5dce
