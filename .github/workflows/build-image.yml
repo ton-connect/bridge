@@ -1,0 +1,20 @@
+name: Build image
+
+# Build and publish the bridge v3 container image via the shared workflow.
+# Push-only triggers: the shared job mints short-lived cloud credentials via
+# OIDC, so it must never run for fork pull requests (no pull_request trigger).
+on:
+  push:
+    branches: [master, 'release/**']
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  build:
+    uses: ton-connect/ci/.github/workflows/build-image.yml@main
+    with:
+      ecr-repository: bridge
+      role-arn: arn:aws:iam::990678687129:role/gha-ecr-push-bridge
+      dockerfile: docker/Dockerfile.bridge3
