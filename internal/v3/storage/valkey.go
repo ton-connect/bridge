@@ -263,7 +263,6 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 	log := log.WithField("prefix", "ValkeyStorage.Unsub")
 
 	s.subMutex.Lock()
-	defer s.subMutex.Unlock()
 
 	channelsToUnsub := make([]string, 0)
 
@@ -285,13 +284,21 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 			// No more subscribers for this key, clean up
 			delete(s.subscribers, key)
 			channel := fmt.Sprintf("client:%s", key)
-			channelsToUnsub = append(channelsToUnsub, channel)
+			if s.subscribedChannels[channel] {
+				delete(s.subscribedChannels, channel)
+				channelsToUnsub = append(channelsToUnsub, channel)
+			}
 		} else {
 			// Still have subscribers, just update the list
 			s.subscribers[key] = newSubscribers
 		}
 	}
 
+	s.subMutex.Unlock()
+
+	// SUNSUBSCRIBE is a blocking round-trip on the pub/sub client whose message loop
+	// also acquires subMutex (handlePubSubMessage), so it must run outside the lock —
+	// holding subMutex across Do() deadlocks under connect/disconnect churn.
 	// Only unsubscribe from channels that have NO subscribers left
 	// Unsubscribe from each channel individually to avoid cluster slot conflicts
 	// In a Valkey cluster, channels that hash to different slots cannot be unsubscribed in a single command
@@ -301,9 +308,6 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 			if err != nil {
 				log.Errorf("failed to unsubscribe from channel %s: %v", channel, err)
 				// Continue with other channels even if one fails
-			} else {
-				// Mark channel as unsubscribed
-				delete(s.subscribedChannels, channel)
 			}
 		}
 	}
