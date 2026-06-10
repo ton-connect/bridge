@@ -1,0 +1,17 @@
+name: Verify release pointer
+
+# Validates edits to version.yaml — the release pointer that selects the
+# published image to deploy. Runs on every pull request (no paths filter) so it
+# always reports a status; the shared job no-ops when version.yaml is untouched.
+on: pull_request
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  verify:
+    uses: ton-connect/ci/.github/workflows/verify-release-pointer.yml@main
+    with:
+      ecr-repository: bridge
+      role-arn: arn:aws:iam::990678687129:role/gha-ecr-read-bridge
