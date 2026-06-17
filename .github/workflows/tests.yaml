@@ -35,7 +35,7 @@ jobs:
     - uses: actions/checkout@v6
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Start bridge
       run: docker compose -f docker/docker-compose.${{ matrix.storage }}.yml up --build -d bridge
@@ -84,7 +84,7 @@ jobs:
     - uses: actions/checkout@v6
 
     - name: Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: Collect PR branch metrics (5 runs avg)
       run: |
@@ -93,7 +93,7 @@ jobs:
           "./scripts/pr-metrics.sh" > metrics-${{ matrix.storage }}-pr.json
 
     - name: Upload PR metrics
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v7
       with:
         name: metrics-${{ matrix.storage }}-pr
         path: metrics-${{ matrix.storage }}-pr.json
@@ -117,7 +117,7 @@ jobs:
           "/tmp/pr-metrics.sh" > metrics-${{ matrix.storage }}-base.json
 
     - name: Upload master metrics
-      uses: actions/upload-artifact@v5
+      uses: actions/upload-artifact@v7
       with:
         name: metrics-${{ matrix.storage }}-base
         path: metrics-${{ matrix.storage }}-base.json
@@ -132,7 +132,7 @@ jobs:
     - uses: actions/checkout@v6
 
     - name: Download all metrics artifacts
-      uses: actions/download-artifact@v5
+      uses: actions/download-artifact@v8
       with:
         pattern: metrics-*
         path: metrics
@@ -143,7 +143,7 @@ jobs:
 
     - name: Post comparison comment
       continue-on-error: true
-      uses: actions/github-script@v8
+      uses: actions/github-script@v9
       with:
         script: |
           const fs = require('fs');
