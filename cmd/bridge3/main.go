@@ -14,6 +14,7 @@ import (
 	log "github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal"
 	"github.com/ton-connect/bridge/internal/analytics"
+	"github.com/ton-connect/bridge/internal/antiscam"
 	"github.com/ton-connect/bridge/internal/app"
 	"github.com/ton-connect/bridge/internal/config"
 	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
@@ -153,7 +154,23 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, collector, analyticsBuilder)
+	var domainChecker antiscam.DomainChecker
+	if config.Config.AntiscamEnabled && config.Config.BlackListedDomainsURL != "" {
+		blocklist := antiscam.NewBlocklist(config.Config.BlackListedDomainsURL, time.Duration(config.Config.BlackListRefreshInterval)*time.Second)
+		blocklist.Start(context.Background())
+		defer blocklist.Stop()
+		domainChecker = blocklist
+		log.WithFields(log.Fields{
+			"url":              config.Config.BlackListedDomainsURL,
+			"refresh_interval": config.Config.BlackListRefreshInterval,
+		}).Info("Antiscam domain filtering enabled")
+	} else {
+		domainChecker = &antiscam.NoopChecker{}
+		log.Info("Antiscam domain filtering disabled")
+	}
+	antiscamService := antiscam.NewService(domainChecker)
+
+	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, collector, analyticsBuilder, antiscamService)
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)

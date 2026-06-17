@@ -21,6 +21,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/analytics"
+	"github.com/ton-connect/bridge/internal/antiscam"
 	"github.com/ton-connect/bridge/internal/config"
 	handler_common "github.com/ton-connect/bridge/internal/handler"
 	"github.com/ton-connect/bridge/internal/models"
@@ -74,9 +75,10 @@ type handler struct {
 	realIP            *utils.RealIPExtractor
 	eventCollector    analytics.EventCollector
 	eventBuilder      analytics.EventBuilder
+	antiscamService   *antiscam.Service
 }
 
-func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, timeProvider ntp.TimeProvider, collector analytics.EventCollector, builder analytics.EventBuilder) *handler {
+func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, timeProvider ntp.TimeProvider, collector analytics.EventCollector, builder analytics.EventBuilder, antiscamService *antiscam.Service) *handler {
 	// TODO support extractor in v3
 	h := handler{
 		Mux:               sync.RWMutex{},
@@ -87,6 +89,7 @@ func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor 
 		heartbeatInterval: heartbeatInterval,
 		eventCollector:    collector,
 		eventBuilder:      builder,
+		antiscamService:   antiscamService,
 	}
 	return &h
 }
@@ -98,6 +101,20 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		http.Error(c.Response().Writer, "streaming unsupported", http.StatusInternalServerError)
 		return c.JSON(utils.HttpResError("streaming unsupported", http.StatusBadRequest))
 	}
+	params := c.QueryParams()
+
+	traceIdParam, ok := params["trace_id"]
+	traceIdValue := ""
+	if ok && len(traceIdParam) > 0 {
+		traceIdValue = traceIdParam[0]
+	}
+	traceId := handler_common.ParseOrGenerateTraceID(traceIdValue, ok && len(traceIdParam) > 0)
+
+	origin := c.Request().Header.Get("Origin")
+	if h.antiscamService.CheckSSE(origin, traceId) {
+		return c.NoContent(http.StatusForbidden)
+	}
+
 	c.Response().Header().Set("Content-Type", "text/event-stream")
 	c.Response().Header().Set("Cache-Control", "private, no-cache, no-transform")
 	c.Response().Header().Set("Connection", "keep-alive")
@@ -109,14 +126,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		return err
 	}
 	c.Response().Flush()
-	params := c.QueryParams()
-
-	traceIdParam, ok := params["trace_id"]
-	traceIdValue := ""
-	if ok && len(traceIdParam) > 0 {
-		traceIdValue = traceIdParam[0]
-	}
-	traceId := handler_common.ParseOrGenerateTraceID(traceIdValue, ok && len(traceIdParam) > 0)
 
 	heartbeatType := "legacy"
 	if heartbeatParam, exists := params["heartbeat"]; exists && len(heartbeatParam) > 0 {
@@ -350,6 +359,11 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		badRequestMetric.Inc()
 		log.Error(err)
 		return h.failValidation(c, err.Error(), clientID.String(), traceId, "", "")
+	}
+
+	origin := c.Request().Header.Get("Origin")
+	if h.antiscamService.CheckPush(origin, traceId) {
+		return c.JSON(http.StatusOK, utils.HttpResOk())
 	}
 
 	if config.Config.CopyToURL != "" {

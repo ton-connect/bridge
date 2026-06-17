@@ -43,6 +43,11 @@ var Config = struct {
 	TrustedProxyRanges []string `env:"TRUSTED_PROXY_RANGES" envDefault:"0.0.0.0/0"`
 	SelfSignedTLS      bool     `env:"SELF_SIGNED_TLS" envDefault:"false"`
 
+	// Antiscam
+	AntiscamEnabled          bool   `env:"ANTISCAM_ENABLED" envDefault:"false"`
+	BlackListedDomainsURL    string `env:"BLACK_LISTED_DOMAINS_URL"`
+	BlackListRefreshInterval int    `env:"BLACK_LIST_REFRESH_INTERVAL" envDefault:"600"`
+
 	// Caching
 	ConnectCacheSize      int  `env:"CONNECT_CACHE_SIZE" envDefault:"2000000"`
 	ConnectCacheTTL       int  `env:"CONNECT_CACHE_TTL" envDefault:"300"`
