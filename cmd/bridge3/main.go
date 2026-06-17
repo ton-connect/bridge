@@ -124,6 +124,7 @@ func main() {
 		DisableStackAll:   true,
 		DisablePrintStack: false,
 	}))
+	//nolint:staticcheck // keep echo access-log middleware until a dedicated logging migration
 	e.Use(middleware.Logger())
 	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
 		Skipper: func(c echo.Context) bool {
