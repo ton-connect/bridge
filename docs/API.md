@@ -6,8 +6,9 @@ This bridge implements the [TON Connect HTTP Bridge Specification](https://githu
 
 **Port:** `8081` (default, configurable via `PORT`)
 
-- `POST /bridge/message` - Send a message to a client
+- `POST /bridge/message` - Send a message to a client (optional `wallet` param triggers a signed [webhook](WEBHOOKS.md))
 - `GET /bridge/events` - Subscribe to SSE stream for real-time messages
+- `GET /bridge/webhook/public-key` - Ed25519 public key for [webhook verification](WEBHOOKS.md)
 
 ## Health & Monitoring Endpoints
 

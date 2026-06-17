@@ -21,6 +21,7 @@ import (
 	"github.com/ton-connect/bridge/internal/utils"
 	handlerv3 "github.com/ton-connect/bridge/internal/v3/handler"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
+	"github.com/ton-connect/bridge/internal/webhook"
 	"github.com/ton-connect/bridge/tonmetrics"
 	"golang.org/x/exp/slices"
 	"golang.org/x/time/rate"
@@ -153,11 +154,30 @@ func main() {
 		e.Use(corsConfig)
 	}
 
-	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, collector, analyticsBuilder)
+	walletWebhookSvc, err := webhook.NewServiceWithOptions(webhook.Options{
+		InlineConfigJSON: config.Config.WebhookConfig,
+		ConfigSource:     config.Config.WebhookConfigSource,
+		RefreshInterval:  config.ParseWebhookConfigRefreshInterval(),
+		PrivateKeyPEM:    config.Config.WebhookPrivateKey,
+		PrivateKeyPath:   config.Config.WebhookPrivateKeyPath,
+	})
+	if err != nil {
+		log.Fatalf("failed to create wallet webhook service: %v", err)
+	}
+	defer walletWebhookSvc.Close()
+
+	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, collector, analyticsBuilder, walletWebhookSvc)
 
 	e.GET("/bridge/events", h.EventRegistrationHandler)
 	e.POST("/bridge/message", h.SendMessageHandler)
 	e.POST("/bridge/verify", h.ConnectVerifyHandler)
+	e.GET("/bridge/webhook/public-key", func(c echo.Context) error {
+		pemBytes, err := walletWebhookSvc.PublicKeyPEM()
+		if err != nil {
+			return c.String(http.StatusNotFound, "public key not available")
+		}
+		return c.Blob(http.StatusOK, "application/x-pem-file", pemBytes)
+	})
 
 	var existedPaths []string
 	for _, r := range e.Routes() {

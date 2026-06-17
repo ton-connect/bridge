@@ -27,6 +27,7 @@ import (
 	"github.com/ton-connect/bridge/internal/models"
 	"github.com/ton-connect/bridge/internal/utils"
 	"github.com/ton-connect/bridge/internal/v1/storage"
+	"github.com/ton-connect/bridge/internal/webhook"
 )
 
 var validHeartbeatTypes = map[string]string{
@@ -83,9 +84,10 @@ type handler struct {
 	realIP            *utils.RealIPExtractor
 	eventCollector    analytics.EventCollector
 	eventBuilder      analytics.EventBuilder
+	walletWebhook     *webhook.Service
 }
 
-func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, collector analytics.EventCollector, builder analytics.EventBuilder) *handler {
+func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, collector analytics.EventCollector, builder analytics.EventBuilder, walletWebhook *webhook.Service) *handler {
 	connectionCache := NewConnectionCache(config.Config.ConnectCacheSize, time.Duration(config.Config.ConnectCacheTTL)*time.Second)
 	connectionCache.StartBackgroundCleanup(nil)
 
@@ -99,6 +101,7 @@ func NewHandler(db storage.Storage, heartbeatInterval time.Duration, extractor *
 		realIP:            extractor,
 		eventCollector:    collector,
 		eventBuilder:      builder,
+		walletWebhook:     walletWebhook,
 	}
 	return &h
 }
@@ -369,11 +372,20 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	}
 	topicParam, ok := params["topic"]
 	topic := ""
-	if ok {
+	if ok && len(topicParam) > 0 {
 		topic = topicParam[0]
-		go func(clientID, topic, message string) {
-			handler_common.SendWebhook(clientID, handler_common.WebhookData{Topic: topic, Hash: message})
-		}(clientID.String(), topic, string(message))
+
+		if h.walletWebhook != nil {
+			if walletParam, ok := params["wallet"]; ok && len(walletParam) > 0 {
+				wallet := walletParam[0]
+				if walletCfg, ok := h.walletWebhook.GetWalletConfig(wallet); ok {
+					go h.walletWebhook.Send(walletCfg, clientID.String(), webhook.WebhookData{
+						Topic: topic,
+						Hash:  string(message),
+					})
+				}
+			}
+		}
 	}
 
 	var requestSource string

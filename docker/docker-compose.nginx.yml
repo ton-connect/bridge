@@ -134,6 +134,7 @@ services:
       TON_ANALYTICS_NETWORK_ID: "-239"
       TON_ANALYTICS_BRIDGE_VERSION: "test-1.0.0"
       TON_ANALYTICS_BRIDGE_URL: "http://bridge-instance1:8080"
+      WEBHOOK_CONFIG: '{"wallets":{"testwallet":{"url":"http://gointegration:9091/","auth":"test-webhook-secret"}}}'
     ports:
       - "9103:9103"  # pprof and metrics
     depends_on:
@@ -157,6 +158,7 @@ services:
       HEARTBEAT_INTERVAL: 10
       RPS_LIMIT: 1000
       CONNECTIONS_LIMIT: 200
+      WEBHOOK_CONFIG: '{"wallets":{"testwallet":{"url":"http://gointegration:9091/","auth":"test-webhook-secret"}}}'
     depends_on:
       valkey-cluster-init:
         condition: service_completed_successfully
@@ -178,6 +180,7 @@ services:
       HEARTBEAT_INTERVAL: 10
       RPS_LIMIT: 1000
       CONNECTIONS_LIMIT: 200
+      WEBHOOK_CONFIG: '{"wallets":{"testwallet":{"url":"http://gointegration:9091/","auth":"test-webhook-secret"}}}'
     depends_on:
       valkey-cluster-init:
         condition: service_completed_successfully
@@ -245,6 +248,7 @@ services:
     container_name: bridge-gointegration
     environment:
       BRIDGE_URL: "http://172.20.0.40:80/bridge"
+      WEBHOOK_MOCK_HOST: "gointegration"
     depends_on:
       nginx:
         condition: service_started

@@ -1,6 +1,7 @@
 package handlerv3
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -12,6 +13,7 @@ import (
 	"github.com/ton-connect/bridge/internal/ntp"
 	"github.com/ton-connect/bridge/internal/utils"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
+	"github.com/ton-connect/bridge/internal/webhook"
 )
 
 const (
@@ -166,7 +168,7 @@ func TestHandler(t *testing.T) {
 				t.Fatalf("failed to create RealIPExtractor: %v", err)
 			}
 
-			h := NewHandler(memStorage, 10*time.Second, extractor, ntp.NewLocalTimeProvider(), nil, nil)
+			h := NewHandler(memStorage, 10*time.Second, extractor, ntp.NewLocalTimeProvider(), nil, nil, nil)
 
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
@@ -184,5 +186,53 @@ func TestHandler(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestHandler_NoWalletWebhookWithoutTopic(t *testing.T) {
+	e := echo.New()
+
+	mock := webhook.NewMock(nil)
+	defer mock.Close()
+
+	walletWebhookSvc, err := webhook.NewService(
+		fmt.Sprintf(`{"testwallet":{"url":"%s"}}`, mock.URL()),
+		"",
+	)
+	if err != nil {
+		t.Fatalf("NewService: %v", err)
+	}
+
+	values := url.Values{}
+	values.Set("client_id", defaultClientID)
+	values.Set("to", defaultToID)
+	values.Set("ttl", "60")
+	values.Set("wallet", "testwallet")
+	values.Set("no_request_source", "true")
+
+	req := httptest.NewRequest(http.MethodPost, "/bridge/message?"+values.Encode(), strings.NewReader("payload"))
+	req.Header.Set("Content-Type", "application/octet-stream")
+
+	memStorage := storagev3.NewMemStorage(nil, nil)
+	extractor, err := utils.NewRealIPExtractor([]string{})
+	if err != nil {
+		t.Fatalf("failed to create RealIPExtractor: %v", err)
+	}
+
+	h := NewHandler(memStorage, 10*time.Second, extractor, ntp.NewLocalTimeProvider(), nil, nil, walletWebhookSvc)
+
+	rec := httptest.NewRecorder()
+	c := e.NewContext(req, rec)
+	if err := h.SendMessageHandler(c); err != nil {
+		t.Fatalf("SendMessageHandler returned error: %v", err)
+	}
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected status %d, got %d", http.StatusOK, rec.Code)
+	}
+
+	time.Sleep(200 * time.Millisecond)
+	if got := len(mock.Records()); got != 0 {
+		t.Fatalf("expected 0 wallet webhooks without topic, got %d", got)
 	}
 }

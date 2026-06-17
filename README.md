@@ -26,6 +26,7 @@ Use `make help` to see all available commands.
 ## 📚 Documentation
 
 - [Architecture](docs/ARCHITECTURE.md) - Bridge architecture, pub/sub design, and scaling
+- [Webhooks](docs/WEBHOOKS.md) - Per-wallet webhook delivery, payload format, and signature verification
 - [Configuration](docs/CONFIGURATION.md) - Complete environment variables reference
 - [Deployment](docs/DEPLOYMENT.md) - Production deployment patterns and best practices
 - [Known Issues](docs/KNOWN_ISSUES.md) - Common issues and troubleshooting
