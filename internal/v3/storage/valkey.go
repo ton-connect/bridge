@@ -21,6 +21,15 @@ type ValkeyStorage struct {
 	subMutex    sync.RWMutex
 }
 
+// objStoreKeyPrefix is the Redis key namespace for all stored objects.
+const objStoreKeyPrefix = "objstore:"
+
+// valkeyObjectEntry is the JSON-serialized format for objects stored in Valkey/Redis.
+type valkeyObjectEntry struct {
+	Object      []byte `json:"object"`
+	ContentType string `json:"content_type"`
+}
+
 // NewValkeyStorage creates a Valkey-backed storage client.
 // Expects a Redis cluster URL (parsed by redis.ParseURL) and requires
 // Redis Cluster + Redis 7+ sharded pub/sub. Returns *ValkeyStorage or error.
@@ -392,6 +401,49 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 
 	log.Debugf("connection verification result: %s for client %s", leastSuspicious, conn.ClientID)
 	return leastSuspicious, nil
+}
+
+// StoreObject serializes the object with its content type and saves it to Valkey with the given TTL.
+// Returns a content-addressable ID.
+func (s *ValkeyStorage) StoreObject(ctx context.Context, object []byte, contentType string, ttl int64) (string, error) {
+	id := HashObject(object, contentType)
+	key := objStoreKeyPrefix + id
+
+	entry := valkeyObjectEntry{
+		Object:      object,
+		ContentType: contentType,
+	}
+
+	data, err := json.Marshal(entry)
+	if err != nil {
+		return "", fmt.Errorf("failed to marshal object: %w", err)
+	}
+
+	err = s.client.Set(ctx, key, data, time.Duration(ttl)*time.Second).Err()
+	if err != nil {
+		return "", fmt.Errorf("failed to store object: %w", err)
+	}
+
+	return id, nil
+}
+
+// GetObject retrieves an object by ID from Valkey, deserializes it, and returns the bytes and content type.
+func (s *ValkeyStorage) GetObject(ctx context.Context, id string) ([]byte, string, error) {
+	key := objStoreKeyPrefix + id
+	val, err := s.client.Get(ctx, key).Result()
+	if err != nil {
+		if err == redis.Nil {
+			return nil, "", fmt.Errorf("object not found")
+		}
+		return nil, "", fmt.Errorf("failed to get object: %w", err)
+	}
+
+	var entry valkeyObjectEntry
+	if err := json.Unmarshal([]byte(val), &entry); err != nil {
+		return nil, "", fmt.Errorf("failed to unmarshal object: %w", err)
+	}
+
+	return entry.Object, entry.ContentType, nil
 }
 
 // HealthCheck verifies the connection to Valkey

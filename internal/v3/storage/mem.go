@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"sync"
 	"time"
 
@@ -20,10 +21,18 @@ var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "The total number of expired messages",
 })
 
+// storedObject holds an object's data and expiration metadata in the in-memory store.
+type storedObject struct {
+	Object      []byte
+	ContentType string
+	ExpiresAt   time.Time
+}
+
 type MemStorage struct {
 	db           map[string][]message
 	subscribers  map[string][]chan<- models.SseMessage
 	connections  map[string][]memConnection // clientID -> connections
+	objects      map[string]storedObject
 	lock         sync.Mutex
 	analytics    analytics.EventCollector
 	eventBuilder analytics.EventBuilder
@@ -50,6 +59,7 @@ func NewMemStorage(collector analytics.EventCollector, builder analytics.EventBu
 		db:           map[string][]message{},
 		subscribers:  make(map[string][]chan<- models.SseMessage),
 		connections:  make(map[string][]memConnection),
+		objects:      make(map[string]storedObject),
 		analytics:    collector,
 		eventBuilder: builder,
 	}
@@ -75,8 +85,9 @@ func removeExpiredMessages(ms []message, now time.Time) ([]message, []message) {
 func (s *MemStorage) watcher() {
 	for {
 		s.lock.Lock()
+		now := time.Now()
 		for key, msgs := range s.db {
-			actual, expired := removeExpiredMessages(msgs, time.Now())
+			actual, expired := removeExpiredMessages(msgs, now)
 			s.db[key] = actual
 
 			for _, m := range expired {
@@ -105,6 +116,11 @@ func (s *MemStorage) watcher() {
 					m.EventId,
 					messageHash,
 				))
+			}
+		}
+		for id, obj := range s.objects {
+			if now.After(obj.ExpiresAt) {
+				delete(s.objects, id)
 			}
 		}
 		s.lock.Unlock()
@@ -225,6 +241,38 @@ func (s *MemStorage) AddConnection(ctx context.Context, conn ConnectionInfo, ttl
 
 	s.connections[conn.ClientID] = append(s.connections[conn.ClientID], memConn)
 	return nil
+}
+
+// StoreObject saves an object in memory with a TTL. Returns a content-addressable ID.
+func (s *MemStorage) StoreObject(ctx context.Context, object []byte, contentType string, ttl int64) (string, error) {
+	id := HashObject(object, contentType)
+
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	s.objects[id] = storedObject{
+		Object:      object,
+		ContentType: contentType,
+		ExpiresAt:   time.Now().Add(time.Duration(ttl) * time.Second),
+	}
+
+	return id, nil
+}
+
+// GetObject retrieves an object by ID. Returns an error if the object is not found or has expired.
+func (s *MemStorage) GetObject(ctx context.Context, id string) ([]byte, string, error) {
+	s.lock.Lock()
+	defer s.lock.Unlock()
+
+	obj, exists := s.objects[id]
+	if !exists || time.Now().After(obj.ExpiresAt) {
+		if exists {
+			delete(s.objects, id)
+		}
+		return nil, "", fmt.Errorf("object not found")
+	}
+
+	return obj.Object, obj.ContentType, nil
 }
 
 // VerifyConnection checks if connection matches cached data
