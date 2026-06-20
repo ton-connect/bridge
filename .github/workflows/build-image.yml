@@ -4,8 +4,14 @@ name: Build image
 # Push-only triggers: the shared job mints short-lived cloud credentials via
 # OIDC, so it must never run for fork pull requests (no pull_request trigger).
 on:
+  # version.yaml only repoints the release to an already-built commit, and docs change nothing
+  # in the image, so neither needs a rebuild. service.yaml is intentionally NOT ignored: the
+  # appset reads it at the pointer commit, so that commit must have an image in the registry.
   push:
     branches: [master, 'release/**']
+    paths-ignore:
+      - 'version.yaml'
+      - '**/*.md'
 
 permissions:
   id-token: write
