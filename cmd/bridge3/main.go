@@ -131,8 +131,43 @@ func main() {
 		DisableStackAll:   true,
 		DisablePrintStack: false,
 	}))
-	//nolint:staticcheck // keep echo access-log middleware until a dedicated logging migration
-	e.Use(middleware.Logger())
+	// Structured access log via the modern RequestLogger API, emitted through logrus (JSON formatter
+	// set in config.LoadConfig) so every request line carries a `msg` and a status-derived `level`,
+	// consistent with the app logs. Replaces the deprecated middleware.Logger(), whose hardcoded JSON
+	// template had neither field.
+	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
+		LogMethod:    true,
+		LogURI:       true,
+		LogStatus:    true,
+		LogLatency:   true,
+		LogRemoteIP:  true,
+		LogHost:      true,
+		LogUserAgent: true,
+		LogError:     true,
+		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
+			entry := log.WithFields(log.Fields{
+				"method":     v.Method,
+				"uri":        v.URI,
+				"status":     v.Status,
+				"latency":    v.Latency.String(),
+				"remote_ip":  v.RemoteIP,
+				"host":       v.Host,
+				"user_agent": v.UserAgent,
+			})
+			if v.Error != nil {
+				entry = entry.WithField("error", v.Error.Error())
+			}
+			switch {
+			case v.Status >= 500:
+				entry.Error("http_request")
+			case v.Status >= 400:
+				entry.Warn("http_request")
+			default:
+				entry.Info("http_request")
+			}
+			return nil
+		},
+	}))
 	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
 		Skipper: func(c echo.Context) bool {
 			if app.SkipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/message" {
