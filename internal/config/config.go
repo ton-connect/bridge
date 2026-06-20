@@ -87,4 +87,8 @@ func LoadConfig() {
 		level = logrus.InfoLevel
 	}
 	logrus.SetLevel(level)
+	// Emit structured JSON logs (logrus' default is plain key=value text). Gives every app log and
+	// the access log (cmd/*/main.go RequestLogger) a machine-parseable `level` + `msg`, so structured
+	// log backends ingest them natively instead of re-parsing text.
+	logrus.SetFormatter(&logrus.JSONFormatter{})
 }
