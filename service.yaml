@@ -8,7 +8,8 @@ resources:
   limits: { cpu: 500m, memory: 256Mi }
 healthcheck:
   port: 9103
-  readiness-path: /ready
-  liveness-path: /health
+  # readiness (and the LB health check) flips to 503 on drain so traffic stops; liveness stays 200.
+  readiness-path: /readyz
+  liveness-path: /healthz
 env:
   STORAGE: valkey
