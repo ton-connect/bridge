@@ -2,9 +2,12 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"net/http/pprof"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/labstack/echo-contrib/prometheus"
@@ -29,6 +32,8 @@ import (
 func main() {
 	log.Info(fmt.Sprintf("Bridge3 %s is running", internal.BridgeVersionRevision))
 	config.LoadConfig()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
+	defer stop()
 	app.InitMetrics()
 
 	var timeProvider ntp.TimeProvider
@@ -109,6 +114,8 @@ func main() {
 	mux := http.NewServeMux()
 	mux.Handle("/health", http.HandlerFunc(healthManager.HealthHandler))
 	mux.Handle("/ready", http.HandlerFunc(healthManager.HealthHandler))
+	mux.Handle("/healthz", http.HandlerFunc(healthManager.LivenessHandler))
+	mux.Handle("/readyz", http.HandlerFunc(healthManager.ReadinessHandler))
 	mux.Handle("/version", http.HandlerFunc(app.VersionHandler))
 	mux.Handle("/metrics", promhttp.Handler())
 	if config.Config.PprofEnabled {
@@ -167,13 +174,34 @@ func main() {
 		return !slices.Contains(existedPaths, c.Path())
 	})
 	e.Use(p.HandlerFunc)
-	if config.Config.SelfSignedTLS {
-		cert, key, err := utils.GenerateSelfSignedCertificate()
-		if err != nil {
-			log.Fatalf("failed to generate self signed certificate: %v", err)
+	go func() {
+		var err error
+		if config.Config.SelfSignedTLS {
+			cert, key, certErr := utils.GenerateSelfSignedCertificate()
+			if certErr != nil {
+				log.Fatalf("failed to generate self signed certificate: %v", certErr)
+			}
+			err = e.StartTLS(fmt.Sprintf(":%v", config.Config.Port), cert, key)
+		} else {
+			err = e.Start(fmt.Sprintf(":%v", config.Config.Port))
 		}
-		log.Fatal(e.StartTLS(fmt.Sprintf(":%v", config.Config.Port), cert, key))
-	} else {
-		log.Fatal(e.Start(fmt.Sprintf(":%v", config.Config.Port)))
+		// Shutdown closes the listener and returns ErrServerClosed, the normal stop path.
+		if err != nil && !errors.Is(err, http.ErrServerClosed) {
+			log.Fatalf("bridge server: %v", err)
+		}
+	}()
+
+	<-ctx.Done()
+	// Graceful shutdown: flip /readyz to 503 so the load balancer takes the pod out of rotation
+	// while it is still listening, wait the drain window, then drain in-flight requests. SSE streams
+	// never complete on their own, so the bounded ShutdownTimeout ends the wait (clients reconnect).
+	log.Info("SIGTERM received, draining")
+	healthManager.SetDraining()
+	time.Sleep(time.Duration(config.Config.ShutdownDrainDelay) * time.Second)
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(config.Config.ShutdownTimeout)*time.Second)
+	defer cancel()
+	if err := e.Shutdown(shutdownCtx); err != nil {
+		log.Errorf("bridge shutdown: %v", err)
 	}
+	log.Info("bridge stopped")
 }
