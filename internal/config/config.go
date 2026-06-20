@@ -14,6 +14,13 @@ var Config = struct {
 	Port         int    `env:"PORT" envDefault:"8081"`
 	MetricsPort  int    `env:"METRICS_PORT" envDefault:"9103"`
 	PprofEnabled bool   `env:"PPROF_ENABLED" envDefault:"true"`
+	// Graceful shutdown. On SIGTERM /readyz flips to 503 first; we keep serving for
+	// ShutdownDrainDelay so the load balancer health-check marks the instance unhealthy and stops
+	// routing before we stop accepting, then drain in-flight requests for up to ShutdownTimeout. SSE
+	// streams never complete on their own, so ShutdownTimeout caps how long we wait on them
+	// (clients reconnect). Both must sum below the pod terminationGracePeriodSeconds (40s).
+	ShutdownDrainDelay int `env:"SHUTDOWN_DRAIN_DELAY" envDefault:"15"`
+	ShutdownTimeout    int `env:"SHUTDOWN_TIMEOUT" envDefault:"10"`
 
 	// Storage
 	Storage   string `env:"STORAGE" envDefault:"memory"` // For v3 only: memory or valkey
