@@ -17,12 +17,21 @@ type HealthChecker interface {
 
 // HealthManager manages the health status of the bridge
 type HealthManager struct {
-	healthy int64 // Use atomic for thread-safe access
+	healthy  int64 // storage reachability; updated by StartHealthMonitoring
+	draining int64 // 1 once SIGTERM shutdown has begun; flips /readyz to 503
 }
 
 // NewHealthManager creates a new health manager
 func NewHealthManager() *HealthManager {
 	return &HealthManager{healthy: 0}
+}
+
+// SetDraining marks the bridge as shutting down so ReadinessHandler starts returning 503, taking
+// the pod out of the load balancer rotation while it is still listening, before the HTTP server
+// actually stops accepting connections.
+func (h *HealthManager) SetDraining() {
+	atomic.StoreInt64(&h.draining, 1)
+	ReadyMetric.Set(0)
 }
 
 // UpdateHealthStatus checks storage health and updates metrics
@@ -69,6 +78,40 @@ func (h *HealthManager) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	_, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n")
 	if err != nil {
 		log.Errorf("health response write error: %v", err)
+	}
+}
+
+// LivenessHandler answers /healthz: it reports only that the PROCESS is alive and intentionally does
+// NOT check Valkey. Liveness drives the kubelet's restart decision, so coupling it to a shared
+// dependency would let one Valkey blip restart every replica at once (correlated eviction).
+func (h *HealthManager) LivenessHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Build-Commit", internal.BridgeVersionRevision)
+	w.WriteHeader(http.StatusOK)
+	if _, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n"); err != nil {
+		log.Errorf("liveness response write error: %v", err)
+	}
+}
+
+// ReadinessHandler answers /readyz, the load balancer health-check and readiness probe target. It
+// returns 503 once draining so the load balancer stops routing during shutdown, otherwise 200. It
+// is deliberately NOT Valkey-coupled: Valkey is shared by all replicas, so failing readiness on a
+// Valkey outage would take the whole pool out of rotation and 503 every request, whereas staying in
+// rotation lets the bridge return per-request errors that the client SDK retries. Storage health is
+// still exported via HealthMetric for alerting.
+func (h *HealthManager) ReadinessHandler(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Build-Commit", internal.BridgeVersionRevision)
+	if atomic.LoadInt64(&h.draining) != 0 {
+		w.WriteHeader(http.StatusServiceUnavailable)
+		if _, err := fmt.Fprintf(w, `{"status":"draining"}`+"\n"); err != nil {
+			log.Errorf("readiness response write error: %v", err)
+		}
+		return
+	}
+	w.WriteHeader(http.StatusOK)
+	if _, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n"); err != nil {
+		log.Errorf("readiness response write error: %v", err)
 	}
 }
 
