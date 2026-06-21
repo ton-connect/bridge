@@ -8,9 +8,10 @@ import (
 	"sync"
 	"time"
 
+	"log/slog"
+
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/models"
 )
@@ -91,13 +92,7 @@ func (s *MemStorage) watcher() {
 					messageHash = hex.EncodeToString(contentHash[:])
 				}
 				expiredMessagesMetric.Inc()
-				logrus.WithFields(map[string]interface{}{
-					"hash":     messageHash,
-					"from":     fromID,
-					"to":       key,
-					"event_id": m.EventId,
-					"trace_id": bridgeMsg.TraceId,
-				}).Debug("message expired")
+				slog.Debug("message expired", "hash", messageHash, "from", fromID, "to", key, "event_id", m.EventId, "trace_id", bridgeMsg.TraceId)
 
 				_ = s.analytics.TryAdd(s.eventBuilder.NewBridgeMessageExpiredEvent(
 					key,
