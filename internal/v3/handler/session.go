@@ -2,9 +2,9 @@ package handlerv3
 
 import (
 	"context"
+	"log/slog"
 	"sync"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/models"
 	"github.com/ton-connect/bridge/internal/v3/storage"
 )
@@ -39,13 +39,13 @@ func (s *Session) GetMessages() <-chan models.SseMessage {
 // Close stops the session and cleans up resources. Safe to call multiple times.
 func (s *Session) Close() {
 	s.closeOnce.Do(func() {
-		log := log.WithField("prefix", "Session.Close")
+		logger := slog.With("prefix", "Session.Close")
 		s.mux.Lock()
 		defer s.mux.Unlock()
 
 		err := s.storage.Unsub(context.Background(), s.ClientIds, s.messageCh)
 		if err != nil {
-			log.Errorf("failed to unsubscribe from storage: %v", err)
+			logger.Error("failed to unsubscribe from storage", "err", err)
 		}
 
 		close(s.Closer)
