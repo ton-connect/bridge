@@ -3,10 +3,8 @@ package config
 import (
 	"log/slog"
 	"os"
-	"strings"
 
 	"github.com/caarlos0/env/v6"
-	"github.com/sirupsen/logrus"
 )
 
 var Config = struct {
@@ -77,20 +75,12 @@ var Config = struct {
 	TonAnalyticsNetworkId     string `env:"TON_ANALYTICS_NETWORK_ID" envDefault:"-239"`
 }{}
 
+// LoadConfig parses the process environment into Config. Logger configuration is no longer done here:
+// the v3 binary configures slog via obs.Setup, and the v1 binary configures logrus via configureV1Logrus
+// in cmd/bridge. Keeping this package logrus-free is what lets the v3 binary link without logrus.
 func LoadConfig() {
 	if err := env.Parse(&Config); err != nil {
 		slog.Error("config parsing failed", "err", err)
 		os.Exit(1)
 	}
-
-	level, err := logrus.ParseLevel(strings.ToLower(Config.LogLevel))
-	if err != nil {
-		slog.Warn("invalid LOG_LEVEL, using default", "value", Config.LogLevel, "default", "info")
-		level = logrus.InfoLevel
-	}
-	logrus.SetLevel(level)
-	// Emit structured JSON logs (logrus' default is plain key=value text). Gives every app log and
-	// the access log (cmd/*/main.go RequestLogger) a machine-parseable `level` + `msg`, so structured
-	// log backends ingest them natively instead of re-parsing text.
-	logrus.SetFormatter(&logrus.JSONFormatter{})
 }
