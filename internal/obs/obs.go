@@ -7,38 +7,44 @@ package obs
 import (
 	"io"
 	"log/slog"
-	"os"
-	"runtime/debug"
 	"strings"
+
+	"github.com/ton-connect/bridge/internal"
 )
 
-// Setup builds the root JSON logger on w, filtered at level (unknown → info),
-// tagged with constant service + git_sha attributes.
+// Setup builds the root JSON logger on w, filtered at level, tagged with constant
+// service + git_sha attributes. An unrecognized level falls back to info and the
+// returned logger emits a warning, so a misconfigured LOG_LEVEL is not silent.
 func Setup(w io.Writer, level, service string) *slog.Logger {
-	var l slog.Level
-	switch strings.ToLower(level) {
-	case "debug", "trace":
-		l = slog.LevelDebug
-	case "warn", "warning":
-		l = slog.LevelWarn
-	case "error", "fatal", "panic":
-		l = slog.LevelError
-	default:
-		l = slog.LevelInfo
-	}
+	l, ok := parseLevel(level)
 	h := slog.NewJSONHandler(w, &slog.HandlerOptions{Level: l})
-	return slog.New(h).With(slog.String("service", service), slog.String("git_sha", gitSHAShort()))
+	logger := slog.New(h).With(slog.String("service", service), slog.String("git_sha", gitSHAShort()))
+	if !ok {
+		logger.Warn("unrecognized LOG_LEVEL, using info", "value", level)
+	}
+	return logger
 }
 
-// gitSHAShort returns the short VCS revision the binary was built from (build-info
-// stamp), falling back to GIT_SHA_SHORT when there is no stamp (e.g. `go run`).
-func gitSHAShort() string {
-	if bi, ok := debug.ReadBuildInfo(); ok {
-		for _, s := range bi.Settings {
-			if s.Key == "vcs.revision" && s.Value != "" {
-				return s.Value[:min(7, len(s.Value))]
-			}
-		}
+// parseLevel maps a textual level to a slog.Level. ok is false when level is not a
+// recognized name, in which case the caller falls back to info and warns.
+func parseLevel(level string) (slog.Level, bool) {
+	switch strings.ToLower(level) {
+	case "debug", "trace":
+		return slog.LevelDebug, true
+	case "", "info":
+		return slog.LevelInfo, true
+	case "warn", "warning":
+		return slog.LevelWarn, true
+	case "error", "fatal", "panic":
+		return slog.LevelError, true
+	default:
+		return slog.LevelInfo, false
 	}
-	return os.Getenv("GIT_SHA_SHORT")
+}
+
+// gitSHAShort returns the git revision the binary was built from, for the git_sha
+// log attribute. It uses internal.GitRevision, injected at build time via -X ldflags
+// (see Makefile); in un-injected builds (go run, tests) it is the "devel" default.
+func gitSHAShort() string {
+	return internal.GitRevision
 }
