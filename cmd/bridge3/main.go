@@ -32,9 +32,13 @@ import (
 )
 
 func main() {
+	// Install a JSON slog default before config loads so even a config-parse failure logs on-contract
+	// (JSON + service/git_sha), and emit the version banner first so a crash-looping pod still shows
+	// its revision. Reconfigure to the configured level once config is loaded.
+	slog.SetDefault(obs.Setup(os.Stdout, "info", "bridge"))
+	slog.Info("Bridge3 is running", "revision", internal.BridgeVersionRevision)
 	config.LoadConfig()
 	slog.SetDefault(obs.Setup(os.Stdout, config.Config.LogLevel, "bridge"))
-	slog.Info("Bridge3 is running", "revision", internal.BridgeVersionRevision)
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	app.InitMetrics()
@@ -164,7 +168,7 @@ func main() {
 				slog.String("user_agent", v.UserAgent),
 			}
 			if v.Error != nil {
-				attrs = append(attrs, slog.String("error", v.Error.Error()))
+				attrs = append(attrs, slog.String("err", v.Error.Error()))
 			}
 			slog.LogAttrs(c.Request().Context(), level, "http_request", attrs...)
 			return nil

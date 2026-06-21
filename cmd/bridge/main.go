@@ -48,6 +48,9 @@ func configureV1Logrus() {
 }
 
 func main() {
+	// Install a JSON slog default before config loads so a config-parse failure logs on-contract
+	// (JSON + service/git_sha); reconfigure to the configured level once config is loaded.
+	slog.SetDefault(obs.Setup(os.Stdout, "info", "bridge"))
 	log.Info(fmt.Sprintf("Bridge %s is running", internal.BridgeVersionRevision))
 	config.LoadConfig()
 	slog.SetDefault(obs.Setup(os.Stdout, config.Config.LogLevel, "bridge"))
