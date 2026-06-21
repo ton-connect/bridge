@@ -12,7 +12,7 @@ func ParseOrGenerateTraceID(traceIdParam string, ok bool) string {
 	if ok {
 		uuids, err := uuid.Parse(traceIdParam)
 		if err != nil {
-			logger.Warn("generating a new trace_id", "error", err, "invalid_trace_id", traceIdParam[0])
+			logger.Warn("generating a new trace_id", "err", err, "invalid_trace_id", traceIdParam)
 		} else {
 			traceId = uuids.String()
 		}

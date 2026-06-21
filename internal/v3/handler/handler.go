@@ -387,7 +387,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 	// Send message only to storage - pub-sub will handle distribution
 	go func() {
-		logger := logger.With("prefix", "SendMessageHandler.storage.Pub")
+		logger := slog.With("prefix", "SendMessageHandler.storage.Pub")
 		err = h.storage.Pub(context.Background(), sseMessage, ttl)
 		if err != nil {
 			// TODO ooops
