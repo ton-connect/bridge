@@ -110,12 +110,12 @@ func (c *Client) trySyncWithServer(server string) bool {
 
 	response, err := ntp.QueryWithOptions(server, options)
 	if err != nil {
-		slog.Debug("Failed to query NTP server", "server", server, "error", err)
+		slog.Debug("Failed to query NTP server", "server", server, "err", err)
 		return false
 	}
 
 	if err := response.Validate(); err != nil {
-		slog.Debug("Invalid response from NTP server", "server", server, "error", err)
+		slog.Debug("Invalid response from NTP server", "server", server, "err", err)
 		return false
 	}
 
