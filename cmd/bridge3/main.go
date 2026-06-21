@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -21,6 +23,7 @@ import (
 	"github.com/ton-connect/bridge/internal/config"
 	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
 	"github.com/ton-connect/bridge/internal/ntp"
+	"github.com/ton-connect/bridge/internal/obs"
 	"github.com/ton-connect/bridge/internal/utils"
 	handlerv3 "github.com/ton-connect/bridge/internal/v3/handler"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
@@ -32,6 +35,7 @@ import (
 func main() {
 	log.Info(fmt.Sprintf("Bridge3 %s is running", internal.BridgeVersionRevision))
 	config.LoadConfig()
+	slog.SetDefault(obs.Setup(os.Stdout, config.Config.LogLevel, "bridge"))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	app.InitMetrics()
