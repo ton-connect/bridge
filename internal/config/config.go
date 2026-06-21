@@ -1,7 +1,8 @@
 package config
 
 import (
-	"log"
+	"log/slog"
+	"os"
 	"strings"
 
 	"github.com/caarlos0/env/v6"
@@ -78,12 +79,13 @@ var Config = struct {
 
 func LoadConfig() {
 	if err := env.Parse(&Config); err != nil {
-		log.Fatalf("config parsing failed: %v\n", err)
+		slog.Error("config parsing failed", "err", err)
+		os.Exit(1)
 	}
 
 	level, err := logrus.ParseLevel(strings.ToLower(Config.LogLevel))
 	if err != nil {
-		log.Printf("Invalid LOG_LEVEL '%s', using default 'info'. Valid levels: panic, fatal, error, warn, info, debug, trace", Config.LogLevel)
+		slog.Warn("invalid LOG_LEVEL, using default", "value", Config.LogLevel, "default", "info")
 		level = logrus.InfoLevel
 	}
 	logrus.SetLevel(level)
