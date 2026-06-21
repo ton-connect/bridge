@@ -2,10 +2,10 @@ package analytics
 
 import (
 	"context"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/tonmetrics"
 )
 
@@ -29,6 +29,10 @@ type Collector struct {
 	// Sender fields
 	sender        tonmetrics.AnalyticsClient
 	flushInterval time.Duration
+
+	// logger carries the constant prefix=analytics attr; built once so the hot Run loop does not
+	// re-derive it per ticker fire.
+	logger *slog.Logger
 }
 
 // NewCollector builds a collector with a periodic flush.
@@ -44,6 +48,7 @@ func NewCollector(capacity int, client tonmetrics.AnalyticsClient, flushInterval
 		triggerCapacity: triggerCapacity,
 		sender:          client,
 		flushInterval:   flushInterval,
+		logger:          slog.With("prefix", "analytics"),
 	}
 }
 
@@ -115,25 +120,25 @@ func (c *Collector) Run(ctx context.Context) {
 	flushTicker := time.NewTicker(c.flushInterval)
 	defer flushTicker.Stop()
 
-	logrus.WithField("prefix", "analytics").Debugf("analytics collector started with flush interval %v", c.flushInterval)
+	c.logger.Debug("analytics collector started", "flush_interval", c.flushInterval)
 
 	for {
 		select {
 		case <-ctx.Done():
-			logrus.WithField("prefix", "analytics").Debug("analytics collector stopping, performing final flush")
+			c.logger.Debug("analytics collector stopping, performing final flush")
 			// Use fresh context for final flush since ctx is already cancelled
 			flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			c.Flush(flushCtx)
 			cancel()
-			logrus.WithField("prefix", "analytics").Debug("analytics collector stopped")
+			c.logger.Debug("analytics collector stopped")
 			return
 		case <-flushTicker.C:
 			if c.Len() > 0 {
-				logrus.WithField("prefix", "analytics").Debug("analytics collector ticker fired")
+				c.logger.Debug("analytics collector ticker fired")
 				c.Flush(ctx)
 			}
 		case <-c.notifyCh:
-			logrus.WithField("prefix", "analytics").Debugf("analytics collector buffer reached %d events, flushing", c.Len())
+			c.logger.Debug("analytics collector buffer reached trigger, flushing", "count", c.Len())
 			c.Flush(ctx)
 		}
 	}
@@ -142,9 +147,9 @@ func (c *Collector) Run(ctx context.Context) {
 func (c *Collector) Flush(ctx context.Context) {
 	events := c.PopAll()
 	if len(events) > 0 {
-		logrus.WithField("prefix", "analytics").Debugf("flushing %d events from collector", len(events))
+		c.logger.Debug("flushing events from collector", "count", len(events))
 		if err := c.sender.SendBatch(ctx, events); err != nil {
-			logrus.WithError(err).Warnf("analytics: failed to send batch of %d events", len(events))
+			c.logger.Warn("failed to send batch", "count", len(events), "err", err)
 		}
 	}
 }

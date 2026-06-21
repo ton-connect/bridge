@@ -4,9 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -20,6 +23,7 @@ import (
 	"github.com/ton-connect/bridge/internal/app"
 	"github.com/ton-connect/bridge/internal/config"
 	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
+	"github.com/ton-connect/bridge/internal/obs"
 	"github.com/ton-connect/bridge/internal/utils"
 	handlerv1 "github.com/ton-connect/bridge/internal/v1/handler"
 	"github.com/ton-connect/bridge/internal/v1/storage"
@@ -28,9 +32,29 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// configureV1Logrus configures the global logrus logger that the still-on-logrus v1 code uses: JSON
+// output at the configured level (an unknown level falls back to info). The v3 path logs through slog
+// (obs.Setup); this keeps v1's logrus output structured and consistent until the v1 code is migrated
+// off logrus. It lives here, in the v1 binary, so the shared config package stays logrus-free and the
+// v3 binary links without logrus.
+func configureV1Logrus() {
+	level, err := log.ParseLevel(strings.ToLower(config.Config.LogLevel))
+	if err != nil {
+		slog.Warn("invalid LOG_LEVEL, using default", "value", config.Config.LogLevel, "default", "info")
+		level = log.InfoLevel
+	}
+	log.SetLevel(level)
+	log.SetFormatter(&log.JSONFormatter{})
+}
+
 func main() {
+	// Install a JSON slog default before config loads so a config-parse failure logs on-contract
+	// (JSON + service/git_sha); reconfigure to the configured level once config is loaded.
+	slog.SetDefault(obs.Setup(os.Stdout, "info", "bridge"))
 	log.Info(fmt.Sprintf("Bridge %s is running", internal.BridgeVersionRevision))
 	config.LoadConfig()
+	slog.SetDefault(obs.Setup(os.Stdout, config.Config.LogLevel, "bridge"))
+	configureV1Logrus()
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	app.InitMetrics()

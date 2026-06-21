@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -19,7 +20,6 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promauto"
-	"github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/config"
 	handler_common "github.com/ton-connect/bridge/internal/handler"
@@ -92,7 +92,7 @@ func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor 
 }
 
 func (h *handler) EventRegistrationHandler(c echo.Context) error {
-	log := logrus.WithField("prefix", "EventRegistrationHandler")
+	logger := slog.With("prefix", "EventRegistrationHandler")
 	_, ok := c.Response().Writer.(http.Flusher)
 	if !ok {
 		http.Error(c.Response().Writer, "streaming unsupported", http.StatusInternalServerError)
@@ -105,7 +105,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().Header().Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
 	if _, err := fmt.Fprint(c.Response(), "\n"); err != nil {
-		log.Errorf("failed to write initial newline: %v", err)
+		logger.Error("failed to write initial newline", "err", err)
 		return err
 	}
 	c.Response().Flush()
@@ -127,7 +127,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "invalid heartbeat type. Supported: legacy and message"
-		log.Error(errorMsg)
+		logger.Error(errorMsg)
 		h.logEventRegistrationValidationFailure("", traceId, "events/heartbeat")
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
@@ -140,7 +140,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		if err != nil {
 			badRequestMetric.Inc()
 			errorMsg := "Last-Event-ID should be int"
-			log.Error(errorMsg)
+			logger.Error(errorMsg)
 			h.logEventRegistrationValidationFailure("", traceId, "events/last-event-id-header")
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
@@ -151,7 +151,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		if err != nil {
 			badRequestMetric.Inc()
 			errorMsg := "last_event_id should be int"
-			log.Error(errorMsg)
+			logger.Error(errorMsg)
 			h.logEventRegistrationValidationFailure("", traceId, "events/last-event-id-query")
 			return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 		}
@@ -160,7 +160,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
-		log.Error(errorMsg)
+		logger.Error(errorMsg)
 		h.logEventRegistrationValidationFailure("", traceId, "events/missing-client-id")
 		return c.JSON(utils.HttpResError(errorMsg, http.StatusBadRequest))
 	}
@@ -170,7 +170,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		if _, err := utils.NewPublicAddressFromString(id); err != nil {
 			badRequestMetric.Inc()
 			errMsg := fmt.Errorf("param \"client_id\" must be a valid public address, error: %w", err).Error()
-			log.Error(errMsg)
+			logger.Error(errMsg)
 			h.logEventRegistrationValidationFailure("", traceId, errMsg)
 			return c.JSON(utils.HttpResError(errMsg, http.StatusBadRequest))
 		}
@@ -194,7 +194,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 
 		ttl := time.Duration(config.Config.ConnectCacheTTL) * time.Second
 		if err := h.storage.AddConnection(c.Request().Context(), conn, ttl); err != nil {
-			log.Warnf("failed to store connection: %v", err)
+			logger.Warn("failed to store connection", "err", err)
 		}
 	}
 
@@ -204,14 +204,14 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		<-notify
 		session.Close()
 		h.removeConnection(session, traceId)
-		log.Infof("connection: %v closed with error %v", session.ClientIds, ctx.Err())
+		logger.Info("connection closed with error", "client_ids", session.ClientIds, "err", ctx.Err())
 	}()
 
 	// Force-close the session after max lifetime. This runs outside the select loop
 	// so it works even when messages are flowing continuously.
 	maxLifetime := sseMaxLifetimeWithJitter()
 	lifetimeTimer := time.AfterFunc(maxLifetime, func() {
-		log.Infof("SSE connection max lifetime reached (%v), closing", maxLifetime)
+		logger.Info("SSE connection max lifetime reached, closing", "max_lifetime", maxLifetime)
 		session.Close()
 	})
 	defer lifetimeTimer.Stop()
@@ -230,7 +230,7 @@ loop:
 			}
 			_, err = fmt.Fprintf(c.Response(), "event: %v\nid: %v\ndata: %v\n\n", "message", msg.EventId, string(msg.Message))
 			if err != nil {
-				log.Errorf("msg can't write to connection: %v", err)
+				logger.Error("msg can't write to connection", "err", err)
 				break loop
 			}
 			c.Response().Flush()
@@ -250,13 +250,7 @@ loop:
 				messageHash = hex.EncodeToString(contentHash[:])
 			}
 
-			logrus.WithFields(logrus.Fields{
-				"hash":     messageHash,
-				"from":     fromId,
-				"to":       toId,
-				"event_id": msg.EventId,
-				"trace_id": traceID,
-			}).Debug("message sent")
+			slog.Debug("message sent", "hash", messageHash, "from", fromId, "to", toId, "event_id", msg.EventId, "trace_id", traceID)
 
 			if h.eventCollector != nil {
 				_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageSentEvent(
@@ -271,19 +265,18 @@ loop:
 		case <-ticker.C:
 			_, err = fmt.Fprint(c.Response(), heartbeatMsg)
 			if err != nil {
-				log.Errorf("ticker can't write heartbeat to connection: %v", err)
+				logger.Error("ticker can't write heartbeat to connection", "err", err)
 			}
 			c.Response().Flush()
 		}
 	}
 	activeConnectionMetric.Dec()
-	log.Info("connection closed")
+	logger.Info("connection closed")
 	return nil
 }
 
 func (h *handler) SendMessageHandler(c echo.Context) error {
-	ctx := c.Request().Context()
-	log := logrus.WithContext(ctx).WithField("prefix", "SendMessageHandler")
+	logger := slog.With("prefix", "SendMessageHandler")
 
 	params := c.QueryParams()
 
@@ -298,7 +291,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"client_id\" not present"
-		log.Error(errorMsg)
+		logger.Error(errorMsg)
 		return h.failValidation(c, errorMsg, "", traceId, "", "")
 	}
 
@@ -306,7 +299,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if err != nil {
 		err = fmt.Errorf("failed to parse the \"client_id\" address: %w", err)
 		badRequestMetric.Inc()
-		log.Error(err)
+		logger.Error(err.Error())
 		return h.failValidation(c, err.Error(), clientIdValues[0], traceId, "", "")
 	}
 
@@ -314,7 +307,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"to\" not present"
-		log.Error(errorMsg)
+		logger.Error(errorMsg)
 		return h.failValidation(c, errorMsg, clientID.String(), traceId, "", "")
 	}
 
@@ -322,7 +315,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if err != nil {
 		err = fmt.Errorf("failed to parse the \"to\" address: %w", err)
 		badRequestMetric.Inc()
-		log.Error(err)
+		logger.Error(err.Error())
 		return h.failValidation(c, err.Error(), clientID.String(), traceId, "", "")
 	}
 
@@ -330,25 +323,25 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if !ok {
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" not present"
-		log.Error(errorMsg)
+		logger.Error(errorMsg)
 		return h.failValidation(c, errorMsg, clientID.String(), traceId, "", "")
 	}
 	ttl, err := strconv.ParseInt(ttlParam[0], 10, 32)
 	if err != nil {
 		badRequestMetric.Inc()
-		log.Error(err)
+		logger.Error(err.Error())
 		return h.failValidation(c, err.Error(), clientID.String(), traceId, "", "")
 	}
 	if ttl > 300 { // TODO: config MaxTTL value
 		badRequestMetric.Inc()
 		errorMsg := "param \"ttl\" too high"
-		log.Error(errorMsg)
+		logger.Error(errorMsg)
 		return h.failValidation(c, errorMsg, clientID.String(), traceId, "", "")
 	}
 	message, err := io.ReadAll(c.Request().Body)
 	if err != nil {
 		badRequestMetric.Inc()
-		log.Error(err)
+		logger.Error(err.Error())
 		return h.failValidation(c, err.Error(), clientID.String(), traceId, "", "")
 	}
 
@@ -382,7 +375,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	})
 	if err != nil {
 		badRequestMetric.Inc()
-		log.Error(err)
+		logger.Error(err.Error())
 		return h.failValidation(c, err.Error(), clientID.String(), traceId, topic, "")
 	}
 
@@ -394,11 +387,11 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 
 	// Send message only to storage - pub-sub will handle distribution
 	go func() {
-		log := log.WithField("prefix", "SendMessageHandler.storage.Pub")
+		logger := slog.With("prefix", "SendMessageHandler.storage.Pub")
 		err = h.storage.Pub(context.Background(), sseMessage, ttl)
 		if err != nil {
 			// TODO ooops
-			log.Errorf("db error: %v", err)
+			logger.Error("db error", "err", err)
 		}
 	}()
 
@@ -414,13 +407,7 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		messageHash = hex.EncodeToString(contentHash[:])
 	}
 
-	log.WithFields(logrus.Fields{
-		"hash":     messageHash,
-		"from":     fromId,
-		"to":       toId[0],
-		"event_id": sseMessage.EventId,
-		"trace_id": traceId,
-	}).Debug("message received")
+	logger.Debug("message received", "hash", messageHash, "from", fromId, "to", toId[0], "event_id", sseMessage.EventId, "trace_id", traceId)
 
 	if h.eventCollector != nil {
 		_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageReceivedEvent(
@@ -530,14 +517,14 @@ func (h *handler) ConnectVerifyHandler(c echo.Context) error {
 }
 
 func (h *handler) removeConnection(ses *Session, traceID string) {
-	log := logrus.WithField("prefix", "removeConnection")
-	log.Infof("remove session: %v", ses.ClientIds)
+	logger := slog.With("prefix", "removeConnection")
+	logger.Info("remove session", "client_ids", ses.ClientIds)
 	for _, id := range ses.ClientIds {
 		h.Mux.RLock()
 		s, ok := h.Connections[id]
 		h.Mux.RUnlock()
 		if !ok {
-			log.Info("alredy removed")
+			logger.Info("alredy removed")
 			continue
 		}
 		s.mux.Lock()
@@ -563,8 +550,8 @@ func (h *handler) removeConnection(ses *Session, traceID string) {
 }
 
 func (h *handler) CreateSession(clientIds []string, lastEventId int64, traceID string) *Session {
-	log := logrus.WithField("prefix", "CreateSession")
-	log.Infof("make new session with ids: %v", clientIds)
+	logger := slog.With("prefix", "CreateSession")
+	logger.Info("make new session", "client_ids", clientIds)
 	session := NewSession(h.storage, clientIds, lastEventId)
 	activeConnectionMetric.Inc()
 	for _, id := range clientIds {

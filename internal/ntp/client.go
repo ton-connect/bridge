@@ -5,8 +5,9 @@ import (
 	"sync/atomic"
 	"time"
 
+	"log/slog"
+
 	"github.com/beevik/ntp"
-	"github.com/sirupsen/logrus"
 )
 
 type Client struct {
@@ -54,14 +55,11 @@ func NewClient(opts Options) *Client {
 
 func (c *Client) Start(ctx context.Context) {
 	if !c.stopped.CompareAndSwap(true, false) {
-		logrus.Warn("NTP client already started")
+		slog.Warn("NTP client already started")
 		return
 	}
 
-	logrus.WithFields(logrus.Fields{
-		"servers":       c.servers,
-		"sync_interval": c.syncInterval,
-	}).Info("Starting NTP client")
+	slog.Info("Starting NTP client", "servers", c.servers, "sync_interval", c.syncInterval)
 
 	c.syncOnce()
 
@@ -73,7 +71,7 @@ func (c *Client) Stop() {
 		return
 	}
 	close(c.stopCh)
-	logrus.Info("NTP client stopped")
+	slog.Info("NTP client stopped")
 }
 
 func (c *Client) syncLoop(ctx context.Context) {
@@ -99,7 +97,7 @@ func (c *Client) syncOnce() {
 		}
 	}
 
-	logrus.Warn("Failed to synchronize with any NTP server, using local time")
+	slog.Warn("Failed to synchronize with any NTP server, using local time")
 }
 
 func (c *Client) trySyncWithServer(server string) bool {
@@ -112,30 +110,19 @@ func (c *Client) trySyncWithServer(server string) bool {
 
 	response, err := ntp.QueryWithOptions(server, options)
 	if err != nil {
-		logrus.WithFields(logrus.Fields{
-			"server": server,
-			"error":  err,
-		}).Debug("Failed to query NTP server")
+		slog.Debug("Failed to query NTP server", "server", server, "err", err)
 		return false
 	}
 
 	if err := response.Validate(); err != nil {
-		logrus.WithFields(logrus.Fields{
-			"server": server,
-			"error":  err,
-		}).Debug("Invalid response from NTP server")
+		slog.Debug("Invalid response from NTP server", "server", server, "err", err)
 		return false
 	}
 
 	c.offset.Store(int64(response.ClockOffset))
 	c.lastSync.Store(time.Now().Unix())
 
-	logrus.WithFields(logrus.Fields{
-		"server":    server,
-		"offset":    response.ClockOffset,
-		"precision": response.RTT / 2,
-		"rtt":       response.RTT,
-	}).Info("Successfully synchronized with NTP server")
+	slog.Info("Successfully synchronized with NTP server", "server", server, "offset", response.ClockOffset, "precision", response.RTT/2, "rtt", response.RTT)
 
 	select {
 	case <-ctx.Done():

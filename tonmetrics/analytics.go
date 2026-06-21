@@ -5,10 +5,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
+	"os"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/config"
 )
 
@@ -35,7 +36,8 @@ func NewAnalyticsClient() AnalyticsClient {
 		return NewNoopMetricsClient(configuredAnalyticsURL)
 	}
 	if config.Config.TonAnalyticsNetworkId != "-239" && config.Config.TonAnalyticsNetworkId != "-3" {
-		logrus.Fatalf("invalid NETWORK_ID '%s'. Allowed values: -239 (mainnet) and -3 (testnet)", config.Config.TonAnalyticsNetworkId)
+		slog.Error("invalid NETWORK_ID, allowed values are -239 (mainnet) and -3 (testnet)", "network_id", config.Config.TonAnalyticsNetworkId)
+		os.Exit(1)
 	}
 	return &TonMetricsClient{
 		client:       http.DefaultClient,
@@ -58,16 +60,16 @@ func (a *TonMetricsClient) send(ctx context.Context, events []interface{}, endpo
 		return nil
 	}
 
-	log := logrus.WithField("prefix", prefix)
+	logger := slog.With("prefix", prefix)
 
-	log.Debugf("preparing to send analytics batch of %d events to %s", len(events), endpoint)
+	logger.Debug("preparing to send analytics batch", "count", len(events), "endpoint", endpoint)
 
 	analyticsData, err := json.Marshal(events)
 	if err != nil {
 		return fmt.Errorf("failed to marshal analytics batch: %w", err)
 	}
 
-	log.Debugf("marshaled analytics data size: %d bytes", len(analyticsData))
+	logger.Debug("marshaled analytics data", "bytes", len(analyticsData))
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(analyticsData))
 	if err != nil {
@@ -77,7 +79,7 @@ func (a *TonMetricsClient) send(ctx context.Context, events []interface{}, endpo
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Client-Timestamp", fmt.Sprintf("%d", time.Now().Unix()))
 
-	log.Debugf("sending analytics batch request to %s", endpoint)
+	logger.Debug("sending analytics batch request", "endpoint", endpoint)
 
 	resp, err := a.client.Do(req)
 	if err != nil {
@@ -85,7 +87,7 @@ func (a *TonMetricsClient) send(ctx context.Context, events []interface{}, endpo
 	}
 	defer func() {
 		if closeErr := resp.Body.Close(); closeErr != nil {
-			log.Errorf("failed to close response body: %v", closeErr)
+			logger.Error("failed to close response body", "err", closeErr)
 		}
 	}()
 
@@ -93,7 +95,7 @@ func (a *TonMetricsClient) send(ctx context.Context, events []interface{}, endpo
 		return fmt.Errorf("analytics batch request to %s returned status %d", endpoint, resp.StatusCode)
 	}
 
-	log.Debugf("analytics batch of %d events sent successfully with status %d", len(events), resp.StatusCode)
+	logger.Debug("analytics batch sent", "count", len(events), "status", resp.StatusCode)
 	return nil
 }
 

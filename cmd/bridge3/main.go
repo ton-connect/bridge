@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"net/http/pprof"
+	"os"
 	"os/signal"
 	"syscall"
 	"time"
@@ -14,13 +16,13 @@ import (
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	log "github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal"
 	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/app"
 	"github.com/ton-connect/bridge/internal/config"
 	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
 	"github.com/ton-connect/bridge/internal/ntp"
+	"github.com/ton-connect/bridge/internal/obs"
 	"github.com/ton-connect/bridge/internal/utils"
 	handlerv3 "github.com/ton-connect/bridge/internal/v3/handler"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
@@ -30,8 +32,13 @@ import (
 )
 
 func main() {
-	log.Info(fmt.Sprintf("Bridge3 %s is running", internal.BridgeVersionRevision))
+	// Install a JSON slog default before config loads so even a config-parse failure logs on-contract
+	// (JSON + service/git_sha), and emit the version banner first so a crash-looping pod still shows
+	// its revision. Reconfigure to the configured level once config is loaded.
+	slog.SetDefault(obs.Setup(os.Stdout, "info", "bridge"))
+	slog.Info("Bridge3 is running", "revision", internal.BridgeVersionRevision)
 	config.LoadConfig()
+	slog.SetDefault(obs.Setup(os.Stdout, config.Config.LogLevel, "bridge"))
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGTERM, syscall.SIGINT)
 	defer stop()
 	app.InitMetrics()
@@ -47,13 +54,10 @@ func main() {
 		ntpClient.Start(ctx)
 		defer ntpClient.Stop()
 		timeProvider = ntpClient
-		log.WithFields(log.Fields{
-			"servers":       config.Config.NTPServers,
-			"sync_interval": config.Config.NTPSyncInterval,
-		}).Info("NTP synchronization enabled")
+		slog.Info("NTP synchronization enabled", "servers", config.Config.NTPServers, "sync_interval", config.Config.NTPSyncInterval)
 	} else {
 		timeProvider = ntp.NewLocalTimeProvider()
-		log.Info("NTP synchronization disabled, using local time")
+		slog.Info("NTP synchronization disabled, using local time")
 	}
 	tonAnalytics := tonmetrics.NewAnalyticsClient()
 
@@ -65,13 +69,13 @@ func main() {
 
 	switch store {
 	case "postgres":
-		log.Info("Using PostgreSQL storage")
+		slog.Info("Using PostgreSQL storage")
 		dbURI = config.Config.PostgresURI
 	case "valkey":
-		log.Info("Using Valkey storage")
+		slog.Info("Using Valkey storage")
 		dbURI = config.Config.ValkeyURI
 	default:
-		log.Info("Using in-memory storage as default")
+		slog.Info("Using in-memory storage as default")
 		// No URI needed for memory storage
 	}
 
@@ -89,16 +93,17 @@ func main() {
 	dbConn, err := storagev3.NewStorage(store, dbURI, collector, analyticsBuilder)
 
 	if err != nil {
-		log.Fatalf("failed to create storage: %v", err)
+		slog.Error("failed to create storage", "err", err)
+		os.Exit(1)
 	}
 	if _, ok := dbConn.(*storagev3.MemStorage); ok {
-		log.Info("Using in-memory storage")
+		slog.Info("Using in-memory storage")
 		app.SetBridgeInfo("bridgev3", "memory")
 	} else if _, ok := dbConn.(*storagev3.ValkeyStorage); ok {
-		log.Info("Using Valkey/Redis storage")
+		slog.Info("Using Valkey/Redis storage")
 		app.SetBridgeInfo("bridgev3", "valkey")
 	} else {
-		log.Info("Using PostgreSQL storage")
+		slog.Info("Using PostgreSQL storage")
 		app.SetBridgeInfo("bridgev3", "postgres")
 	}
 	healthManager := app.NewHealthManager()
@@ -107,7 +112,7 @@ func main() {
 
 	extractor, err := utils.NewRealIPExtractor(config.Config.TrustedProxyRanges)
 	if err != nil {
-		log.Warnf("failed to create realIPExtractor: %v, using defaults", err)
+		slog.Warn("failed to create realIPExtractor, using defaults", "err", err)
 		extractor, _ = utils.NewRealIPExtractor([]string{})
 	}
 
@@ -122,7 +127,8 @@ func main() {
 		mux.HandleFunc("/debug/pprof/", pprof.Index)
 	}
 	go func() {
-		log.Fatal(http.ListenAndServe(fmt.Sprintf(":%d", config.Config.MetricsPort), mux))
+		slog.Error("metrics server failed", "err", http.ListenAndServe(fmt.Sprintf(":%d", config.Config.MetricsPort), mux))
+		os.Exit(1)
 	}()
 
 	e := echo.New()
@@ -131,8 +137,8 @@ func main() {
 		DisableStackAll:   true,
 		DisablePrintStack: false,
 	}))
-	// Structured access log via the modern RequestLogger API, emitted through logrus (JSON formatter
-	// set in config.LoadConfig) so every request line carries a `msg` and a status-derived `level`,
+	// Structured access log via the modern RequestLogger API, emitted through the default slog logger
+	// (JSON, configured in obs.Setup) so every request line carries a `msg` and a status-derived `level`,
 	// consistent with the app logs. Replaces the deprecated middleware.Logger(), whose hardcoded JSON
 	// template had neither field.
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
@@ -145,26 +151,26 @@ func main() {
 		LogUserAgent: true,
 		LogError:     true,
 		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
-			entry := log.WithFields(log.Fields{
-				"method":     v.Method,
-				"uri":        v.URI,
-				"status":     v.Status,
-				"latency":    v.Latency.String(),
-				"remote_ip":  v.RemoteIP,
-				"host":       v.Host,
-				"user_agent": v.UserAgent,
-			})
-			if v.Error != nil {
-				entry = entry.WithField("error", v.Error.Error())
-			}
+			level := slog.LevelInfo
 			switch {
 			case v.Status >= 500:
-				entry.Error("http_request")
+				level = slog.LevelError
 			case v.Status >= 400:
-				entry.Warn("http_request")
-			default:
-				entry.Info("http_request")
+				level = slog.LevelWarn
 			}
+			attrs := []slog.Attr{
+				slog.String("method", v.Method),
+				slog.String("uri", v.URI),
+				slog.Int("status", v.Status),
+				slog.String("latency", v.Latency.String()),
+				slog.String("remote_ip", v.RemoteIP),
+				slog.String("host", v.Host),
+				slog.String("user_agent", v.UserAgent),
+			}
+			if v.Error != nil {
+				attrs = append(attrs, slog.String("err", v.Error.Error()))
+			}
+			slog.LogAttrs(c.Request().Context(), level, "http_request", attrs...)
 			return nil
 		},
 	}))
@@ -214,7 +220,8 @@ func main() {
 		if config.Config.SelfSignedTLS {
 			cert, key, certErr := utils.GenerateSelfSignedCertificate()
 			if certErr != nil {
-				log.Fatalf("failed to generate self signed certificate: %v", certErr)
+				slog.Error("failed to generate self signed certificate", "err", certErr)
+				os.Exit(1)
 			}
 			err = e.StartTLS(fmt.Sprintf(":%v", config.Config.Port), cert, key)
 		} else {
@@ -222,7 +229,8 @@ func main() {
 		}
 		// Shutdown closes the listener and returns ErrServerClosed, the normal stop path.
 		if err != nil && !errors.Is(err, http.ErrServerClosed) {
-			log.Fatalf("bridge server: %v", err)
+			slog.Error("bridge server failed", "err", err)
+			os.Exit(1)
 		}
 	}()
 
@@ -230,13 +238,13 @@ func main() {
 	// Graceful shutdown: flip /readyz to 503 so the load balancer takes the pod out of rotation
 	// while it is still listening, wait the drain window, then drain in-flight requests. SSE streams
 	// never complete on their own, so the bounded ShutdownTimeout ends the wait (clients reconnect).
-	log.Info("SIGTERM received, draining")
+	slog.Info("SIGTERM received, draining")
 	healthManager.SetDraining()
 	time.Sleep(time.Duration(config.Config.ShutdownDrainDelay) * time.Second)
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), time.Duration(config.Config.ShutdownTimeout)*time.Second)
 	defer cancel()
 	if err := e.Shutdown(shutdownCtx); err != nil {
-		log.Errorf("bridge shutdown: %v", err)
+		slog.Error("bridge shutdown", "err", err)
 	}
-	log.Info("bridge stopped")
+	slog.Info("bridge stopped")
 }

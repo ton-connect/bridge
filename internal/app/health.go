@@ -2,11 +2,11 @@ package app
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"sync/atomic"
 	"time"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal"
 )
 
@@ -69,7 +69,7 @@ func (h *HealthManager) HealthHandler(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		_, err := fmt.Fprintf(w, `{"status":"unhealthy"}`+"\n")
 		if err != nil {
-			log.Errorf("health response write error: %v", err)
+			slog.Error("health response write error", "err", err)
 		}
 		return
 	}
@@ -77,7 +77,7 @@ func (h *HealthManager) HealthHandler(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n")
 	if err != nil {
-		log.Errorf("health response write error: %v", err)
+		slog.Error("health response write error", "err", err)
 	}
 }
 
@@ -89,7 +89,7 @@ func (h *HealthManager) LivenessHandler(w http.ResponseWriter, r *http.Request) 
 	w.Header().Set("X-Build-Commit", internal.BridgeVersionRevision)
 	w.WriteHeader(http.StatusOK)
 	if _, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n"); err != nil {
-		log.Errorf("liveness response write error: %v", err)
+		slog.Error("liveness response write error", "err", err)
 	}
 }
 
@@ -105,13 +105,13 @@ func (h *HealthManager) ReadinessHandler(w http.ResponseWriter, r *http.Request)
 	if atomic.LoadInt64(&h.draining) != 0 {
 		w.WriteHeader(http.StatusServiceUnavailable)
 		if _, err := fmt.Fprintf(w, `{"status":"draining"}`+"\n"); err != nil {
-			log.Errorf("readiness response write error: %v", err)
+			slog.Error("readiness response write error", "err", err)
 		}
 		return
 	}
 	w.WriteHeader(http.StatusOK)
 	if _, err := fmt.Fprintf(w, `{"status":"ok"}`+"\n"); err != nil {
-		log.Errorf("readiness response write error: %v", err)
+		slog.Error("readiness response write error", "err", err)
 	}
 }
 
@@ -124,6 +124,6 @@ func VersionHandler(w http.ResponseWriter, r *http.Request) {
 	response := fmt.Sprintf(`{"version":"%s"}`, internal.BridgeVersionRevision)
 	_, err := fmt.Fprintf(w, "%s", response+"\n")
 	if err != nil {
-		log.Errorf("version response write error: %v", err)
+		slog.Error("version response write error", "err", err)
 	}
 }

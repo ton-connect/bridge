@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/redis/go-redis/v9"
-	log "github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/models"
 )
 
@@ -25,7 +25,7 @@ type ValkeyStorage struct {
 // Expects a Redis cluster URL (parsed by redis.ParseURL) and requires
 // Redis Cluster + Redis 7+ sharded pub/sub. Returns *ValkeyStorage or error.
 func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
-	log := log.WithField("prefix", "NewValkeyStorage")
+	logger := slog.With("prefix", "NewValkeyStorage")
 
 	opts, err := redis.ParseURL(strings.TrimSpace(valkeyURI))
 	if err != nil {
@@ -63,7 +63,7 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		return nil, fmt.Errorf("redis server does not support sharded pub/sub; requires redis >= 7.0")
 	}
 
-	log.Info("Successfully connected to Valkey/Redis")
+	logger.Info("Successfully connected to Valkey/Redis")
 
 	return &ValkeyStorage{
 		client:      clusterClient,
@@ -76,7 +76,7 @@ func detectClusterMode(opts *redis.Options) error {
 	client := redis.NewClient(opts)
 	defer func() {
 		if err := client.Close(); err != nil {
-			log.WithField("prefix", "detectClusterMode").Warnf("failed to close temp redis client: %v", err)
+			slog.With("prefix", "detectClusterMode").Warn("failed to close temp redis client", "err", err)
 		}
 	}()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -102,22 +102,22 @@ func supportsShardedPubSub(ctx context.Context, client redis.UniversalClient) bo
 
 // logDiscoveredNodes logs all master nodes discovered by go-redis (for debugging/monitoring)
 func logDiscoveredNodes(ctx context.Context, client *redis.ClusterClient) {
-	log := log.WithField("prefix", "ValkeyStorage.logDiscoveredNodes")
+	logger := slog.With("prefix", "ValkeyStorage.logDiscoveredNodes")
 
 	err := client.ForEachMaster(ctx, func(ctx context.Context, c *redis.Client) error {
 		opts := c.Options()
-		log.Infof("Discovered master node: %s", opts.Addr)
+		logger.Info("Discovered master node", "addr", opts.Addr)
 		return nil
 	})
 
 	if err != nil {
-		log.Warnf("Failed to enumerate cluster nodes: %v", err)
+		logger.Warn("Failed to enumerate cluster nodes", "err", err)
 	}
 }
 
 // Pub publishes a message to Redis and stores it with TTL
 func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl int64) error {
-	log := log.WithField("prefix", "ValkeyStorage.Pub")
+	logger := slog.With("prefix", "ValkeyStorage.Pub")
 
 	// Publish to Redis channel
 	channel := fmt.Sprintf("client:%s", message.To)
@@ -145,13 +145,13 @@ func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl 
 	// Set expiration on the key itself
 	s.client.Expire(ctx, channel, time.Duration(ttl+60)*time.Second) // TODO remove 60 seconds buffer?
 
-	log.Debugf("published and stored message for client %s with TTL %d seconds", message.To, ttl)
+	logger.Debug("published and stored message", "client_id", message.To, "ttl", ttl)
 	return nil
 }
 
 // Sub subscribes to Redis channels for the given keys and sends historical messages after lastEventId
 func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int64, messageCh chan<- models.SseMessage) error {
-	log := log.WithField("prefix", "ValkeyStorage.Sub")
+	logger := slog.With("prefix", "ValkeyStorage.Sub")
 
 	s.subMutex.Lock()
 	defer s.subMutex.Unlock()
@@ -177,7 +177,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		messages, err := s.client.ZRange(ctx, clientKey, 0, -1).Result()
 		if err != nil {
 			if err != redis.Nil {
-				log.Errorf("failed to get historical messages for client %s: %v", key, err)
+				logger.Error("failed to get historical messages", "client_id", key, "err", err)
 			}
 			continue // No messages for this client or error occurred
 		}
@@ -187,7 +187,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 			var msg models.SseMessage
 			err := json.Unmarshal([]byte(msgData), &msg)
 			if err != nil {
-				log.Errorf("failed to unmarshal historical message: %v", err)
+				logger.Error("failed to unmarshal historical message", "err", err)
 				continue
 			}
 
@@ -216,17 +216,17 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		// Subscribe to additional channels
 		err := s.pubSubConn.Subscribe(ctx, channels...)
 		if err != nil {
-			log.Errorf("failed to subscribe to additional channels: %v", err)
+			logger.Error("failed to subscribe to additional channels", "err", err)
 		}
 	}
 
-	log.Debugf("subscribed to channels for keys: %v", keys)
+	logger.Debug("subscribed to channels for keys", "keys", keys)
 	return nil
 }
 
 // Unsub unsubscribes from Redis channels for the given keys
 func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan<- models.SseMessage) error {
-	log := log.WithField("prefix", "ValkeyStorage.Unsub")
+	logger := slog.With("prefix", "ValkeyStorage.Unsub")
 
 	s.subMutex.Lock()
 	defer s.subMutex.Unlock()
@@ -266,13 +266,13 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 		}
 	}
 
-	log.Debugf("unsubscribed messageCh from keys: %v (redis channels unsubbed: %v)", keys, channelsToUnsub)
+	logger.Debug("unsubscribed messageCh from keys", "keys", keys, "redis_channels_unsubbed", channelsToUnsub)
 	return nil
 }
 
 // handlePubSub processes incoming Redis pub-sub messages
 func (s *ValkeyStorage) handlePubSub() {
-	log := log.WithField("prefix", "ValkeyStorage.handlePubSub")
+	logger := slog.With("prefix", "ValkeyStorage.handlePubSub")
 
 	for msg := range s.pubSubConn.Channel() {
 		// Parse channel name to get client key
@@ -287,7 +287,7 @@ func (s *ValkeyStorage) handlePubSub() {
 		var sseMessage models.SseMessage
 		err := json.Unmarshal([]byte(msg.Payload), &sseMessage)
 		if err != nil {
-			log.Errorf("failed to unmarshal pub-sub message: %v", err)
+			logger.Error("failed to unmarshal pub-sub message", "err", err)
 			continue
 		}
 
@@ -310,7 +310,7 @@ func (s *ValkeyStorage) handlePubSub() {
 // AddConnection stores connection info in Valkey with TTL
 // Key pattern: conn:full:{clientID}:{ip}:{urlEncodedOrigin}
 func (s *ValkeyStorage) AddConnection(ctx context.Context, conn ConnectionInfo, ttl time.Duration) error {
-	log := log.WithField("prefix", "ValkeyStorage.AddConnection")
+	logger := slog.With("prefix", "ValkeyStorage.AddConnection")
 
 	key := fmt.Sprintf("conn:full:%s:%s:%s", conn.ClientID, conn.IP, url.QueryEscape(conn.Origin))
 
@@ -333,14 +333,14 @@ func (s *ValkeyStorage) AddConnection(ctx context.Context, conn ConnectionInfo, 
 		return fmt.Errorf("failed to store connection: %w", err)
 	}
 
-	log.Debugf("stored connection for client %s from %s", conn.ClientID, conn.IP)
+	logger.Debug("stored connection", "client_id", conn.ClientID, "ip", conn.IP)
 	return nil
 }
 
 // VerifyConnection checks if connection matches cached data
 // Returns: "ok" (exact match), "warning" (same origin different IP), "danger" (different origin), or "unknown" (no cached data)
 func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInfo) (string, error) {
-	log := log.WithField("prefix", "ValkeyStorage.VerifyConnection")
+	logger := slog.With("prefix", "ValkeyStorage.VerifyConnection")
 
 	// Check for exact match first
 	exactKey := fmt.Sprintf("conn:full:%s:%s:%s", conn.ClientID, conn.IP, url.QueryEscape(conn.Origin))
@@ -349,7 +349,7 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 		return "", fmt.Errorf("failed to check connection existence: %w", err)
 	}
 	if exists > 0 {
-		log.Debugf("connection verified OK for client %s", conn.ClientID)
+		logger.Debug("connection verified OK", "client_id", conn.ClientID)
 		return "ok", nil
 	}
 
@@ -358,14 +358,14 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 	keys, err := s.client.SMembers(ctx, indexKey).Result()
 	if err != nil {
 		if err == redis.Nil {
-			log.Debugf("no cached connections for client %s", conn.ClientID)
+			logger.Debug("no cached connections", "client_id", conn.ClientID)
 			return "unknown", nil
 		}
 		return "", fmt.Errorf("failed to get connection index: %w", err)
 	}
 
 	if len(keys) == 0 {
-		log.Debugf("no cached connections for client %s", conn.ClientID)
+		logger.Debug("no cached connections", "client_id", conn.ClientID)
 		return "unknown", nil
 	}
 
@@ -381,7 +381,7 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 		encodedOrigin := parts[4]
 		cachedOrigin, err := url.QueryUnescape(encodedOrigin)
 		if err != nil {
-			log.Warnf("failed to decode origin from key %s: %v", key, err)
+			logger.Warn("failed to decode origin from key", "key", key, "err", err)
 			continue
 		}
 
@@ -390,13 +390,13 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 		}
 	}
 
-	log.Debugf("connection verification result: %s for client %s", leastSuspicious, conn.ClientID)
+	logger.Debug("connection verification result", "result", leastSuspicious, "client_id", conn.ClientID)
 	return leastSuspicious, nil
 }
 
 // HealthCheck verifies the connection to Valkey
 func (s *ValkeyStorage) HealthCheck() error {
-	log := log.WithField("prefix", "ValkeyStorage.HealthCheck")
+	logger := slog.With("prefix", "ValkeyStorage.HealthCheck")
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -406,6 +406,6 @@ func (s *ValkeyStorage) HealthCheck() error {
 		return fmt.Errorf("valkey health check failed: %w", err)
 	}
 
-	log.Info("Valkey is healthy")
+	logger.Info("Valkey is healthy")
 	return nil
 }
