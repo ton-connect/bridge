@@ -1,20 +1,18 @@
 package handler
 
 import (
+	"log/slog"
+
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 )
 
 func ParseOrGenerateTraceID(traceIdParam string, ok bool) string {
-	log := logrus.WithField("prefix", "CreateSession")
+	logger := slog.With("prefix", "CreateSession")
 	traceId := "unknown"
 	if ok {
 		uuids, err := uuid.Parse(traceIdParam)
 		if err != nil {
-			log.WithFields(logrus.Fields{
-				"error":            err,
-				"invalid_trace_id": traceIdParam[0],
-			}).Warn("generating a new trace_id")
+			logger.Warn("generating a new trace_id", "error", err, "invalid_trace_id", traceIdParam[0])
 		} else {
 			traceId = uuids.String()
 		}
@@ -22,7 +20,7 @@ func ParseOrGenerateTraceID(traceIdParam string, ok bool) string {
 	if traceId == "unknown" {
 		uuids, err := uuid.NewV7()
 		if err != nil {
-			log.Error(err)
+			logger.Error("failed to generate trace_id", "err", err)
 		} else {
 			traceId = uuids.String()
 		}

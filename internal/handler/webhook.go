@@ -4,10 +4,10 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log/slog"
 	"net/http"
 	"strings"
 
-	log "github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/internal/config"
 )
 
@@ -25,7 +25,7 @@ func SendWebhook(clientID string, body WebhookData) {
 		go func(webhook string) {
 			err := sendWebhook(clientID, body, webhook)
 			if err != nil {
-				log.Errorf("failed to trigger webhook '%s': %v", webhook, err)
+				slog.Error("failed to trigger webhook", "webhook", webhook, "err", err)
 			}
 		}(webhook)
 	}
@@ -47,7 +47,7 @@ func sendWebhook(clientID string, body WebhookData, webhook string) error {
 	}
 	defer func() {
 		if closeErr := res.Body.Close(); closeErr != nil {
-			log.Errorf("failed to close response body: %v", closeErr)
+			slog.Error("failed to close response body", "err", closeErr)
 		}
 	}()
 	if res.StatusCode != http.StatusOK {
