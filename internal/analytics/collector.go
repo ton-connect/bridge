@@ -2,10 +2,10 @@ package analytics
 
 import (
 	"context"
+	"log/slog"
 	"sync/atomic"
 	"time"
 
-	"github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/tonmetrics"
 )
 
@@ -115,25 +115,25 @@ func (c *Collector) Run(ctx context.Context) {
 	flushTicker := time.NewTicker(c.flushInterval)
 	defer flushTicker.Stop()
 
-	logrus.WithField("prefix", "analytics").Debugf("analytics collector started with flush interval %v", c.flushInterval)
+	slog.With("prefix", "analytics").Debug("analytics collector started", "flush_interval", c.flushInterval)
 
 	for {
 		select {
 		case <-ctx.Done():
-			logrus.WithField("prefix", "analytics").Debug("analytics collector stopping, performing final flush")
+			slog.With("prefix", "analytics").Debug("analytics collector stopping, performing final flush")
 			// Use fresh context for final flush since ctx is already cancelled
 			flushCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			c.Flush(flushCtx)
 			cancel()
-			logrus.WithField("prefix", "analytics").Debug("analytics collector stopped")
+			slog.With("prefix", "analytics").Debug("analytics collector stopped")
 			return
 		case <-flushTicker.C:
 			if c.Len() > 0 {
-				logrus.WithField("prefix", "analytics").Debug("analytics collector ticker fired")
+				slog.With("prefix", "analytics").Debug("analytics collector ticker fired")
 				c.Flush(ctx)
 			}
 		case <-c.notifyCh:
-			logrus.WithField("prefix", "analytics").Debugf("analytics collector buffer reached %d events, flushing", c.Len())
+			slog.With("prefix", "analytics").Debug("analytics collector buffer reached trigger, flushing", "count", c.Len())
 			c.Flush(ctx)
 		}
 	}
@@ -142,9 +142,9 @@ func (c *Collector) Run(ctx context.Context) {
 func (c *Collector) Flush(ctx context.Context) {
 	events := c.PopAll()
 	if len(events) > 0 {
-		logrus.WithField("prefix", "analytics").Debugf("flushing %d events from collector", len(events))
+		slog.With("prefix", "analytics").Debug("flushing events from collector", "count", len(events))
 		if err := c.sender.SendBatch(ctx, events); err != nil {
-			logrus.WithError(err).Warnf("analytics: failed to send batch of %d events", len(events))
+			slog.Warn("analytics: failed to send batch", "count", len(events), "err", err)
 		}
 	}
 }

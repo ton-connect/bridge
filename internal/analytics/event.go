@@ -2,10 +2,10 @@ package analytics
 
 import (
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/google/uuid"
-	"github.com/sirupsen/logrus"
 	"github.com/ton-connect/bridge/tonmetrics"
 )
 
@@ -241,7 +241,7 @@ func optionalString(value string) *string {
 func newAnalyticsEventID() *string {
 	id, err := uuid.NewV7()
 	if err != nil {
-		logrus.WithError(err).Warn("Failed to generate UUIDv7, falling back to UUIDv4")
+		slog.Warn("Failed to generate UUIDv7, falling back to UUIDv4", "err", err)
 		str := uuid.New().String()
 		return &str
 	}
