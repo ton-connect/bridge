@@ -145,7 +145,7 @@ func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl 
 	// Set expiration on the key itself
 	s.client.Expire(ctx, channel, time.Duration(ttl+60)*time.Second) // TODO remove 60 seconds buffer?
 
-	logger.Debug("published and stored message", "client", message.To, "ttl", ttl)
+	logger.Debug("published and stored message", "client_id", message.To, "ttl", ttl)
 	return nil
 }
 
@@ -177,7 +177,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		messages, err := s.client.ZRange(ctx, clientKey, 0, -1).Result()
 		if err != nil {
 			if err != redis.Nil {
-				logger.Error("failed to get historical messages", "client", key, "err", err)
+				logger.Error("failed to get historical messages", "client_id", key, "err", err)
 			}
 			continue // No messages for this client or error occurred
 		}
@@ -333,7 +333,7 @@ func (s *ValkeyStorage) AddConnection(ctx context.Context, conn ConnectionInfo, 
 		return fmt.Errorf("failed to store connection: %w", err)
 	}
 
-	logger.Debug("stored connection", "client", conn.ClientID, "ip", conn.IP)
+	logger.Debug("stored connection", "client_id", conn.ClientID, "ip", conn.IP)
 	return nil
 }
 
@@ -349,7 +349,7 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 		return "", fmt.Errorf("failed to check connection existence: %w", err)
 	}
 	if exists > 0 {
-		logger.Debug("connection verified OK", "client", conn.ClientID)
+		logger.Debug("connection verified OK", "client_id", conn.ClientID)
 		return "ok", nil
 	}
 
@@ -358,14 +358,14 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 	keys, err := s.client.SMembers(ctx, indexKey).Result()
 	if err != nil {
 		if err == redis.Nil {
-			logger.Debug("no cached connections", "client", conn.ClientID)
+			logger.Debug("no cached connections", "client_id", conn.ClientID)
 			return "unknown", nil
 		}
 		return "", fmt.Errorf("failed to get connection index: %w", err)
 	}
 
 	if len(keys) == 0 {
-		logger.Debug("no cached connections", "client", conn.ClientID)
+		logger.Debug("no cached connections", "client_id", conn.ClientID)
 		return "unknown", nil
 	}
 
@@ -390,7 +390,7 @@ func (s *ValkeyStorage) VerifyConnection(ctx context.Context, conn ConnectionInf
 		}
 	}
 
-	logger.Debug("connection verification result", "result", leastSuspicious, "client", conn.ClientID)
+	logger.Debug("connection verification result", "result", leastSuspicious, "client_id", conn.ClientID)
 	return leastSuspicious, nil
 }
 
