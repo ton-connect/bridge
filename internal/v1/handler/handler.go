@@ -440,14 +440,13 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		}
 		s.mux.Unlock()
 	}
-	go func() {
-		log := log.WithField("prefix", "SendMessageHandler.storge.Add")
-		err = h.storage.Add(context.Background(), sseMessage, ttl)
-		if err != nil {
-			// TODO ooops
-			log.Errorf("db error: %v", err)
-		}
-	}()
+	// Persist before acknowledging: a client reconnecting right after the 200 must find this
+	// message in the backlog, so the store has to complete before the response. Background
+	// context keeps persistence alive even if the sender disconnects.
+	if err := h.storage.Add(context.Background(), sseMessage, ttl); err != nil {
+		log.WithField("prefix", "SendMessageHandler.storage.Add").Errorf("db error: %v", err)
+		return c.JSON(utils.HttpResError("failed to store message", http.StatusInternalServerError))
+	}
 
 	var bridgeMsg models.BridgeMessage
 	fromId := "unknown"
