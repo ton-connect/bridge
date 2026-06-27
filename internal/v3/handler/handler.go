@@ -385,15 +385,13 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		To:      toId.String(),
 	}
 
-	// Send message only to storage - pub-sub will handle distribution
-	go func() {
-		logger := slog.With("prefix", "SendMessageHandler.storage.Pub")
-		err = h.storage.Pub(context.Background(), sseMessage, ttl)
-		if err != nil {
-			// TODO ooops
-			logger.Error("db error", "err", err)
-		}
-	}()
+	// Persist before acknowledging: a client reconnecting right after the 200 must find this
+	// message in the backlog, so the store has to complete before the response. Background
+	// context keeps persistence alive even if the sender disconnects.
+	if err := h.storage.Pub(context.Background(), sseMessage, ttl); err != nil {
+		slog.With("prefix", "SendMessageHandler.storage.Pub").Error("db error", "err", err)
+		return c.JSON(utils.HttpResError("failed to store message", http.StatusInternalServerError))
+	}
 
 	var bridgeMsg models.BridgeMessage
 	fromId := "unknown"

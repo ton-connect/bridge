@@ -320,8 +320,11 @@ func getBridgeLastEventID(t *testing.T, sender *BridgeGateway, senderSession str
 		}
 	}()
 
-	if !receiver.IsReady() {
-		t.Fatal("receiver not ready")
+	// WaitReady, not IsReady: IsReady is true as soon as the SSE response is open, but the
+	// server registers the subscription a moment later (session.Start), so a send racing that
+	// window is dropped. WaitReady adds the settle the live-delivery path needs.
+	if err := receiver.WaitReady(ctx); err != nil {
+		t.Fatalf("receiver not ready: %v", err)
 	}
 
 	if err := sender.Send(ctx, make([]byte, 0), senderSession, session, nil); err != nil {
@@ -432,8 +435,10 @@ func TestBridge_NoMessageAfterReconnectWithUpdatedLastEventID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("open receiver1: %v", err)
 	}
-	if !r1.IsReady() {
-		t.Fatal("receiver1 not ready")
+	// WaitReady, not IsReady: r1 must receive "Hello!" live, so the server-side subscription
+	// has to be established before the send (see WaitReady note above).
+	if err := r1.WaitReady(ctx); err != nil {
+		t.Fatalf("receiver1 not ready: %v", err)
 	}
 	if err := sender.Send(ctx, []byte("Hello!"), senderSession, session, nil); err != nil {
 		t.Fatalf("send: %v", err)
