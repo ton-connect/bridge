@@ -1,0 +1,72 @@
+name: Re-tag on non-building commit
+
+# build-image.yml path-ignores version.yaml and **/*.md, so a release-pointer
+# bump or a docs-only commit publishes NO image. But the staging deploy
+# HEAD-tracks the commit sha (appsets/products-staging.yaml: image.tag = the
+# default-branch HEAD), so without an image it sits in ImagePullBackOff until the
+# next code merge. Fix: on such a commit, copy the release.sha image (always
+# already published — verify-release-pointer gates that) onto this commit's sha,
+# so staging resolves to exactly the released image. A manifest copy (no rebuild)
+# also avoids re-running the expensive multi-arch buildx, and guarantees the
+# redeployed digest is byte-identical to what was released. Mirror
+# build-image.yml's ignore set so the two never both publish the same sha.
+# Push-only (OIDC): the re-tag mints push creds, so this must never run for fork
+# pull requests. Bridge's default branch is master.
+
+on:
+  push:
+    branches: [master]
+    paths:
+      - version.yaml
+      - '**/*.md'
+
+permissions:
+  id-token: write
+  contents: read
+
+jobs:
+  scope:
+    runs-on: ubuntu-latest
+    outputs:
+      build_skipped: ${{ steps.check.outputs.build_skipped }}
+      sha: ${{ steps.check.outputs.sha }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # need the before..after diff
+
+      - name: Classify commit + read release pointer
+        id: check
+        env:
+          BEFORE: ${{ github.event.before }} # via env, never inline in run:
+          AFTER: ${{ github.sha }}
+        run: |
+          if [ -z "$BEFORE" ] || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+            FILES="$(git diff-tree --no-commit-id --name-only -r "$AFTER")"
+          else
+            FILES="$(git diff --name-only "$BEFORE" "$AFTER")"
+          fi
+          echo "Changed files:"; printf '%s\n' "$FILES"
+          # build-image.yml builds unless EVERY changed file is ignored (the root
+          # version.yaml or any *.md). If anything else changed (incl. service.yaml,
+          # which build-image deliberately does NOT ignore), build-image publishes
+          # this sha itself — re-tagging would clobber real code, so skip.
+          if printf '%s\n' "$FILES" | grep -vE '^version\.yaml$|\.md$' | grep -q .; then
+            echo "Buildable files changed — build-image.yml will publish $AFTER; skipping re-tag."
+            echo "build_skipped=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "Non-building commit — re-tag the release image onto $AFTER."
+            echo "build_skipped=true" >> "$GITHUB_OUTPUT"
+          fi
+          echo "sha=$(yq -r '.release.sha' version.yaml)" >> "$GITHUB_OUTPUT"
+
+  retag:
+    needs: scope
+    if: needs.scope.outputs.build_skipped == 'true'
+    uses: ton-connect/ci/.github/workflows/retag-image.yml@main
+    with:
+      ecr-repository: bridge
+      role-arn: arn:aws:iam::990678687129:role/gha-ecr-push-bridge
+      source-tag: ${{ needs.scope.outputs.sha }}
+      new-tag: ${{ github.sha }}
