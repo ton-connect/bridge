@@ -25,7 +25,7 @@ jobs:
      steps:
 
      - name: Check out code
-       uses: actions/checkout@v6
+       uses: actions/checkout@v7
 
      - name: Set up Go
        uses: actions/setup-go@v6
@@ -43,7 +43,7 @@ jobs:
         storage: [memory, postgres, nginx, dnsmasq, cluster-valkey]
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
@@ -92,7 +92,7 @@ jobs:
         storage: [memory, postgres, nginx, dnsmasq, cluster-valkey]
 
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Set up Docker Buildx
       uses: docker/setup-buildx-action@v4
@@ -116,7 +116,7 @@ jobs:
         cp scripts/pr-metrics-avg.sh /tmp/pr-metrics-avg.sh
 
     - name: Checkout master
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         ref: master
         clean: false
@@ -140,7 +140,7 @@ jobs:
     needs: metrics
     runs-on: ubuntu-latest
     steps:
-    - uses: actions/checkout@v6
+    - uses: actions/checkout@v7
 
     - name: Download all metrics artifacts
       uses: actions/download-artifact@v8
