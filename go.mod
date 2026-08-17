@@ -13,7 +13,7 @@ require (
 	github.com/prometheus/client_golang v1.23.2
 	github.com/realclientip/realclientip-go v1.0.0
 	github.com/redis/go-redis/v9 v9.20.0
-	github.com/sirupsen/logrus v1.9.4
+	github.com/sirupsen/logrus v1.10.0
 	github.com/stretchr/testify v1.11.1
 	golang.org/x/crypto v0.52.0
 	golang.org/x/exp v0.0.0-20230626212559-97b1e661b5df
