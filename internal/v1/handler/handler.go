@@ -116,7 +116,7 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().Header().Set("Transfer-Encoding", "chunked")
 	c.Response().Header().Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
-	_, _ = fmt.Fprint(c.Response(), "\n")
+	_, _ = fmt.Fprint(c.Response(), "retry: 100\n\n")
 	c.Response().Flush()
 
 	paramsStore, err := handler_common.NewParamsStorage(c, config.Config.MaxBodySize)
