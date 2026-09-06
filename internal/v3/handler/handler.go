@@ -104,8 +104,8 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	c.Response().Header().Set("Transfer-Encoding", "chunked")
 	c.Response().Header().Set("X-Accel-Buffering", "no")
 	c.Response().WriteHeader(http.StatusOK)
-	if _, err := fmt.Fprint(c.Response(), "\n"); err != nil {
-		logger.Error("failed to write initial newline", "err", err)
+	if _, err := fmt.Fprint(c.Response(), "retry: 100\n\n"); err != nil {
+		logger.Error("failed to write initial SSE frame", "err", err)
 		return err
 	}
 	c.Response().Flush()
