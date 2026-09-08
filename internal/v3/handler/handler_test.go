@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/ton-connect/bridge/internal/antiscam"
 	"github.com/ton-connect/bridge/internal/ntp"
 	"github.com/ton-connect/bridge/internal/utils"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
@@ -166,7 +167,7 @@ func TestHandler(t *testing.T) {
 				t.Fatalf("failed to create RealIPExtractor: %v", err)
 			}
 
-			h := NewHandler(memStorage, 10*time.Second, extractor, ntp.NewLocalTimeProvider(), nil, nil)
+			h := NewHandler(memStorage, 10*time.Second, extractor, ntp.NewLocalTimeProvider(), nil, nil, antiscam.NewService(&antiscam.NoopChecker{}))
 
 			rec := httptest.NewRecorder()
 			c := e.NewContext(req, rec)
