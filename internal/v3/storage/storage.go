@@ -34,6 +34,24 @@ var (
 // the TTL of the in-process cache the memory backend uses for the same purpose.
 const deliveredMarkTTL = time.Hour
 
+// Delivery marks are written by a background writer rather than on the delivery path.
+// markQueueSize absorbs a burst without blocking a send; markBatchSize and
+// markFlushInterval trade a little staleness for far fewer round trips.
+const (
+	markQueueSize     = 8192
+	markBatchSize     = 128
+	markFlushInterval = 100 * time.Millisecond
+	markWriteTimeout  = 5 * time.Second
+)
+
+// droppedMarksMetric counts marks abandoned because the queue was full. A dropped mark can
+// only push number_of_expired_messages up, never down, so a loss spike with this counter
+// moving beside it is the storage falling behind rather than messages going missing.
+var droppedMarksMetric = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "number_of_dropped_delivery_marks",
+	Help: "The total number of delivery marks dropped because the write queue was full",
+})
+
 // ConnectionInfo represents connection metadata for verification
 type ConnectionInfo struct {
 	ClientID  string

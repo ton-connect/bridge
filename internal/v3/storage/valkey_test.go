@@ -48,6 +48,35 @@ func getTestValkeyURI(t *testing.T) string {
 	return uri
 }
 
+// waitSwept blocks until the sweep Sub launched has removed the expired members, or fails
+// the test. Sub no longer sweeps inline - it would hold the subscriber lock across the
+// round trips - so the counter these tests read is written by a goroutine, and the backlog
+// shrinking is the observable edge that says the write has happened.
+func waitSwept(t *testing.T, storage *ValkeyStorage, clientID string, want int64) {
+	t.Helper()
+	clientKey := fmt.Sprintf("client:%s", clientID)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		n, err := storage.client.ZCard(context.Background(), clientKey).Result()
+		if err != nil {
+			t.Fatalf("ZCard failed: %v", err)
+		}
+		if n == want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("sweep did not reduce the backlog of %s to %d entries within 5s", clientID, want)
+}
+
+// cleanupKeys removes the keys a test made. They hash to different slots, so a multi-key
+// DEL would come back CROSSSLOT and delete neither.
+func cleanupKeys(storage *ValkeyStorage, clientID string) {
+	ctx := context.Background()
+	storage.client.Del(ctx, fmt.Sprintf("client:%s", clientID))
+	storage.client.Del(ctx, deliveredKey(clientID))
+}
+
 func TestValkeyStorage_ConnectionVerification_ExactMatch(t *testing.T) {
 	uri := getTestValkeyURI(t)
 	storage, err := NewValkeyStorage(uri)
@@ -312,6 +341,9 @@ func TestValkeyStorage_SubCountsUndeliveredExpiry(t *testing.T) {
 	}
 	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
 
+	// One of the two survives its TTL, so a finished sweep leaves exactly one entry.
+	waitSwept(t, storage, clientID, 1)
+
 	if got := testutil.ToFloat64(expiredMessagesMetric) - before; got != 1 {
 		t.Errorf("expected the undelivered expired message to be counted once, counter moved by %v", got)
 	}
@@ -327,16 +359,19 @@ func TestValkeyStorage_SubCountsUndeliveredExpiry(t *testing.T) {
 		t.Errorf("expected only the live message replayed, got event ids %v", replayed)
 	}
 
-	// A second reconnect finds nothing left to sweep and must add nothing.
+	// A second reconnect finds nothing left to sweep and must add nothing. There is no
+	// state change to wait on here - a sweep that removes nothing leaves no trace - so this
+	// one gets a settle long enough for a sweep that did run to have finished counting.
 	after := testutil.ToFloat64(expiredMessagesMetric)
 	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
 		t.Fatalf("second Sub failed: %v", err)
 	}
+	time.Sleep(500 * time.Millisecond)
 	if got := testutil.ToFloat64(expiredMessagesMetric); got != after {
 		t.Errorf("second sweep double-counted: counter moved from %v to %v", after, got)
 	}
 
-	storage.client.Del(ctx, fmt.Sprintf("client:%s", clientID), deliveredKey(clientID))
+	cleanupKeys(storage, clientID)
 }
 
 // TestValkeyStorage_DeliveredExpiryIsNotCounted pins the distinction the counter exists for.
@@ -375,9 +410,12 @@ func TestValkeyStorage_DeliveredExpiryIsNotCounted(t *testing.T) {
 	}
 	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
 
+	// The only message expired, so a finished sweep empties the backlog.
+	waitSwept(t, storage, clientID, 0)
+
 	if got := testutil.ToFloat64(expiredMessagesMetric); got != before {
 		t.Errorf("a delivered message was counted as expired: counter moved from %v to %v", before, got)
 	}
 
-	storage.client.Del(ctx, fmt.Sprintf("client:%s", clientID), deliveredKey(clientID))
+	cleanupKeys(storage, clientID)
 }

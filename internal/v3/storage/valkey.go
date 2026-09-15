@@ -19,6 +19,13 @@ type ValkeyStorage struct {
 	pubSubConn  *redis.PubSub
 	subscribers map[string][]chan<- models.SseMessage
 	subMutex    sync.RWMutex
+	marks       chan deliveryMark
+}
+
+// deliveryMark is one "this event reached its client" record on its way to Valkey.
+type deliveryMark struct {
+	clientID string
+	eventID  int64
 }
 
 // NewValkeyStorage creates a Valkey-backed storage client.
@@ -65,10 +72,14 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 
 	logger.Info("Successfully connected to Valkey/Redis")
 
-	return &ValkeyStorage{
+	s := &ValkeyStorage{
 		client:      clusterClient,
 		subscribers: make(map[string][]chan<- models.SseMessage),
-	}, nil
+		marks:       make(chan deliveryMark, markQueueSize),
+	}
+	go s.runMarkWriter()
+
+	return s, nil
 }
 
 // detectClusterMode checks if the Redis endpoint is in cluster mode
@@ -169,10 +180,16 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	for _, key := range keys {
 		clientKey := fmt.Sprintf("client:%s", key)
 
-		s.reapExpired(ctx, clientKey, key, now)
-
-		// Get all remaining messages
-		messages, err := s.client.ZRange(ctx, clientKey, 0, -1).Result()
+		// Replay by score instead of by whatever the sweep happens to have left behind. An
+		// expired member is excluded here whether or not it has been swept, which is what
+		// lets the sweep move off this path entirely: it runs under subMutex, and every
+		// round trip taken under that lock delays the pub/sub registration below. A message
+		// published into that window is stored but never delivered live, and the client
+		// does not see it until it reconnects again.
+		messages, err := s.client.ZRangeByScore(ctx, clientKey, &redis.ZRangeBy{
+			Min: fmt.Sprintf("(%d", now),
+			Max: "+inf",
+		}).Result()
 		if err != nil {
 			if err != redis.Nil {
 				logger.Error("failed to get historical messages", "client_id", key, "err", err)
@@ -218,8 +235,23 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		}
 	}
 
+	// The sweep reclaims storage and counts losses; neither has to happen before this
+	// client is subscribed, and doing it here keeps the lock window short.
+	for _, key := range keys {
+		clientKey := fmt.Sprintf("client:%s", key)
+		go s.sweep(clientKey, key, now)
+	}
+
 	logger.Debug("subscribed to channels for keys", "keys", keys)
 	return nil
+}
+
+// sweep runs one expiry sweep detached from the caller's context: the request that
+// triggered it may end at any moment, and an aborted sweep leaves the backlog uncounted.
+func (s *ValkeyStorage) sweep(clientKey, clientID string, now int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
+	defer cancel()
+	s.reapExpired(ctx, clientKey, clientID, now)
 }
 
 // reapBatchSize bounds one sweep round trip. A client's backlog is not bounded by
@@ -253,15 +285,56 @@ func deliveredKey(clientID string) string {
 // sweeps the same client, and every message delivered by one and swept by the other would
 // be counted as lost. Keeping the mark beside the data it describes removes that skew by
 // construction rather than by hoping one pod does both halves.
-func (s *ValkeyStorage) MarkDelivered(ctx context.Context, clientID string, eventID int64) error {
-	key := deliveredKey(clientID)
-	pipe := s.client.Pipeline()
-	pipe.SAdd(ctx, key, eventID)
-	pipe.Expire(ctx, key, deliveredMarkTTL)
-	if _, err := pipe.Exec(ctx); err != nil {
-		return fmt.Errorf("failed to mark message %d delivered for %s: %w", eventID, clientID, err)
+func (s *ValkeyStorage) MarkDelivered(_ context.Context, clientID string, eventID int64) error {
+	select {
+	case s.marks <- deliveryMark{clientID: clientID, eventID: eventID}:
+	default:
+		// The caller is the SSE delivery loop. Waiting here would put a remote write in
+		// front of every further message that connection is about to send, so a queue this
+		// deep being full is taken as the answer rather than as something to wait out.
+		droppedMarksMetric.Inc()
 	}
 	return nil
+}
+
+// runMarkWriter drains the mark queue into Valkey in batches for the life of the process.
+func (s *ValkeyStorage) runMarkWriter() {
+	batch := make([]deliveryMark, 0, markBatchSize)
+	ticker := time.NewTicker(markFlushInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case m := <-s.marks:
+			batch = append(batch, m)
+			if len(batch) >= markBatchSize {
+				s.flushMarks(batch)
+				batch = batch[:0]
+			}
+		case <-ticker.C:
+			if len(batch) > 0 {
+				s.flushMarks(batch)
+				batch = batch[:0]
+			}
+		}
+	}
+}
+
+// flushMarks writes one batch of marks as a single pipeline.
+func (s *ValkeyStorage) flushMarks(batch []deliveryMark) {
+	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
+	defer cancel()
+
+	pipe := s.client.Pipeline()
+	for _, m := range batch {
+		key := deliveredKey(m.clientID)
+		pipe.SAdd(ctx, key, m.eventID)
+		pipe.Expire(ctx, key, deliveredMarkTTL)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		slog.With("prefix", "ValkeyStorage.flushMarks").Error("failed to write delivery marks", "count", len(batch), "err", err)
+		droppedMarksMetric.Add(float64(len(batch)))
+	}
 }
 
 // reapExpired drops backlog entries whose expiry score has passed and counts the ones that
@@ -330,8 +403,12 @@ func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, b
 	// overstate loss after an hour of silence, never hide it.
 	marked, err := s.client.SMIsMember(ctx, deliveredKey(clientID), ids...).Result()
 	if err != nil {
-		logger.Error("failed to read delivery marks", "client_id", clientID, "err", err)
-		marked = make([]bool, len(ids))
+		// The script has already removed this batch, so there is no retry and no second
+		// chance to learn which of these were delivered. Counting them all would turn one
+		// transient read error into a permanent step in a counter that exists to show real
+		// loss, so the batch goes uncounted instead.
+		logger.Error("failed to read delivery marks, batch not counted", "client_id", clientID, "count", len(ids), "err", err)
+		return
 	}
 
 	undelivered := 0
