@@ -19,6 +19,13 @@ type ValkeyStorage struct {
 	pubSubConn  *redis.PubSub
 	subscribers map[string][]chan<- models.SseMessage
 	subMutex    sync.RWMutex
+	marks       chan deliveryMark
+}
+
+// deliveryMark is one "this event reached its client" record on its way to Valkey.
+type deliveryMark struct {
+	clientID string
+	eventID  int64
 }
 
 // NewValkeyStorage creates a Valkey-backed storage client.
@@ -65,10 +72,14 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 
 	logger.Info("Successfully connected to Valkey/Redis")
 
-	return &ValkeyStorage{
+	s := &ValkeyStorage{
 		client:      clusterClient,
 		subscribers: make(map[string][]chan<- models.SseMessage),
-	}, nil
+		marks:       make(chan deliveryMark, markQueueSize),
+	}
+	go s.runMarkWriter()
+
+	return s, nil
 }
 
 // detectClusterMode checks if the Redis endpoint is in cluster mode
@@ -169,12 +180,16 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	for _, key := range keys {
 		clientKey := fmt.Sprintf("client:%s", key)
 
-		// Remove expired messages first
-		// TODO support expired messages but not delivered log
-		s.client.ZRemRangeByScore(ctx, clientKey, "0", fmt.Sprintf("%d", now))
-
-		// Get all remaining messages
-		messages, err := s.client.ZRange(ctx, clientKey, 0, -1).Result()
+		// Replay by score instead of by whatever the sweep happens to have left behind. An
+		// expired member is excluded here whether or not it has been swept, which is what
+		// lets the sweep move off this path entirely: it runs under subMutex, and every
+		// round trip taken under that lock delays the pub/sub registration below. A message
+		// published into that window is stored but never delivered live, and the client
+		// does not see it until it reconnects again.
+		messages, err := s.client.ZRangeByScore(ctx, clientKey, &redis.ZRangeBy{
+			Min: fmt.Sprintf("(%d", now),
+			Max: "+inf",
+		}).Result()
 		if err != nil {
 			if err != redis.Nil {
 				logger.Error("failed to get historical messages", "client_id", key, "err", err)
@@ -220,8 +235,198 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		}
 	}
 
+	// The sweep reclaims storage and counts losses; neither has to happen before this
+	// client is subscribed, and doing it here keeps the lock window short.
+	for _, key := range keys {
+		clientKey := fmt.Sprintf("client:%s", key)
+		go s.sweep(clientKey, key, now)
+	}
+
 	logger.Debug("subscribed to channels for keys", "keys", keys)
 	return nil
+}
+
+// sweep runs one expiry sweep detached from the caller's context: the request that
+// triggered it may end at any moment, and an aborted sweep leaves the backlog uncounted.
+func (s *ValkeyStorage) sweep(clientKey, clientID string, now int64) {
+	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
+	defer cancel()
+	s.reapExpired(ctx, clientKey, clientID, now)
+}
+
+// reapBatchSize bounds one sweep round trip. A client's backlog is not bounded by
+// anything, so reading it whole would let a reconnect after a long outage allocate every
+// stored payload at once and build a single huge delete command.
+const reapBatchSize = 256
+
+// reapScript removes expired backlog members and returns exactly the ones it removed.
+//
+// The read and the delete have to be one server-side operation. Doing them as two client
+// commands lets a concurrent sweep on the other replica remove members between them, and
+// then this pod counts messages it did not remove. Inside a script the pair is atomic, so
+// the returned members are precisely this call's, which is what makes the count safe to
+// add to a metric.
+var reapScript = redis.NewScript(`
+local members = redis.call('ZRANGEBYSCORE', KEYS[1], '0', ARGV[1], 'LIMIT', 0, tonumber(ARGV[2]))
+if #members > 0 then
+  redis.call('ZREM', KEYS[1], unpack(members))
+end
+return members
+`)
+
+func deliveredKey(clientID string) string {
+	return fmt.Sprintf("delivered:%s", clientID)
+}
+
+// MarkDelivered records the delivery in Valkey rather than in process memory.
+//
+// This is the whole reason the expiry count can be trusted here. The backlog is shared by
+// every replica, so a mark kept in one pod's memory is invisible to the pod that later
+// sweeps the same client, and every message delivered by one and swept by the other would
+// be counted as lost. Keeping the mark beside the data it describes removes that skew by
+// construction rather than by hoping one pod does both halves.
+func (s *ValkeyStorage) MarkDelivered(_ context.Context, clientID string, eventID int64) error {
+	select {
+	case s.marks <- deliveryMark{clientID: clientID, eventID: eventID}:
+	default:
+		// The caller is the SSE delivery loop. Waiting here would put a remote write in
+		// front of every further message that connection is about to send, so a queue this
+		// deep being full is taken as the answer rather than as something to wait out.
+		droppedMarksMetric.Inc()
+	}
+	return nil
+}
+
+// runMarkWriter drains the mark queue into Valkey in batches for the life of the process.
+func (s *ValkeyStorage) runMarkWriter() {
+	batch := make([]deliveryMark, 0, markBatchSize)
+	ticker := time.NewTicker(markFlushInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case m := <-s.marks:
+			batch = append(batch, m)
+			if len(batch) >= markBatchSize {
+				s.flushMarks(batch)
+				batch = batch[:0]
+			}
+		case <-ticker.C:
+			if len(batch) > 0 {
+				s.flushMarks(batch)
+				batch = batch[:0]
+			}
+		}
+	}
+}
+
+// flushMarks writes one batch of marks as a single pipeline.
+func (s *ValkeyStorage) flushMarks(batch []deliveryMark) {
+	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
+	defer cancel()
+
+	pipe := s.client.Pipeline()
+	for _, m := range batch {
+		key := deliveredKey(m.clientID)
+		pipe.SAdd(ctx, key, m.eventID)
+		pipe.Expire(ctx, key, deliveredMarkTTL)
+	}
+	if _, err := pipe.Exec(ctx); err != nil {
+		slog.With("prefix", "ValkeyStorage.flushMarks").Error("failed to write delivery marks", "count", len(batch), "err", err)
+		droppedMarksMetric.Add(float64(len(batch)))
+	}
+}
+
+// reapExpired drops backlog entries whose expiry score has passed and counts the ones that
+// nobody received.
+//
+// Counting every removed member would be wrong: Pub stores a copy of each message whether
+// or not a subscriber was listening, and a delivered copy sits in the backlog until its TTL
+// like any other. Only members without a delivery mark are messages that actually went
+// undelivered, and those are what the metric is about.
+//
+// What it still cannot see is structural rather than an oversight. A sorted-set member
+// carries no TTL of its own, only the key does, so expiry is resolved lazily here instead
+// of by a sweeper like the memory backend runs. A client that never reconnects has its
+// whole key dropped by Valkey and its messages expire uncounted. Covering those needs a
+// sweeper with leader election across replicas.
+func (s *ValkeyStorage) reapExpired(ctx context.Context, clientKey, clientID string, now int64) {
+	logger := slog.With("prefix", "ValkeyStorage.reapExpired")
+	maxScore := fmt.Sprintf("%d", now)
+
+	for {
+		raw, err := reapScript.Run(ctx, s.client, []string{clientKey}, maxScore, reapBatchSize).Result()
+		if err != nil {
+			if err != redis.Nil {
+				logger.Error("failed to sweep expired messages", "client_id", clientID, "err", err)
+			}
+			return
+		}
+
+		batch, ok := raw.([]interface{})
+		if !ok || len(batch) == 0 {
+			return
+		}
+
+		s.countUndelivered(ctx, clientID, batch, logger)
+
+		if len(batch) < reapBatchSize {
+			return
+		}
+	}
+}
+
+// countUndelivered adds the members of one swept batch that carry no delivery mark.
+func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, batch []interface{}, logger *slog.Logger) {
+	messages := make([]models.SseMessage, 0, len(batch))
+	ids := make([]interface{}, 0, len(batch))
+
+	for _, item := range batch {
+		payload, ok := item.(string)
+		if !ok {
+			continue
+		}
+		var msg models.SseMessage
+		if err := json.Unmarshal([]byte(payload), &msg); err != nil {
+			logger.Error("failed to unmarshal expired message", "client_id", clientID, "err", err)
+			continue
+		}
+		messages = append(messages, msg)
+		ids = append(ids, msg.EventId)
+	}
+	if len(messages) == 0 {
+		return
+	}
+
+	// A missing delivered set answers false for every id, so a client whose marks have
+	// already expired counts as undelivered. That is the safe direction: the metric may
+	// overstate loss after an hour of silence, never hide it.
+	marked, err := s.client.SMIsMember(ctx, deliveredKey(clientID), ids...).Result()
+	if err != nil {
+		// The script has already removed this batch, so there is no retry and no second
+		// chance to learn which of these were delivered. Counting them all would turn one
+		// transient read error into a permanent step in a counter that exists to show real
+		// loss, so the batch goes uncounted instead.
+		logger.Error("failed to read delivery marks, batch not counted", "client_id", clientID, "count", len(ids), "err", err)
+		return
+	}
+
+	undelivered := 0
+	for i, msg := range messages {
+		if i < len(marked) && marked[i] {
+			continue
+		}
+		undelivered++
+		traceID := ""
+		var bridgeMsg models.BridgeMessage
+		if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+			traceID = bridgeMsg.TraceId
+		}
+		logger.Debug("message expired undelivered", "client_id", clientID, "event_id", msg.EventId, "trace_id", traceID)
+	}
+	if undelivered > 0 {
+		expiredMessagesMetric.Add(float64(undelivered))
+	}
 }
 
 // Unsub unsubscribes from Redis channels for the given keys
