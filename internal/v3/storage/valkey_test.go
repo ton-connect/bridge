@@ -310,7 +310,7 @@ func TestValkeyStorage_SubCountsUndeliveredExpiry(t *testing.T) {
 	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
 		t.Fatalf("Sub failed: %v", err)
 	}
-	defer storage.Unsub(ctx, []string{clientID}, messageCh)
+	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
 
 	if got := testutil.ToFloat64(expiredMessagesMetric) - before; got != 1 {
 		t.Errorf("expected the undelivered expired message to be counted once, counter moved by %v", got)
@@ -373,7 +373,7 @@ func TestValkeyStorage_DeliveredExpiryIsNotCounted(t *testing.T) {
 	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
 		t.Fatalf("Sub failed: %v", err)
 	}
-	defer storage.Unsub(ctx, []string{clientID}, messageCh)
+	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
 
 	if got := testutil.ToFloat64(expiredMessagesMetric); got != before {
 		t.Errorf("a delivered message was counted as expired: counter moved from %v to %v", before, got)
