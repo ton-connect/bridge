@@ -10,16 +10,9 @@ import (
 
 	"log/slog"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/models"
 )
-
-var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
-	Name: "number_of_expired_messages",
-	Help: "The total number of expired messages",
-})
 
 type MemStorage struct {
 	db           map[string][]message

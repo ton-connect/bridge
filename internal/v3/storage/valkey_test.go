@@ -2,9 +2,14 @@ package storagev3
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"testing"
 	"time"
+
+	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/ton-connect/bridge/internal/models"
 )
 
 func TestNewValkeyStorage_SingleNode(t *testing.T) {
@@ -266,4 +271,77 @@ func TestValkeyStorage_ConnectionVerification_MultipleConnections(t *testing.T) 
 	if status != "warning" {
 		t.Errorf("expected 'warning' for same origin different IP, got '%s'", status)
 	}
+}
+
+// TestValkeyStorage_ReapExpired covers the counter that made number_of_expired_messages
+// mean something on this backend. Before it, the metric was declared in the memory
+// backend, registered by promauto on import, and reported zero forever in a prod binary
+// running STORAGE=valkey.
+//
+// The second reap is the point of the test as much as the first: expiry is resolved
+// lazily on Sub, both replicas sweep the same client when it reconnects, and a range
+// delete would let each of them claim the same members. Deleting by exact member makes
+// the second sweep a no-op.
+func TestValkeyStorage_ReapExpired(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	clientID := fmt.Sprintf("reap-%d", time.Now().UnixNano())
+	clientKey := fmt.Sprintf("client:%s", clientID)
+
+	// One message that will have expired by the time it is swept, one that will not.
+	expiring := models.SseMessage{
+		EventId: 1,
+		Message: []byte(`{"from":"sender","message":"gone","trace_id":"trace-expired"}`),
+		To:      clientID,
+	}
+	surviving := models.SseMessage{
+		EventId: 2,
+		Message: []byte(`{"from":"sender","message":"kept","trace_id":"trace-live"}`),
+		To:      clientID,
+	}
+	if err := storage.Pub(ctx, expiring, 1); err != nil {
+		t.Fatalf("Pub(expiring) failed: %v", err)
+	}
+	if err := storage.Pub(ctx, surviving, 300); err != nil {
+		t.Fatalf("Pub(surviving) failed: %v", err)
+	}
+
+	time.Sleep(1500 * time.Millisecond)
+
+	before := testutil.ToFloat64(expiredMessagesMetric)
+	storage.reapExpired(ctx, clientKey, clientID, time.Now().Unix())
+	afterFirst := testutil.ToFloat64(expiredMessagesMetric)
+
+	if got := afterFirst - before; got != 1 {
+		t.Errorf("expected the expired message to be counted once, counter moved by %v", got)
+	}
+
+	// A concurrent replica sweeping the same client must not be able to count it again.
+	storage.reapExpired(ctx, clientKey, clientID, time.Now().Unix())
+	if got := testutil.ToFloat64(expiredMessagesMetric); got != afterFirst {
+		t.Errorf("second sweep double-counted: counter moved from %v to %v", afterFirst, got)
+	}
+
+	// The message still inside its TTL has to survive the sweep.
+	remaining, err := storage.client.ZRange(ctx, clientKey, 0, -1).Result()
+	if err != nil {
+		t.Fatalf("ZRange failed: %v", err)
+	}
+	if len(remaining) != 1 {
+		t.Fatalf("expected exactly the unexpired message to remain, got %d entries", len(remaining))
+	}
+	var kept models.SseMessage
+	if err := json.Unmarshal([]byte(remaining[0]), &kept); err != nil {
+		t.Fatalf("failed to unmarshal remaining message: %v", err)
+	}
+	if kept.EventId != surviving.EventId {
+		t.Errorf("wrong message survived: event_id %d", kept.EventId)
+	}
+
+	storage.client.Del(ctx, clientKey)
 }

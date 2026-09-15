@@ -169,9 +169,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	for _, key := range keys {
 		clientKey := fmt.Sprintf("client:%s", key)
 
-		// Remove expired messages first
-		// TODO support expired messages but not delivered log
-		s.client.ZRemRangeByScore(ctx, clientKey, "0", fmt.Sprintf("%d", now))
+		s.reapExpired(ctx, clientKey, key, now)
 
 		// Get all remaining messages
 		messages, err := s.client.ZRange(ctx, clientKey, 0, -1).Result()
@@ -222,6 +220,64 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 
 	logger.Debug("subscribed to channels for keys", "keys", keys)
 	return nil
+}
+
+// reapExpired drops backlog entries whose expiry score has passed and counts them.
+//
+// Two details are load-bearing. It deletes by exact member rather than calling
+// ZRemRangeByScore, because both replicas sweep the same client on reconnect and a range
+// delete reports a count each of them would claim; ZRem answers with what THIS call took
+// off the set, so the counter cannot drift upward on concurrent reconnects.
+//
+// And what it cannot see. A sorted-set member carries no TTL of its own, only the key
+// does, so expiry is resolved lazily here instead of by a sweeper like the memory backend
+// runs. A client that never reconnects has its whole key dropped by Valkey's own TTL and
+// its messages expire uncounted. Covering those needs a sweeper with leader election
+// across replicas, which is a separate decision rather than an oversight.
+func (s *ValkeyStorage) reapExpired(ctx context.Context, clientKey, clientID string, now int64) {
+	logger := slog.With("prefix", "ValkeyStorage.reapExpired")
+
+	expired, err := s.client.ZRangeByScore(ctx, clientKey, &redis.ZRangeBy{
+		Min: "0",
+		Max: fmt.Sprintf("%d", now),
+	}).Result()
+	if err != nil {
+		if err != redis.Nil {
+			logger.Error("failed to read expired messages", "client_id", clientID, "err", err)
+		}
+		return
+	}
+	if len(expired) == 0 {
+		return
+	}
+
+	members := make([]interface{}, len(expired))
+	for i, raw := range expired {
+		members[i] = raw
+	}
+
+	removed, err := s.client.ZRem(ctx, clientKey, members...).Result()
+	if err != nil {
+		logger.Error("failed to remove expired messages", "client_id", clientID, "err", err)
+		return
+	}
+	if removed <= 0 {
+		return
+	}
+	expiredMessagesMetric.Add(float64(removed))
+
+	for _, raw := range expired {
+		var msg models.SseMessage
+		if err := json.Unmarshal([]byte(raw), &msg); err != nil {
+			continue
+		}
+		traceID := ""
+		var bridgeMsg models.BridgeMessage
+		if err := json.Unmarshal(msg.Message, &bridgeMsg); err == nil {
+			traceID = bridgeMsg.TraceId
+		}
+		logger.Debug("message expired", "client_id", clientID, "event_id", msg.EventId, "trace_id", traceID)
+	}
 }
 
 // Unsub unsubscribes from Redis channels for the given keys
