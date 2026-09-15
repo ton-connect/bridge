@@ -261,7 +261,12 @@ loop:
 				))
 			}
 			deliveredMessagesMetric.Inc()
-			storagev3.ExpiredCache.Mark(msg.EventId)
+			// Background context on purpose: the mark has to outlive this connection. The
+			// client may drop the moment after it reads the message, and a mark lost to a
+			// cancelled context turns a delivered message into a counted loss later.
+			if err := h.storage.MarkDelivered(context.Background(), msg.To, msg.EventId); err != nil {
+				logger.Error("failed to mark message delivered", "event_id", msg.EventId, "err", err)
+			}
 		case <-ticker.C:
 			_, err = fmt.Fprint(c.Response(), heartbeatMsg)
 			if err != nil {

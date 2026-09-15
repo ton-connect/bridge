@@ -29,6 +29,11 @@ var (
 	})
 )
 
+// deliveredMarkTTL bounds how long a delivery mark is kept. It only has to outlive the
+// message it describes, and message TTLs are minutes, so an hour is generous. It matches
+// the TTL of the in-process cache the memory backend uses for the same purpose.
+const deliveredMarkTTL = time.Hour
+
 // ConnectionInfo represents connection metadata for verification
 type ConnectionInfo struct {
 	ClientID  string
@@ -41,6 +46,12 @@ type Storage interface {
 	Pub(ctx context.Context, message models.SseMessage, ttl int64) error
 	Sub(ctx context.Context, keys []string, lastEventId int64, messageCh chan<- models.SseMessage) error
 	Unsub(ctx context.Context, keys []string, messageCh chan<- models.SseMessage) error
+
+	// MarkDelivered records that a message reached a subscriber, so the expiry sweep can
+	// tell a message nobody ever received from a backup copy of one already delivered.
+	// Both live in the backlog until their TTL: Pub stores every message whether or not a
+	// subscriber was listening, and a delivered one is only removed when it expires.
+	MarkDelivered(ctx context.Context, clientID string, eventID int64) error
 
 	// Connection verification methods
 	AddConnection(ctx context.Context, conn ConnectionInfo, ttl time.Duration) error

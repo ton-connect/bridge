@@ -2,7 +2,6 @@ package storagev3
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"testing"
@@ -273,16 +272,10 @@ func TestValkeyStorage_ConnectionVerification_MultipleConnections(t *testing.T) 
 	}
 }
 
-// TestValkeyStorage_ReapExpired covers the counter that made number_of_expired_messages
-// mean something on this backend. Before it, the metric was declared in the memory
-// backend, registered by promauto on import, and reported zero forever in a prod binary
-// running STORAGE=valkey.
-//
-// The second reap is the point of the test as much as the first: expiry is resolved
-// lazily on Sub, both replicas sweep the same client when it reconnects, and a range
-// delete would let each of them claim the same members. Deleting by exact member makes
-// the second sweep a no-op.
-func TestValkeyStorage_ReapExpired(t *testing.T) {
+// TestValkeyStorage_SubCountsUndeliveredExpiry drives the production call site rather than
+// the sweep helper: expiry is resolved inside Sub, so a test that called the helper
+// directly would stay green if that call were dropped or moved after the replay.
+func TestValkeyStorage_SubCountsUndeliveredExpiry(t *testing.T) {
 	uri := getTestValkeyURI(t)
 	storage, err := NewValkeyStorage(uri)
 	if err != nil {
@@ -291,9 +284,7 @@ func TestValkeyStorage_ReapExpired(t *testing.T) {
 
 	ctx := context.Background()
 	clientID := fmt.Sprintf("reap-%d", time.Now().UnixNano())
-	clientKey := fmt.Sprintf("client:%s", clientID)
 
-	// One message that will have expired by the time it is swept, one that will not.
 	expiring := models.SseMessage{
 		EventId: 1,
 		Message: []byte(`{"from":"sender","message":"gone","trace_id":"trace-expired"}`),
@@ -314,34 +305,79 @@ func TestValkeyStorage_ReapExpired(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 
 	before := testutil.ToFloat64(expiredMessagesMetric)
-	storage.reapExpired(ctx, clientKey, clientID, time.Now().Unix())
-	afterFirst := testutil.ToFloat64(expiredMessagesMetric)
 
-	if got := afterFirst - before; got != 1 {
-		t.Errorf("expected the expired message to be counted once, counter moved by %v", got)
+	messageCh := make(chan models.SseMessage, 8)
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	defer storage.Unsub(ctx, []string{clientID}, messageCh)
+
+	if got := testutil.ToFloat64(expiredMessagesMetric) - before; got != 1 {
+		t.Errorf("expected the undelivered expired message to be counted once, counter moved by %v", got)
 	}
 
-	// A concurrent replica sweeping the same client must not be able to count it again.
-	storage.reapExpired(ctx, clientKey, clientID, time.Now().Unix())
-	if got := testutil.ToFloat64(expiredMessagesMetric); got != afterFirst {
-		t.Errorf("second sweep double-counted: counter moved from %v to %v", afterFirst, got)
+	// Sub replays the backlog it did not sweep, so the live message arrives and the expired
+	// one must not: a client reconnecting after the TTL has to see neither the message nor
+	// a gap in event ids it cannot explain.
+	var replayed []int64
+	for len(messageCh) > 0 {
+		replayed = append(replayed, (<-messageCh).EventId)
+	}
+	if len(replayed) != 1 || replayed[0] != surviving.EventId {
+		t.Errorf("expected only the live message replayed, got event ids %v", replayed)
 	}
 
-	// The message still inside its TTL has to survive the sweep.
-	remaining, err := storage.client.ZRange(ctx, clientKey, 0, -1).Result()
+	// A second reconnect finds nothing left to sweep and must add nothing.
+	after := testutil.ToFloat64(expiredMessagesMetric)
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("second Sub failed: %v", err)
+	}
+	if got := testutil.ToFloat64(expiredMessagesMetric); got != after {
+		t.Errorf("second sweep double-counted: counter moved from %v to %v", after, got)
+	}
+
+	storage.client.Del(ctx, fmt.Sprintf("client:%s", clientID), deliveredKey(clientID))
+}
+
+// TestValkeyStorage_DeliveredExpiryIsNotCounted pins the distinction the counter exists for.
+// Pub stores a copy of every message whether or not anyone was listening, so a delivered
+// message sits in the backlog until its TTL exactly like an undelivered one. Counting the
+// sweep blindly would report successful deliveries as losses.
+func TestValkeyStorage_DeliveredExpiryIsNotCounted(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
 	if err != nil {
-		t.Fatalf("ZRange failed: %v", err)
-	}
-	if len(remaining) != 1 {
-		t.Fatalf("expected exactly the unexpired message to remain, got %d entries", len(remaining))
-	}
-	var kept models.SseMessage
-	if err := json.Unmarshal([]byte(remaining[0]), &kept); err != nil {
-		t.Fatalf("failed to unmarshal remaining message: %v", err)
-	}
-	if kept.EventId != surviving.EventId {
-		t.Errorf("wrong message survived: event_id %d", kept.EventId)
+		t.Fatalf("failed to create storage: %v", err)
 	}
 
-	storage.client.Del(ctx, clientKey)
+	ctx := context.Background()
+	clientID := fmt.Sprintf("delivered-%d", time.Now().UnixNano())
+
+	msg := models.SseMessage{
+		EventId: 7,
+		Message: []byte(`{"from":"sender","message":"seen","trace_id":"trace-delivered"}`),
+		To:      clientID,
+	}
+	if err := storage.Pub(ctx, msg, 1); err != nil {
+		t.Fatalf("Pub failed: %v", err)
+	}
+	if err := storage.MarkDelivered(ctx, clientID, msg.EventId); err != nil {
+		t.Fatalf("MarkDelivered failed: %v", err)
+	}
+
+	time.Sleep(1500 * time.Millisecond)
+
+	before := testutil.ToFloat64(expiredMessagesMetric)
+
+	messageCh := make(chan models.SseMessage, 4)
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	defer storage.Unsub(ctx, []string{clientID}, messageCh)
+
+	if got := testutil.ToFloat64(expiredMessagesMetric); got != before {
+		t.Errorf("a delivered message was counted as expired: counter moved from %v to %v", before, got)
+	}
+
+	storage.client.Del(ctx, fmt.Sprintf("client:%s", clientID), deliveredKey(clientID))
 }

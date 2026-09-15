@@ -51,6 +51,13 @@ func NewMemStorage(collector analytics.EventCollector, builder analytics.EventBu
 	return &s
 }
 
+// MarkDelivered records the delivery in the in-process cache. Single-process by nature,
+// which is exactly why the Valkey backend keeps its own marks in Valkey instead.
+func (s *MemStorage) MarkDelivered(_ context.Context, _ string, eventID int64) error {
+	ExpiredCache.Mark(eventID)
+	return nil
+}
+
 func removeExpiredMessages(ms []message, now time.Time) ([]message, []message) {
 	results := make([]message, 0)
 	expired := make([]message, 0)
