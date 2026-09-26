@@ -207,6 +207,11 @@ func main() {
 	e.POST("/bridge/message", h.SendMessageHandler)
 	e.POST("/bridge/verify", h.ConnectVerifyHandler)
 
+	// Object Storage
+	objHandler := handlerv3.NewObjectHandler(dbConn, config.Config.ObjectStorageMaxTTL, config.Config.ObjectStorageMaxSize, "")
+	e.POST("/objects", objHandler.StoreHandler)
+	e.GET("/objects/:id", objHandler.GetHandler)
+
 	var existedPaths []string
 	for _, r := range e.Routes() {
 		existedPaths = append(existedPaths, r.Path)

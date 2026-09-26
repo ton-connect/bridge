@@ -2,6 +2,8 @@ package storagev3
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -33,7 +35,21 @@ type Storage interface {
 	AddConnection(ctx context.Context, conn ConnectionInfo, ttl time.Duration) error
 	VerifyConnection(ctx context.Context, conn ConnectionInfo) (string, error)
 
+	// Object storage methods
+	StoreObject(ctx context.Context, object []byte, contentType string, ttl int64) (string, error)
+	GetObject(ctx context.Context, id string) (object []byte, contentType string, err error)
+
 	HealthCheck() error
+}
+
+// HashObject computes a SHA-256 hash of the object bytes and content type to produce
+// a deterministic, content-addressable ID. Frontend uses the same hash function to produce url
+// for getting the object, without waiting backend response. DO NOT CHANGE THE HASH FUNCTION.
+func HashObject(object []byte, contentType string) string {
+	h := sha256.New()
+	h.Write(object)
+	h.Write([]byte(contentType))
+	return hex.EncodeToString(h.Sum(nil))
 }
 
 func NewStorage(storageType string, uri string, collector analytics.EventCollector, builder analytics.EventBuilder) (Storage, error) {
