@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -1041,5 +1042,125 @@ func TestValkeyStorage_MarkPastDeadlineIsRefused(t *testing.T) {
 	}
 	if dropped != 1 {
 		t.Errorf("a mark written past its deadline moved the dropped counter by %v, want 1", dropped)
+	}
+}
+
+// loseFirstReapReply lets the first reap call that removes something run in Valkey and then reports
+// the connection lost, as a reply dropped on its way back does. go-redis retries the call.
+type loseFirstReapReply struct{ lost atomic.Bool }
+
+func (h *loseFirstReapReply) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (h *loseFirstReapReply) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+
+func (h *loseFirstReapReply) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		err := next(ctx, cmd)
+		c, ok := cmd.(*redis.Cmd)
+		if err != nil || !ok || !isReapCall(cmd) {
+			return err
+		}
+		if items, _ := c.Val().([]interface{}); len(items) > 0 && h.lost.CompareAndSwap(false, true) {
+			return io.EOF
+		}
+		return err
+	}
+}
+
+// TestValkeyStorage_LostReapReplyIsCountedOnce drops the reply of a reap call that already removed
+// the batch. The retry must get the same members back, so each expired message is counted once.
+func TestValkeyStorage_LostReapReplyIsCountedOnce(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	clientID := fmt.Sprintf("lost-reply-%d", time.Now().UnixNano())
+	defer cleanupKeys(storage, clientID)
+
+	const count = 3
+	for i := 1; i <= count; i++ {
+		msg := models.SseMessage{
+			EventId: int64(70 + i),
+			Message: []byte(`{"from":"sender","message":"gone","trace_id":"trace-lost-reply"}`),
+			To:      clientID,
+		}
+		if err := storage.Pub(ctx, msg, 1); err != nil {
+			t.Fatalf("Pub failed: %v", err)
+		}
+	}
+	time.Sleep(1500 * time.Millisecond)
+
+	// The cluster client retries what a node client reports, so the loss is injected per node.
+	hook := &loseFirstReapReply{}
+	cluster := storage.client.(*redis.ClusterClient)
+	if err := cluster.ForEachShard(ctx, func(_ context.Context, node *redis.Client) error {
+		node.AddHook(hook)
+		return nil
+	}); err != nil {
+		t.Fatalf("ForEachShard failed: %v", err)
+	}
+
+	before := testutil.ToFloat64(expiredMessagesMetric)
+	sweepsBefore := storage.sweeps.Load()
+	messageCh := make(chan models.SseMessage, 4)
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
+	waitSwept(t, storage, clientID, sweepsBefore, 0)
+
+	if !hook.lost.Load() {
+		t.Fatal("no reap reply was dropped, so the test exercised nothing")
+	}
+	if got := testutil.ToFloat64(expiredMessagesMetric) - before; got != count {
+		t.Errorf("a reap whose reply was lost counted %v of %d expired messages", got, count)
+	}
+	var (
+		mu     sync.Mutex
+		parked []string
+	)
+	if err := cluster.ForEachMaster(ctx, func(ctx context.Context, node *redis.Client) error {
+		keys, err := node.Keys(ctx, fmt.Sprintf("{client:%s}:reaped:*", clientID)).Result()
+		mu.Lock()
+		parked = append(parked, keys...)
+		mu.Unlock()
+		return err
+	}); err != nil {
+		t.Fatalf("listing parked batches failed: %v", err)
+	}
+	if len(parked) != 0 {
+		t.Errorf("counted batches were left parked: %v", parked)
+	}
+}
+
+// TestValkeyStorage_FailedSweepIsSkipped closes the client before the queued sweep runs, so its
+// first call fails. A sweep that may have left expired members uncounted has to show as skipped.
+func TestValkeyStorage_FailedSweepIsSkipped(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	clientID := fmt.Sprintf("failed-sweep-%d", time.Now().UnixNano())
+	skippedBefore := testutil.ToFloat64(skippedSweepsMetric)
+	sweepsBefore := storage.sweeps.Load()
+	messageCh := make(chan models.SseMessage, 4)
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	if err := storage.client.Close(); err != nil {
+		t.Fatalf("closing the client failed: %v", err)
+	}
+
+	waitAttempts(t, storage, sweepsBefore, 1)
+	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 1 {
+		t.Errorf("a sweep whose reap call failed moved the skip counter by %v, want 1", got)
 	}
 }

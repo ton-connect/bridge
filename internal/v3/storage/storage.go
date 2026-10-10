@@ -63,11 +63,11 @@ var droppedMarksMetric = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "The total number of delivery marks dropped because the write queue was full or closed, the write failed, or Valkey refused it past its deadline",
 })
 
-// skippedSweepsMetric counts reconnect sweeps given up because the sweep queue was full. Their
-// expired members are counted only by a later sweep that runs before the backlog key expires.
+// skippedSweepsMetric counts reconnect sweeps that found the queue full or stopped on a failed Valkey
+// call. Either may leave expired messages uncounted, so this moving means the expiry count reads low.
 var skippedSweepsMetric = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "number_of_skipped_expiry_sweeps",
-	Help: "The total number of expiry sweeps given up because the sweep queue was full",
+	Help: "The total number of expiry sweeps given up because the sweep queue was full or a Valkey call failed",
 })
 
 // ConnectionInfo represents connection metadata for verification

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"math/rand/v2"
 	"net/url"
 	"strconv"
 	"strings"
@@ -298,7 +299,9 @@ func (s *ValkeyStorage) sweep(req sweepRequest) {
 	// Taken at the start, so the mark reads below follow every deadline of what the cutoff covers.
 	// A message delivered only after it expired may still be counted; it did expire undelivered.
 	cutoff := time.Now().Add(-sweepDelay).Unix()
-	s.reapExpired(ctx, fmt.Sprintf("client:%s", req.clientID), req.clientID, cutoff)
+	if !s.reapExpired(ctx, fmt.Sprintf("client:%s", req.clientID), req.clientID, cutoff) {
+		skippedSweepsMetric.Inc()
+	}
 }
 
 // reapBatchSize and reapBatchBytes bound one sweep round trip. A client's backlog is not bounded
@@ -308,6 +311,10 @@ const (
 	reapBatchBytes = 1 << 20
 )
 
+// reapParkTTL keeps a reaped batch long enough for every retry of its call; the sweep deletes it
+// once the batch is counted.
+const reapParkTTL = time.Minute
+
 // reapScript removes expired backlog members and returns exactly the ones it removed.
 //
 // The read and the delete have to be one server-side operation. Doing them as two client
@@ -316,7 +323,14 @@ const (
 // the returned members are precisely this call's, which is what makes the count safe to
 // add to a metric. Members are taken one at a time, so a call holds at most the byte budget
 // plus one member, and always removes at least one when any has expired.
+//
+// What it removes is parked under KEYS[2], and a call finding a batch there returns it, so a go-redis
+// retry after a lost reply gets the same members. Removing before parking keeps it working at maxmemory.
 var reapScript = redis.NewScript(`
+local parked = redis.call('LRANGE', KEYS[2], 0, -1)
+if #parked > 0 then
+  return parked
+end
 local members, bytes = {}, 0
 while #members < tonumber(ARGV[2]) and bytes < tonumber(ARGV[3]) do
   local member = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, 1)[1]
@@ -326,6 +340,10 @@ while #members < tonumber(ARGV[2]) and bytes < tonumber(ARGV[3]) do
   redis.call('ZREM', KEYS[1], member)
   members[#members + 1] = member
   bytes = bytes + #member
+end
+if #members > 0 then
+  redis.call('RPUSH', KEYS[2], unpack(members))
+  redis.call('PEXPIRE', KEYS[2], ARGV[4])
 end
 return members
 `)
@@ -514,32 +532,45 @@ func (s *ValkeyStorage) flushMarks(batch []deliveryMark) error {
 // of by a sweeper like the memory backend runs. A client that never reconnects has its
 // whole key dropped by Valkey and its messages expire uncounted. Covering those needs a
 // sweeper with leader election across replicas.
-func (s *ValkeyStorage) reapExpired(ctx context.Context, clientKey, clientID string, cutoff int64) {
+//
+// It returns false when a failed call may have removed members it could not count.
+func (s *ValkeyStorage) reapExpired(ctx context.Context, clientKey, clientID string, cutoff int64) bool {
 	logger := slog.With("prefix", "ValkeyStorage.reapExpired")
 	maxScore := strconv.FormatInt(cutoff, 10)
+	sweepID := strconv.FormatUint(rand.Uint64(), 36)
 
-	for {
-		raw, err := reapScript.Run(ctx, s.client, []string{clientKey}, maxScore, reapBatchSize, reapBatchBytes).Result()
+	for call := 0; ; call++ {
+		// The hash tag puts the parked batch in the backlog's slot, so one script may touch both keys.
+		parked := fmt.Sprintf("{%s}:reaped:%s:%d", clientKey, sweepID, call)
+		raw, err := reapScript.Run(ctx, s.client, []string{clientKey, parked}, maxScore, reapBatchSize, reapBatchBytes, reapParkTTL.Milliseconds()).Result()
 		if err != nil {
 			if err != redis.Nil {
 				logger.Error("failed to sweep expired messages", "client_id", clientID, "err", err)
+				return false
 			}
-			return
+			return true
 		}
 
 		batch, ok := raw.([]interface{})
 		if !ok || len(batch) == 0 {
-			return
+			return true
 		}
 
 		messages, ids, size := decodeSwept(clientID, batch, logger)
+		counted := true
 		if len(ids) > 0 {
-			s.countUndelivered(ctx, clientID, messages, ids, logger)
+			counted = s.countUndelivered(ctx, clientID, messages, ids, logger)
 			s.dropMarks(ctx, clientID, ids, logger)
 		}
+		if err := s.client.Del(ctx, parked).Err(); err != nil {
+			logger.Warn("failed to delete a counted sweep batch, left to its TTL", "client_id", clientID, "err", err)
+		}
 
+		if !counted {
+			return false
+		}
 		if len(batch) < reapBatchSize && size < reapBatchBytes {
-			return
+			return true
 		}
 	}
 }
@@ -591,8 +622,8 @@ end
 return marked
 `)
 
-// countUndelivered adds the swept messages that carry no delivery mark.
-func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, messages []models.SseMessage, ids []string, logger *slog.Logger) {
+// countUndelivered adds the swept messages that carry no delivery mark and reports whether it could.
+func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, messages []models.SseMessage, ids []string, logger *slog.Logger) bool {
 	// A client whose marks have expired counts as undelivered: loss may be overstated, never hidden.
 	args := make([]interface{}, len(ids))
 	for i, id := range ids {
@@ -605,7 +636,7 @@ func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, m
 		// transient read error into a permanent step in a counter that exists to show real
 		// loss, so the batch goes uncounted instead.
 		logger.Error("failed to read delivery marks, batch not counted", "client_id", clientID, "count", len(ids), "err", err)
-		return
+		return false
 	}
 
 	undelivered := 0
@@ -624,6 +655,7 @@ func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, m
 	if undelivered > 0 {
 		expiredMessagesMetric.Add(float64(undelivered))
 	}
+	return true
 }
 
 // Unsub unsubscribes from Redis channels for the given keys
