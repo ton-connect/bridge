@@ -2,6 +2,7 @@ package storagev3
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"testing"
@@ -578,20 +579,20 @@ func TestValkeyStorage_LongSessionDeliveryIsNotCounted(t *testing.T) {
 	cleanupKeys(storage, clientID)
 }
 
-// waitAttempts polls until n more sweep attempts have finished, run or skipped.
+// waitAttempts polls until n more sweeps have run or given up.
 func waitAttempts(t *testing.T, storage *ValkeyStorage, sweepsBefore int64, n int) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(10 * time.Second)
 	for storage.sweeps.Load() < sweepsBefore+int64(n) {
 		if time.Now().After(deadline) {
-			t.Fatalf("%d of %d sweep attempts finished within 5s", storage.sweeps.Load()-sweepsBefore, n)
+			t.Fatalf("%d of %d sweeps ran or gave up within 10s", storage.sweeps.Load()-sweepsBefore, n)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 }
 
-// TestValkeyStorage_SweepsAreBounded holds every sweep slot itself, so a reconnect finds the
-// limit reached, then frees them and reconnects again.
+// TestValkeyStorage_SweepsAreBounded holds every sweep slot itself. A sweep that finds them
+// taken retries, gives up only once its retries are spent, and runs if a slot frees in between.
 func TestValkeyStorage_SweepsAreBounded(t *testing.T) {
 	uri := getTestValkeyURI(t)
 	storage, err := NewValkeyStorage(uri)
@@ -614,23 +615,35 @@ func TestValkeyStorage_SweepsAreBounded(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 
 	limit := cap(storage.sweepSlots)
-	for i := 0; i < limit; i++ {
-		storage.sweepSlots <- struct{}{}
+	takeAll := func() {
+		for i := 0; i < limit; i++ {
+			storage.sweepSlots <- struct{}{}
+		}
+	}
+	freeAll := func() {
+		for i := 0; i < limit; i++ {
+			<-storage.sweepSlots
+		}
 	}
 
 	expiredBefore := testutil.ToFloat64(expiredMessagesMetric)
 	skippedBefore := testutil.ToFloat64(skippedSweepsMetric)
-	sweepsBefore := storage.sweeps.Load()
-
 	messageCh := make(chan models.SseMessage, 4)
+	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
+
+	takeAll()
+	sweepsBefore := storage.sweeps.Load()
+	subbed := time.Now()
 	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
 		t.Fatalf("Sub failed: %v", err)
 	}
-	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
-
 	waitAttempts(t, storage, sweepsBefore, 1)
+	budget := sweepDelay * (1<<sweepAttempts - 1)
+	if waited := time.Since(subbed); waited < budget {
+		t.Errorf("the sweep gave up %v after Sub, before its %v of retries", waited, budget)
+	}
 	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 1 {
-		t.Errorf("skip counter moved by %v with every slot taken, want 1", got)
+		t.Errorf("skip counter moved by %v for one sweep that gave up, want 1", got)
 	}
 	n, err := storage.client.ZCard(ctx, fmt.Sprintf("client:%s", clientID)).Result()
 	if err != nil {
@@ -640,22 +653,26 @@ func TestValkeyStorage_SweepsAreBounded(t *testing.T) {
 		t.Errorf("a sweep ran past the limit: backlog holds %d entries, want its 1 expired member", n)
 	}
 	if got := testutil.ToFloat64(expiredMessagesMetric); got != expiredBefore {
-		t.Errorf("a skipped sweep moved the expiry counter from %v to %v", expiredBefore, got)
+		t.Errorf("a sweep that gave up moved the expiry counter from %v to %v", expiredBefore, got)
 	}
+	freeAll()
 
-	for i := 0; i < limit; i++ {
-		<-storage.sweepSlots
-	}
+	// The slots free up after the first try and before the first retry, which then runs.
+	takeAll()
 	sweepsBefore = storage.sweeps.Load()
+	subbed = time.Now()
 	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
 		t.Fatalf("second Sub failed: %v", err)
 	}
+	firstRetry := sweepDelay + sweepDelay<<1
+	time.Sleep(time.Until(subbed.Add(firstRetry - sweepDelay/3)))
+	freeAll()
 	waitSwept(t, storage, clientID, sweepsBefore, 0)
 	if got := testutil.ToFloat64(expiredMessagesMetric) - expiredBefore; got != 1 {
-		t.Errorf("the reconnect after the skip counted %v expired messages, want 1", got)
+		t.Errorf("the retried sweep counted %v expired messages, want 1", got)
 	}
 	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 1 {
-		t.Errorf("skip counter moved by %v in total, want only the first reconnect's 1", got)
+		t.Errorf("skip counter moved by %v in total, want only the first sweep's 1", got)
 	}
 	if got := len(storage.sweepSlots); got != 0 {
 		t.Errorf("%d sweep slots still held after the sweep finished", got)
@@ -684,6 +701,7 @@ func TestValkeyStorage_SweepSlotIsFreeDuringDelay(t *testing.T) {
 	}()
 
 	sweepsBefore := storage.sweeps.Load()
+	skippedBefore := testutil.ToFloat64(skippedSweepsMetric)
 	messageCh := make(chan models.SseMessage, 4)
 	subbed := time.Now()
 	if err := storage.Sub(ctx, keys, 0, messageCh); err != nil {
@@ -698,12 +716,15 @@ func TestValkeyStorage_SweepSlotIsFreeDuringDelay(t *testing.T) {
 		time.Sleep(5 * time.Millisecond)
 	}
 	if got := storage.sweeps.Load() - sweepsBefore; got != 0 {
-		t.Fatalf("%d sweep attempts finished before sweepDelay passed", got)
+		t.Fatalf("%d sweeps finished before sweepDelay passed", got)
 	}
 
 	waitAttempts(t, storage, sweepsBefore, len(keys))
 	if got := len(storage.sweepSlots); got != 0 {
-		t.Errorf("%d sweep slots still held after every attempt finished", got)
+		t.Errorf("%d sweep slots still held after every sweep finished", got)
+	}
+	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 0 {
+		t.Errorf("%v sweeps gave up although their Valkey work lasts far less than the retries", got)
 	}
 }
 
@@ -752,5 +773,33 @@ func TestValkeyStorage_ShutdownFlushesQueuedMarks(t *testing.T) {
 	}
 	if err := storage.Shutdown(shutdownCtx); err != nil {
 		t.Errorf("second Shutdown failed: %v", err)
+	}
+}
+
+// TestValkeyStorage_ShutdownReportsFailedDrain closes the client under the queued marks, so the
+// drain cannot write them and Shutdown has to say so.
+func TestValkeyStorage_ShutdownReportsFailedDrain(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	clientID := fmt.Sprintf("failed-drain-%d", time.Now().UnixNano())
+	if err := storage.client.Close(); err != nil {
+		t.Fatalf("closing the client failed: %v", err)
+	}
+	for _, id := range []int64{51, 52, 53} {
+		if err := storage.MarkDelivered(ctx, clientID, id); err != nil {
+			t.Fatalf("MarkDelivered failed: %v", err)
+		}
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	err = storage.Shutdown(shutdownCtx)
+	if !errors.Is(err, redis.ErrClosed) {
+		t.Errorf("Shutdown returned %v for a drain that could not write its marks, want an error wrapping %v", err, redis.ErrClosed)
 	}
 }

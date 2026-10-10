@@ -250,8 +250,8 @@ func main() {
 	if err := e.Shutdown(shutdownCtx); err != nil {
 		slog.Error("bridge shutdown", "err", err)
 	}
-	// Shutdown returns at its deadline with SSE streams still open; closing them ends deliveries
-	// before the storage flushes the delivery marks they queued.
+	// Shutdown returns at its deadline with SSE streams still open. Close ends them without waiting
+	// for their handlers, so a mark a handler offers after the storage flush is counted as dropped.
 	if err := e.Close(); err != nil {
 		slog.Error("bridge close", "err", err)
 	}

@@ -3,6 +3,7 @@ package storagev3
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/url"
@@ -22,13 +23,15 @@ type ValkeyStorage struct {
 	subscribers map[string][]chan<- models.SseMessage
 	subMutex    sync.RWMutex
 	marks       chan deliveryMark
-	// marksMu orders every send on marks before Shutdown closes it.
+	// marksMu orders every send on marks before the drain Shutdown starts.
 	marksMu     sync.RWMutex
 	marksClosed bool
+	stopMarks   chan struct{}
 	writerDone  chan struct{}
+	drainErr    error
 	sweepSlots  chan struct{}
-	// sweeps counts finished sweep attempts, skipped ones included. The metrics move after the
-	// last round trip, so nothing in Valkey marks an attempt as done; tests wait on this instead.
+	// sweeps counts sweeps that ran or gave up, once each. The metrics move after the last
+	// round trip, so nothing in Valkey marks a sweep as done; tests wait on this instead.
 	sweeps atomic.Int64
 }
 
@@ -86,6 +89,7 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		client:      clusterClient,
 		subscribers: make(map[string][]chan<- models.SseMessage),
 		marks:       make(chan deliveryMark, markQueueSize),
+		stopMarks:   make(chan struct{}),
 		writerDone:  make(chan struct{}),
 		// Half a node's pool: each sweep holds one connection at a time, so Pub and replay keep the rest.
 		sweepSlots: make(chan struct{}, max(clusterClient.Options().PoolSize/2, 1)),
@@ -248,7 +252,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	// client is subscribed, and doing it here keeps the lock window short.
 	for _, key := range keys {
 		clientKey := fmt.Sprintf("client:%s", key)
-		time.AfterFunc(sweepDelay, func() { s.sweep(clientKey, key, now) })
+		time.AfterFunc(sweepDelay, func() { s.sweep(clientKey, key, now, 1) })
 	}
 
 	logger.Debug("subscribed to channels for keys", "keys", keys)
@@ -257,16 +261,21 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 
 // sweep runs one expiry sweep detached from the caller's context: the request that
 // triggered it may end at any moment, and an aborted sweep leaves the backlog uncounted.
-func (s *ValkeyStorage) sweep(clientKey, clientID string, now int64) {
-	defer s.sweeps.Add(1)
+func (s *ValkeyStorage) sweep(clientKey, clientID string, now int64, attempt int) {
 	// Taken only once sweepDelay has passed, so the limit counts sweeps talking to Valkey.
 	select {
 	case s.sweepSlots <- struct{}{}:
-		defer func() { <-s.sweepSlots }()
 	default:
+		if attempt < sweepAttempts {
+			time.AfterFunc(sweepDelay<<attempt, func() { s.sweep(clientKey, clientID, now, attempt+1) })
+			return
+		}
 		skippedSweepsMetric.Inc()
+		s.sweeps.Add(1)
 		return
 	}
+	defer s.sweeps.Add(1)
+	defer func() { <-s.sweepSlots }()
 	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
 	defer cancel()
 	s.reapExpired(ctx, clientKey, clientID, now)
@@ -327,19 +336,19 @@ func (s *ValkeyStorage) Shutdown(ctx context.Context) error {
 	s.marksMu.Lock()
 	if !s.marksClosed {
 		s.marksClosed = true
-		close(s.marks)
+		close(s.stopMarks)
 	}
 	s.marksMu.Unlock()
 
 	select {
 	case <-s.writerDone:
-		return nil
+		return s.drainErr
 	case <-ctx.Done():
 		return fmt.Errorf("delivery marks not flushed: %w", ctx.Err())
 	}
 }
 
-// runMarkWriter drains the mark queue into Valkey in batches until Shutdown closes it.
+// runMarkWriter writes the mark queue to Valkey in batches until Shutdown stops it.
 func (s *ValkeyStorage) runMarkWriter() {
 	defer close(s.writerDone)
 	batch := make([]deliveryMark, 0, markBatchSize)
@@ -348,30 +357,49 @@ func (s *ValkeyStorage) runMarkWriter() {
 
 	for {
 		select {
-		case m, ok := <-s.marks:
-			if !ok {
-				if len(batch) > 0 {
-					s.flushMarks(batch)
-				}
-				return
-			}
+		case m := <-s.marks:
 			batch = append(batch, m)
 			if len(batch) >= markBatchSize {
-				s.flushMarks(batch)
+				_ = s.flushMarks(batch)
 				batch = batch[:0]
 			}
 		case <-ticker.C:
 			if len(batch) > 0 {
-				s.flushMarks(batch)
+				_ = s.flushMarks(batch)
 				batch = batch[:0]
 			}
+		case <-s.stopMarks:
+			s.drainErr = s.drainMarks(batch)
+			return
 		}
+	}
+}
+
+// drainMarks writes the held batch and everything still queued. Shutdown has stopped new
+// sends by then, so the queue can only shrink and an empty read means it is drained.
+func (s *ValkeyStorage) drainMarks(batch []deliveryMark) error {
+	var err error
+	for {
+		select {
+		case m := <-s.marks:
+			batch = append(batch, m)
+			if len(batch) < markBatchSize {
+				continue
+			}
+		default:
+			if len(batch) > 0 {
+				err = errors.Join(err, s.flushMarks(batch))
+			}
+			return err
+		}
+		err = errors.Join(err, s.flushMarks(batch))
+		batch = batch[:0]
 	}
 }
 
 // flushMarks writes one batch as a single pipeline. Marks are scored by write time and
 // trimmed on every write, so a client that never stops receiving holds a bounded set.
-func (s *ValkeyStorage) flushMarks(batch []deliveryMark) {
+func (s *ValkeyStorage) flushMarks(batch []deliveryMark) error {
 	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
 	defer cancel()
 
@@ -396,7 +424,9 @@ func (s *ValkeyStorage) flushMarks(batch []deliveryMark) {
 	if _, err := pipe.Exec(ctx); err != nil {
 		slog.With("prefix", "ValkeyStorage.flushMarks").Error("failed to write delivery marks", "count", len(batch), "err", err)
 		droppedMarksMetric.Add(float64(len(batch)))
+		return fmt.Errorf("write %d delivery marks: %w", len(batch), err)
 	}
+	return nil
 }
 
 // reapExpired drops backlog entries whose expiry score has passed and counts the ones that
