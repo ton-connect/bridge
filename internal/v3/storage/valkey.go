@@ -580,11 +580,25 @@ func (s *ValkeyStorage) dropMarks(ctx context.Context, clientID string, ids []st
 	}
 }
 
+// readMarksScript answers 1 or 0 per event id. A script runs on the primary that enforced the mark
+// deadlines; RouteByLatency sends a plain ZMSCORE to the closest node, which may be a lagging replica.
+var readMarksScript = redis.NewScript(`
+local scores = redis.call('ZMSCORE', KEYS[1], unpack(ARGV))
+local marked = {}
+for i = 1, #ARGV do
+  marked[i] = scores[i] and 1 or 0
+end
+return marked
+`)
+
 // countUndelivered adds the swept messages that carry no delivery mark.
 func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, messages []models.SseMessage, ids []string, logger *slog.Logger) {
-	// A missing member reads as 0, which no mark time can be, so a client whose marks have
-	// expired counts as undelivered: loss may be overstated, never hidden.
-	scores, err := s.client.ZMScore(ctx, deliveredAtKey(clientID), ids...).Result()
+	// A client whose marks have expired counts as undelivered: loss may be overstated, never hidden.
+	args := make([]interface{}, len(ids))
+	for i, id := range ids {
+		args[i] = id
+	}
+	marked, err := readMarksScript.Run(ctx, s.client, []string{deliveredAtKey(clientID)}, args...).Int64Slice()
 	if err != nil {
 		// The script has already removed this batch, so there is no retry and no second
 		// chance to learn which of these were delivered. Counting them all would turn one
@@ -596,7 +610,7 @@ func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, m
 
 	undelivered := 0
 	for i, msg := range messages {
-		if i < len(scores) && scores[i] > 0 {
+		if i < len(marked) && marked[i] == 1 {
 			continue
 		}
 		undelivered++
