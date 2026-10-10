@@ -49,8 +49,8 @@ func getTestValkeyURI(t *testing.T) string {
 	return uri
 }
 
-// waitSwept blocks until a sweep has finished since sweepsBefore, then checks the backlog it
-// left. The counter is written after the sweep's last Valkey call, so a shrunken backlog
+// waitSwept blocks until a sweep attempt has finished since sweepsBefore, then checks the backlog
+// it left. The counter is written after the sweep's last Valkey call, so a shrunken backlog
 // alone would let a test read the counter before the sweep has added to it.
 func waitSwept(t *testing.T, storage *ValkeyStorage, clientID string, sweepsBefore, wantBacklog int64) {
 	t.Helper()
@@ -576,4 +576,133 @@ func TestValkeyStorage_LongSessionDeliveryIsNotCounted(t *testing.T) {
 	}
 
 	cleanupKeys(storage, clientID)
+}
+
+// waitAttempts polls until n more sweep attempts have finished, run or skipped.
+func waitAttempts(t *testing.T, storage *ValkeyStorage, sweepsBefore int64, n int) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for storage.sweeps.Load() < sweepsBefore+int64(n) {
+		if time.Now().After(deadline) {
+			t.Fatalf("%d of %d sweep attempts finished within 5s", storage.sweeps.Load()-sweepsBefore, n)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+// TestValkeyStorage_SweepsAreBounded holds every sweep slot itself, so a reconnect finds the
+// limit reached, then frees them and reconnects again.
+func TestValkeyStorage_SweepsAreBounded(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	clientID := fmt.Sprintf("bounded-sweeps-%d", time.Now().UnixNano())
+	defer cleanupKeys(storage, clientID)
+
+	expiring := models.SseMessage{
+		EventId: 31,
+		Message: []byte(`{"from":"sender","message":"left for later","trace_id":"trace-skipped"}`),
+		To:      clientID,
+	}
+	if err := storage.Pub(ctx, expiring, 1); err != nil {
+		t.Fatalf("Pub failed: %v", err)
+	}
+	time.Sleep(1500 * time.Millisecond)
+
+	limit := cap(storage.sweepSlots)
+	for i := 0; i < limit; i++ {
+		storage.sweepSlots <- struct{}{}
+	}
+
+	expiredBefore := testutil.ToFloat64(expiredMessagesMetric)
+	skippedBefore := testutil.ToFloat64(skippedSweepsMetric)
+	sweepsBefore := storage.sweeps.Load()
+
+	messageCh := make(chan models.SseMessage, 4)
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
+
+	waitAttempts(t, storage, sweepsBefore, 1)
+	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 1 {
+		t.Errorf("skip counter moved by %v with every slot taken, want 1", got)
+	}
+	n, err := storage.client.ZCard(ctx, fmt.Sprintf("client:%s", clientID)).Result()
+	if err != nil {
+		t.Fatalf("ZCard failed: %v", err)
+	}
+	if n != 1 {
+		t.Errorf("a sweep ran past the limit: backlog holds %d entries, want its 1 expired member", n)
+	}
+	if got := testutil.ToFloat64(expiredMessagesMetric); got != expiredBefore {
+		t.Errorf("a skipped sweep moved the expiry counter from %v to %v", expiredBefore, got)
+	}
+
+	for i := 0; i < limit; i++ {
+		<-storage.sweepSlots
+	}
+	sweepsBefore = storage.sweeps.Load()
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("second Sub failed: %v", err)
+	}
+	waitSwept(t, storage, clientID, sweepsBefore, 0)
+	if got := testutil.ToFloat64(expiredMessagesMetric) - expiredBefore; got != 1 {
+		t.Errorf("the reconnect after the skip counted %v expired messages, want 1", got)
+	}
+	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 1 {
+		t.Errorf("skip counter moved by %v in total, want only the first reconnect's 1", got)
+	}
+	if got := len(storage.sweepSlots); got != 0 {
+		t.Errorf("%d sweep slots still held after the sweep finished", got)
+	}
+}
+
+// TestValkeyStorage_SweepSlotIsFreeDuringDelay reconnects more keys at once than there are
+// slots. A slot is for Valkey work, so none may be held while the sweeps wait out sweepDelay.
+func TestValkeyStorage_SweepSlotIsFreeDuringDelay(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	keys := make([]string, cap(storage.sweepSlots)+3)
+	prefix := fmt.Sprintf("delayed-sweeps-%d", time.Now().UnixNano())
+	for i := range keys {
+		keys[i] = fmt.Sprintf("%s-%d", prefix, i)
+	}
+	defer func() {
+		for _, k := range keys {
+			cleanupKeys(storage, k)
+		}
+	}()
+
+	sweepsBefore := storage.sweeps.Load()
+	messageCh := make(chan models.SseMessage, 4)
+	subbed := time.Now()
+	if err := storage.Sub(ctx, keys, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	defer func() { _ = storage.Unsub(ctx, keys, messageCh) }()
+
+	for time.Since(subbed) < sweepDelay/2 {
+		if got := len(storage.sweepSlots); got != 0 {
+			t.Fatalf("%d sweep slots held %v into sweepDelay, before any sweep reached Valkey", got, time.Since(subbed))
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	if got := storage.sweeps.Load() - sweepsBefore; got != 0 {
+		t.Fatalf("%d sweep attempts finished before sweepDelay passed", got)
+	}
+
+	waitAttempts(t, storage, sweepsBefore, len(keys))
+	if got := len(storage.sweepSlots); got != 0 {
+		t.Errorf("%d sweep slots still held after every attempt finished", got)
+	}
 }

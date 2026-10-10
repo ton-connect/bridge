@@ -55,6 +55,13 @@ var droppedMarksMetric = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "The total number of delivery marks dropped because the write queue was full",
 })
 
+// skippedSweepsMetric counts reconnect sweeps not started because the sweep limit was reached.
+// Their expired members wait for a later reconnect, which counts them late.
+var skippedSweepsMetric = promauto.NewCounter(prometheus.CounterOpts{
+	Name: "number_of_skipped_expiry_sweeps",
+	Help: "The total number of expiry sweeps skipped because the concurrent sweep limit was reached",
+})
+
 // ConnectionInfo represents connection metadata for verification
 type ConnectionInfo struct {
 	ClientID  string

@@ -22,8 +22,9 @@ type ValkeyStorage struct {
 	subscribers map[string][]chan<- models.SseMessage
 	subMutex    sync.RWMutex
 	marks       chan deliveryMark
-	// sweeps counts finished sweeps. The metric is written after the sweep's last round
-	// trip, so nothing in Valkey marks a sweep as done; tests wait on this instead.
+	sweepSlots  chan struct{}
+	// sweeps counts finished sweep attempts, skipped ones included. The metrics move after the
+	// last round trip, so nothing in Valkey marks an attempt as done; tests wait on this instead.
 	sweeps atomic.Int64
 }
 
@@ -81,6 +82,8 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		client:      clusterClient,
 		subscribers: make(map[string][]chan<- models.SseMessage),
 		marks:       make(chan deliveryMark, markQueueSize),
+		// Half a node's pool: each sweep holds one connection at a time, so Pub and replay keep the rest.
+		sweepSlots: make(chan struct{}, max(clusterClient.Options().PoolSize/2, 1)),
 	}
 	go s.runMarkWriter()
 
@@ -185,12 +188,8 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	for _, key := range keys {
 		clientKey := fmt.Sprintf("client:%s", key)
 
-		// Replay by score instead of by whatever the sweep happens to have left behind. An
-		// expired member is excluded here whether or not it has been swept, which is what
-		// lets the sweep move off this path entirely: it runs under subMutex, and every
-		// round trip taken under that lock delays the pub/sub registration below. A message
-		// published into that window is stored but never delivered live, and the client
-		// does not see it until it reconnects again.
+		// Filter by score so an expired member is never replayed, swept or not. subMutex covers
+		// only this replay and the subscription below; the sweep goroutine never takes it.
 		messages, err := s.client.ZRangeByScore(ctx, clientKey, &redis.ZRangeBy{
 			Min: fmt.Sprintf("(%d", now),
 			Max: "+inf",
@@ -244,7 +243,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	// client is subscribed, and doing it here keeps the lock window short.
 	for _, key := range keys {
 		clientKey := fmt.Sprintf("client:%s", key)
-		go s.sweep(clientKey, key, now)
+		time.AfterFunc(sweepDelay, func() { s.sweep(clientKey, key, now) })
 	}
 
 	logger.Debug("subscribed to channels for keys", "keys", keys)
@@ -255,7 +254,14 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 // triggered it may end at any moment, and an aborted sweep leaves the backlog uncounted.
 func (s *ValkeyStorage) sweep(clientKey, clientID string, now int64) {
 	defer s.sweeps.Add(1)
-	time.Sleep(sweepDelay)
+	// Taken only once sweepDelay has passed, so the limit counts sweeps talking to Valkey.
+	select {
+	case s.sweepSlots <- struct{}{}:
+		defer func() { <-s.sweepSlots }()
+	default:
+		skippedSweepsMetric.Inc()
+		return
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
 	defer cancel()
 	s.reapExpired(ctx, clientKey, clientID, now)
