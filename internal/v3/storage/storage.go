@@ -29,10 +29,9 @@ var (
 	})
 )
 
-// deliveredMarkTTL bounds how long a delivery mark is kept. It only has to outlive the
-// message it describes, and message TTLs are minutes, so an hour is generous. It matches
-// the TTL of the in-process cache the memory backend uses for the same purpose.
-const deliveredMarkTTL = time.Hour
+// deliveredMarkTTL only reaps orphan marks; a sweep deletes the marks of what it removes. A member
+// waits up to SSE_MAX_LIFETIME more for every skipped or failed sweep, so this sits far above it.
+const deliveredMarkTTL = 24 * time.Hour
 
 // Delivery marks are written by a background writer rather than on the delivery path.
 // markQueueSize absorbs a burst without blocking a send; markBatchSize and

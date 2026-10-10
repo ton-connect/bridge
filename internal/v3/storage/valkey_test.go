@@ -513,3 +513,67 @@ func TestValkeyStorage_DeliveredMarksAreBounded(t *testing.T) {
 
 	cleanupKeys(storage, clientID)
 }
+
+// TestValkeyStorage_LongSessionDeliveryIsNotCounted keeps a delivered member in the backlog
+// past an hour of further deliveries, as an SSE session of SSE_MAX_LIFETIME does, then sweeps it.
+func TestValkeyStorage_LongSessionDeliveryIsNotCounted(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	clientID := fmt.Sprintf("long-session-%d", time.Now().UnixNano())
+	key := deliveredAtKey(clientID)
+
+	msg := models.SseMessage{
+		EventId: 11,
+		Message: []byte(`{"from":"sender","message":"seen early","trace_id":"trace-long-session"}`),
+		To:      clientID,
+	}
+	if err := storage.Pub(ctx, msg, 1); err != nil {
+		t.Fatalf("Pub failed: %v", err)
+	}
+	early := float64(time.Now().Add(-90 * time.Minute).Unix())
+	if err := storage.client.ZAdd(ctx, key, redis.Z{Score: early, Member: "11"}).Err(); err != nil {
+		t.Fatalf("seeding the early mark failed: %v", err)
+	}
+
+	// A delivery late in the same session writes a new mark, and with it the trim.
+	if err := storage.MarkDelivered(ctx, clientID, 12); err != nil {
+		t.Fatalf("MarkDelivered failed: %v", err)
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := storage.client.ZScore(ctx, key, "12").Result(); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("mark for event 12 did not reach %s within 2s", key)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	time.Sleep(1500 * time.Millisecond)
+
+	before := testutil.ToFloat64(expiredMessagesMetric)
+	sweepsBefore := storage.sweeps.Load()
+
+	messageCh := make(chan models.SseMessage, 4)
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
+
+	waitSwept(t, storage, clientID, sweepsBefore, 0)
+
+	if got := testutil.ToFloat64(expiredMessagesMetric); got != before {
+		t.Errorf("a message delivered 90 minutes before its sweep was counted as expired: counter moved from %v to %v", before, got)
+	}
+	if _, err := storage.client.ZScore(ctx, key, "11").Result(); err != redis.Nil {
+		t.Errorf("the swept event 11 left its delivery mark behind (ZSCORE err %v)", err)
+	}
+
+	cleanupKeys(storage, clientID)
+}

@@ -388,7 +388,11 @@ func (s *ValkeyStorage) reapExpired(ctx context.Context, clientKey, clientID str
 			return
 		}
 
-		s.countUndelivered(ctx, clientID, batch, logger)
+		messages, ids := decodeSwept(clientID, batch, logger)
+		if len(ids) > 0 {
+			s.countUndelivered(ctx, clientID, messages, ids, logger)
+			s.dropMarks(ctx, clientID, ids, logger)
+		}
 
 		if len(batch) < reapBatchSize {
 			return
@@ -396,8 +400,8 @@ func (s *ValkeyStorage) reapExpired(ctx context.Context, clientKey, clientID str
 	}
 }
 
-// countUndelivered adds the members of one swept batch that carry no delivery mark.
-func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, batch []interface{}, logger *slog.Logger) {
+// decodeSwept turns one swept batch into its messages and their event ids, index for index.
+func decodeSwept(clientID string, batch []interface{}, logger *slog.Logger) ([]models.SseMessage, []string) {
 	messages := make([]models.SseMessage, 0, len(batch))
 	ids := make([]string, 0, len(batch))
 
@@ -414,12 +418,25 @@ func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, b
 		messages = append(messages, msg)
 		ids = append(ids, strconv.FormatInt(msg.EventId, 10))
 	}
-	if len(messages) == 0 {
-		return
-	}
+	return messages, ids
+}
 
+// dropMarks deletes the marks of swept members, which nothing reads again. A failure only leaves
+// them to the deliveredMarkTTL trim and the key's EXPIRE.
+func (s *ValkeyStorage) dropMarks(ctx context.Context, clientID string, ids []string, logger *slog.Logger) {
+	members := make([]interface{}, len(ids))
+	for i, id := range ids {
+		members[i] = id
+	}
+	if err := s.client.ZRem(ctx, deliveredAtKey(clientID), members...).Err(); err != nil {
+		logger.Warn("failed to delete delivery marks of swept messages", "client_id", clientID, "count", len(ids), "err", err)
+	}
+}
+
+// countUndelivered adds the swept messages that carry no delivery mark.
+func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, messages []models.SseMessage, ids []string, logger *slog.Logger) {
 	// A missing member reads as 0, which no mark time can be, so a client whose marks have
-	// expired counts as undelivered: loss may be overstated after an hour, never hidden.
+	// expired counts as undelivered: loss may be overstated, never hidden.
 	scores, err := s.client.ZMScore(ctx, deliveredAtKey(clientID), ids...).Result()
 	if err != nil {
 		// The script has already removed this batch, so there is no retry and no second
