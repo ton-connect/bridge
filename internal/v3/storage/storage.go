@@ -43,20 +43,24 @@ const (
 	markWriteTimeout  = 5 * time.Second
 )
 
-// sweepDelay lets marks queued before a reconnect reach Valkey first; a sweep that outruns
-// them counts a delivered message as lost.
-const sweepDelay = 3 * markFlushInterval
+// markDeadline is how long after MarkDelivered its mark may still be written. Valkey checks it
+// against its own clock, so no stalled pipeline, retry or late packet can land a mark after it.
+const markDeadline = 2 * time.Second
+
+// sweepDelay is the mark deadline plus a margin for clock skew between pods and Valkey. A sweep
+// reaps only what expired sweepDelay before it starts, when every mark for those has landed or been refused.
+const sweepDelay = markDeadline + time.Second
 
 // sweepQueueSize bounds the reconnect sweeps waiting for a worker. A sweep that finds it full is
 // the only kind given up; every queued one runs, however long the workers stay busy.
 const sweepQueueSize = 16384
 
-// droppedMarksMetric counts marks abandoned because the queue was full or closed. A dropped mark can
-// only push number_of_expired_messages up, never down, so a loss spike with this counter
+// droppedMarksMetric counts marks that never reached Valkey. A dropped mark can only push
+// number_of_expired_messages up, never down, so a loss spike with this counter
 // moving beside it is the storage falling behind rather than messages going missing.
 var droppedMarksMetric = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "number_of_dropped_delivery_marks",
-	Help: "The total number of delivery marks dropped because the write queue was full or closed",
+	Help: "The total number of delivery marks dropped because the write queue was full or closed, the write failed, or Valkey refused it past its deadline",
 })
 
 // skippedSweepsMetric counts reconnect sweeps given up because the sweep queue was full. Their

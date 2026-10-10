@@ -39,13 +39,14 @@ type ValkeyStorage struct {
 type sweepRequest struct {
 	clientID string
 	due      time.Time
-	now      int64
 }
 
 // deliveryMark is one "this event reached its client" record on its way to Valkey.
 type deliveryMark struct {
 	clientID string
 	eventID  int64
+	// deadline is in Unix milliseconds, the unit the mark script compares with Valkey's clock.
+	deadline int64
 }
 
 // NewValkeyStorage creates a Valkey-backed storage client.
@@ -262,7 +263,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	// client is subscribed, and queueing it here keeps the lock window short.
 	due := time.Now().Add(sweepDelay)
 	for _, key := range keys {
-		s.queueSweep(sweepRequest{clientID: key, due: due, now: now})
+		s.queueSweep(sweepRequest{clientID: key, due: due})
 	}
 
 	logger.Debug("subscribed to channels for keys", "keys", keys)
@@ -294,7 +295,10 @@ func (s *ValkeyStorage) sweep(req sweepRequest) {
 	defer s.sweeps.Add(1)
 	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
 	defer cancel()
-	s.reapExpired(ctx, fmt.Sprintf("client:%s", req.clientID), req.clientID, req.now)
+	// Taken at the start, so the mark reads below follow every deadline of what the cutoff covers.
+	// A message delivered only after it expired may still be counted; it did expire undelivered.
+	cutoff := time.Now().Add(-sweepDelay).Unix()
+	s.reapExpired(ctx, fmt.Sprintf("client:%s", req.clientID), req.clientID, cutoff)
 }
 
 // reapBatchSize and reapBatchBytes bound one sweep round trip. A client's backlog is not bounded
@@ -345,7 +349,7 @@ func (s *ValkeyStorage) MarkDelivered(_ context.Context, clientID string, eventI
 		return nil
 	}
 	select {
-	case s.marks <- deliveryMark{clientID: clientID, eventID: eventID}:
+	case s.marks <- deliveryMark{clientID: clientID, eventID: eventID, deadline: time.Now().Add(markDeadline).UnixMilli()}:
 	default:
 		// The caller is the SSE delivery loop. Waiting here would put a remote write in
 		// front of every further message that connection is about to send, so a queue this
@@ -422,36 +426,79 @@ func (s *ValkeyStorage) drainMarks(batch []deliveryMark) error {
 	}
 }
 
-// flushMarks writes one batch as a single pipeline. Marks are scored by write time and
-// trimmed on every write, so a client that never stops receiving holds a bounded set.
+// markScript writes one client's marks whose deadline Valkey's clock has not passed, returns how many
+// it refused, and trims marks past deliveredMarkTTL by that clock so a busy client holds a bounded set.
+var markScript = redis.NewScript(`
+local now = redis.call('TIME')
+local nowMs = tonumber(now[1]) * 1000 + math.floor(tonumber(now[2]) / 1000)
+local refused = 0
+for i = 2, #ARGV, 2 do
+  if tonumber(ARGV[i]) >= nowMs then
+    redis.call('ZADD', KEYS[1], now[1], ARGV[i + 1])
+  else
+    refused = refused + 1
+  end
+end
+redis.call('ZREMRANGEBYSCORE', KEYS[1], '-inf', '(' .. (tonumber(now[1]) - tonumber(ARGV[1])))
+redis.call('EXPIRE', KEYS[1], ARGV[1])
+return refused
+`)
+
+// flushMarks writes one batch as a single pipeline of one script call per client. Every mark that
+// fails or is refused past its deadline counts as dropped and is reported in the error.
 func (s *ValkeyStorage) flushMarks(batch []deliveryMark) error {
 	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
 	defer cancel()
 
-	now := time.Now().Unix()
-	cutoff := fmt.Sprintf("(%d", now-int64(deliveredMarkTTL/time.Second))
-
-	byClient := make(map[string][]redis.Z)
+	args := make(map[string][]interface{})
 	for _, m := range batch {
-		byClient[m.clientID] = append(byClient[m.clientID], redis.Z{
-			Score:  float64(now),
-			Member: strconv.FormatInt(m.eventID, 10),
-		})
+		if args[m.clientID] == nil {
+			args[m.clientID] = []interface{}{int64(deliveredMarkTTL / time.Second)}
+		}
+		args[m.clientID] = append(args[m.clientID], m.deadline, m.eventID)
 	}
 
+	cmds := make(map[string]*redis.Cmd, len(args))
 	pipe := s.client.Pipeline()
-	for clientID, marks := range byClient {
-		key := deliveredAtKey(clientID)
-		pipe.ZAdd(ctx, key, marks...)
-		pipe.ZRemRangeByScore(ctx, key, "-inf", cutoff)
-		pipe.Expire(ctx, key, deliveredMarkTTL)
+	for clientID, a := range args {
+		cmds[clientID] = markScript.EvalSha(ctx, pipe, []string{deliveredAtKey(clientID)}, a...)
 	}
-	if _, err := pipe.Exec(ctx); err != nil {
-		slog.With("prefix", "ValkeyStorage.flushMarks").Error("failed to write delivery marks", "count", len(batch), "err", err)
-		droppedMarksMetric.Add(float64(len(batch)))
-		return fmt.Errorf("write %d delivery marks: %w", len(batch), err)
+	_, _ = pipe.Exec(ctx)
+	// A restart or failover empties the script cache; only the calls that hit it carry the script.
+	retry := s.client.Pipeline()
+	for clientID, cmd := range cmds {
+		if redis.HasErrorPrefix(cmd.Err(), "NOSCRIPT") {
+			cmds[clientID] = markScript.Eval(ctx, retry, []string{deliveredAtKey(clientID)}, args[clientID]...)
+		}
 	}
-	return nil
+	if retry.Len() > 0 {
+		_, _ = retry.Exec(ctx)
+	}
+
+	failed, refused := 0, 0
+	var writeErr error
+	for clientID, cmd := range cmds {
+		n, err := cmd.Int()
+		if err != nil {
+			failed += (len(args[clientID]) - 1) / 2
+			writeErr = err
+			continue
+		}
+		refused += n
+	}
+	var errs []error
+	if failed > 0 {
+		errs = append(errs, fmt.Errorf("write %d delivery marks: %w", failed, writeErr))
+	}
+	if refused > 0 {
+		errs = append(errs, fmt.Errorf("%d delivery marks refused past their deadline", refused))
+	}
+	err := errors.Join(errs...)
+	if err != nil {
+		slog.With("prefix", "ValkeyStorage.flushMarks").Error("delivery marks not written", "count", failed+refused, "of", len(batch), "err", err)
+		droppedMarksMetric.Add(float64(failed + refused))
+	}
+	return err
 }
 
 // reapExpired drops backlog entries whose expiry score has passed and counts the ones that
@@ -467,9 +514,9 @@ func (s *ValkeyStorage) flushMarks(batch []deliveryMark) error {
 // of by a sweeper like the memory backend runs. A client that never reconnects has its
 // whole key dropped by Valkey and its messages expire uncounted. Covering those needs a
 // sweeper with leader election across replicas.
-func (s *ValkeyStorage) reapExpired(ctx context.Context, clientKey, clientID string, now int64) {
+func (s *ValkeyStorage) reapExpired(ctx context.Context, clientKey, clientID string, cutoff int64) {
 	logger := slog.With("prefix", "ValkeyStorage.reapExpired")
-	maxScore := fmt.Sprintf("%d", now)
+	maxScore := strconv.FormatInt(cutoff, 10)
 
 	for {
 		raw, err := reapScript.Run(ctx, s.client, []string{clientKey}, maxScore, reapBatchSize, reapBatchBytes).Result()

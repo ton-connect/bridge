@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -58,10 +59,10 @@ func getTestValkeyURI(t *testing.T) string {
 // alone would let a test read the counter before the sweep has added to it.
 func waitSwept(t *testing.T, storage *ValkeyStorage, clientID string, sweepsBefore, wantBacklog int64) {
 	t.Helper()
-	deadline := time.Now().Add(5 * time.Second)
+	deadline := time.Now().Add(sweepDelay + 5*time.Second)
 	for storage.sweeps.Load() <= sweepsBefore {
 		if time.Now().After(deadline) {
-			t.Fatalf("sweep of %s did not finish within 5s", clientID)
+			t.Fatalf("sweep of %s did not finish within %v", clientID, sweepDelay+5*time.Second)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
@@ -585,10 +586,10 @@ func TestValkeyStorage_LongSessionDeliveryIsNotCounted(t *testing.T) {
 // waitAttempts polls until n more sweeps have run or given up.
 func waitAttempts(t *testing.T, storage *ValkeyStorage, sweepsBefore int64, n int) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	deadline := time.Now().Add(sweepDelay + 10*time.Second)
 	for storage.sweeps.Load() < sweepsBefore+int64(n) {
 		if time.Now().After(deadline) {
-			t.Fatalf("%d of %d sweeps ran or gave up within 10s", storage.sweeps.Load()-sweepsBefore, n)
+			t.Fatalf("%d of %d sweeps ran or gave up within %v", storage.sweeps.Load()-sweepsBefore, n, sweepDelay+10*time.Second)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -953,5 +954,92 @@ func TestValkeyStorage_ReapIsBoundedByBytes(t *testing.T) {
 		if size > reapBatchBytes+member {
 			t.Errorf("a reap reply carried %d bytes, over the %d-byte budget plus one %d-byte member", size, reapBatchBytes, member)
 		}
+	}
+}
+
+// stallFirstPipeline delays the first pipeline the client sends, as a slow or failing-over node
+// delays the mark writer. Later pipelines pass at once.
+type stallFirstPipeline struct {
+	delay time.Duration
+	done  atomic.Bool
+}
+
+func (h *stallFirstPipeline) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (h *stallFirstPipeline) ProcessHook(next redis.ProcessHook) redis.ProcessHook { return next }
+
+func (h *stallFirstPipeline) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return func(ctx context.Context, cmds []redis.Cmder) error {
+		if h.done.CompareAndSwap(false, true) {
+			time.Sleep(h.delay)
+		}
+		return next(ctx, cmds)
+	}
+}
+
+// deliverDuringStall publishes a message that expires, marks it delivered while the mark write is
+// stalled for stall, and reconnects at once. It returns how far the expiry and dropped counters moved.
+func deliverDuringStall(t *testing.T, stall time.Duration) (expired, dropped float64) {
+	t.Helper()
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	clientID := fmt.Sprintf("stalled-mark-%d", time.Now().UnixNano())
+	defer cleanupKeys(storage, clientID)
+
+	msg := models.SseMessage{
+		EventId: 61,
+		Message: []byte(`{"from":"sender","message":"seen","trace_id":"trace-stalled"}`),
+		To:      clientID,
+	}
+	if err := storage.Pub(ctx, msg, 1); err != nil {
+		t.Fatalf("Pub failed: %v", err)
+	}
+	time.Sleep(1500 * time.Millisecond)
+
+	storage.client.AddHook(&stallFirstPipeline{delay: stall})
+	expiredBefore := testutil.ToFloat64(expiredMessagesMetric)
+	droppedBefore := testutil.ToFloat64(droppedMarksMetric)
+	sweepsBefore := storage.sweeps.Load()
+	if err := storage.MarkDelivered(ctx, clientID, msg.EventId); err != nil {
+		t.Fatalf("MarkDelivered failed: %v", err)
+	}
+	messageCh := make(chan models.SseMessage, 4)
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
+
+	waitSwept(t, storage, clientID, sweepsBefore, 0)
+	// The stalled write may finish after the sweep; give it the rest of its stall before reading.
+	time.Sleep(stall)
+	return testutil.ToFloat64(expiredMessagesMetric) - expiredBefore, testutil.ToFloat64(droppedMarksMetric) - droppedBefore
+}
+
+// TestValkeyStorage_StalledMarkWriteIsNotCounted stalls the mark write for longer than the flush
+// interval but within the mark deadline. The sweep must read the mark, not count a loss.
+func TestValkeyStorage_StalledMarkWriteIsNotCounted(t *testing.T) {
+	expired, dropped := deliverDuringStall(t, 1500*time.Millisecond)
+	if expired != 0 {
+		t.Errorf("a message whose mark landed within its deadline was counted as expired %v times", expired)
+	}
+	if dropped != 0 {
+		t.Errorf("a mark that landed within its deadline moved the dropped counter by %v", dropped)
+	}
+}
+
+// TestValkeyStorage_MarkPastDeadlineIsRefused stalls the mark write past its deadline. Valkey must
+// refuse it, so the loss the sweep counts is matched by a dropped mark rather than left silent.
+func TestValkeyStorage_MarkPastDeadlineIsRefused(t *testing.T) {
+	expired, dropped := deliverDuringStall(t, markDeadline+500*time.Millisecond)
+	if expired != 1 {
+		t.Errorf("the expiry counter moved by %v for a message whose mark was refused, want 1", expired)
+	}
+	if dropped != 1 {
+		t.Errorf("a mark written past its deadline moved the dropped counter by %v, want 1", dropped)
 	}
 }
