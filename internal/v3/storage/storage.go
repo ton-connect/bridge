@@ -47,8 +47,9 @@ const (
 // them counts a delivered message as lost.
 const sweepDelay = 3 * markFlushInterval
 
-// Doubling waits make four tries span 4.5s; the cap keeps pending retries to a few seconds of Subs.
-const sweepAttempts = 4
+// sweepQueueSize bounds the reconnect sweeps waiting for a worker. A sweep that finds it full is
+// the only kind given up; every queued one runs, however long the workers stay busy.
+const sweepQueueSize = 16384
 
 // droppedMarksMetric counts marks abandoned because the queue was full or closed. A dropped mark can
 // only push number_of_expired_messages up, never down, so a loss spike with this counter
@@ -58,11 +59,11 @@ var droppedMarksMetric = promauto.NewCounter(prometheus.CounterOpts{
 	Help: "The total number of delivery marks dropped because the write queue was full or closed",
 })
 
-// skippedSweepsMetric counts reconnect sweeps that found the sweep limit full on every try. Their
+// skippedSweepsMetric counts reconnect sweeps given up because the sweep queue was full. Their
 // expired members are counted only by a later sweep that runs before the backlog key expires.
 var skippedSweepsMetric = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "number_of_skipped_expiry_sweeps",
-	Help: "The total number of expiry sweeps given up because the concurrent sweep limit stayed full",
+	Help: "The total number of expiry sweeps given up because the sweep queue was full",
 })
 
 // ConnectionInfo represents connection metadata for verification

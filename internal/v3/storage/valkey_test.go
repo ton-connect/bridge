@@ -594,9 +594,27 @@ func waitAttempts(t *testing.T, storage *ValkeyStorage, sweepsBefore int64, n in
 	}
 }
 
-// TestValkeyStorage_SweepsAreBounded holds every sweep slot itself. A sweep that finds them
-// taken retries, gives up only once its retries are spent, and runs if a slot frees in between.
-func TestValkeyStorage_SweepsAreBounded(t *testing.T) {
+// blockReaps holds every reap call until release is closed, which keeps the sweep workers busy.
+type blockReaps struct{ release chan struct{} }
+
+func (h blockReaps) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (h blockReaps) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+
+func (h blockReaps) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		if isReapCall(cmd) {
+			<-h.release
+		}
+		return next(ctx, cmd)
+	}
+}
+
+// TestValkeyStorage_BusySweepWaitsForWorker blocks every sweep worker in Valkey for seconds. A
+// reconnect's sweep queued behind them must wait without giving up, then run once a worker frees.
+func TestValkeyStorage_BusySweepWaitsForWorker(t *testing.T) {
 	uri := getTestValkeyURI(t)
 	storage, err := NewValkeyStorage(uri)
 	if err != nil {
@@ -604,12 +622,10 @@ func TestValkeyStorage_SweepsAreBounded(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	clientID := fmt.Sprintf("bounded-sweeps-%d", time.Now().UnixNano())
-	defer cleanupKeys(storage, clientID)
-
+	clientID := fmt.Sprintf("busy-sweep-%d", time.Now().UnixNano())
 	expiring := models.SseMessage{
 		EventId: 31,
-		Message: []byte(`{"from":"sender","message":"left for later","trace_id":"trace-skipped"}`),
+		Message: []byte(`{"from":"sender","message":"left for later","trace_id":"trace-busy"}`),
 		To:      clientID,
 	}
 	if err := storage.Pub(ctx, expiring, 1); err != nil {
@@ -617,74 +633,66 @@ func TestValkeyStorage_SweepsAreBounded(t *testing.T) {
 	}
 	time.Sleep(1500 * time.Millisecond)
 
-	limit := cap(storage.sweepSlots)
-	takeAll := func() {
-		for i := 0; i < limit; i++ {
-			storage.sweepSlots <- struct{}{}
-		}
+	// Twice the pool, so every worker is blocked and the rest of these wait in the queue.
+	busy := make([]string, 2*storage.client.(*redis.ClusterClient).Options().PoolSize)
+	for i := range busy {
+		busy[i] = fmt.Sprintf("%s-other-%d", clientID, i)
 	}
-	freeAll := func() {
-		for i := 0; i < limit; i++ {
-			<-storage.sweepSlots
+	defer func() {
+		for _, k := range append(busy, clientID) {
+			cleanupKeys(storage, k)
 		}
-	}
+	}()
+
+	hook := blockReaps{release: make(chan struct{})}
+	storage.client.AddHook(hook)
+	var releaseOnce sync.Once
+	release := func() { releaseOnce.Do(func() { close(hook.release) }) }
+	defer release()
 
 	expiredBefore := testutil.ToFloat64(expiredMessagesMetric)
 	skippedBefore := testutil.ToFloat64(skippedSweepsMetric)
-	messageCh := make(chan models.SseMessage, 4)
-	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
-
-	takeAll()
 	sweepsBefore := storage.sweeps.Load()
+	messageCh := make(chan models.SseMessage, 4)
 	subbed := time.Now()
+	if err := storage.Sub(ctx, busy, 0, messageCh); err != nil {
+		t.Fatalf("Sub of the other clients failed: %v", err)
+	}
+	defer func() { _ = storage.Unsub(ctx, busy, messageCh) }()
 	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
 		t.Fatalf("Sub failed: %v", err)
 	}
-	waitAttempts(t, storage, sweepsBefore, 1)
-	budget := sweepDelay * (1<<sweepAttempts - 1)
-	if waited := time.Since(subbed); waited < budget {
-		t.Errorf("the sweep gave up %v after Sub, before its %v of retries", waited, budget)
+	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
+
+	// Most of a sweep's timeout, so the blocked reaps still finish once released.
+	time.Sleep(time.Until(subbed.Add(sweepDelay + markWriteTimeout - 700*time.Millisecond)))
+	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 0 {
+		t.Fatalf("%v sweeps were given up while the workers were busy, want none", got)
 	}
-	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 1 {
-		t.Errorf("skip counter moved by %v for one sweep that gave up, want 1", got)
+	if got := storage.sweeps.Load() - sweepsBefore; got != 0 {
+		t.Fatalf("%d sweeps finished while every reap was blocked", got)
 	}
+
+	release()
+	waitAttempts(t, storage, sweepsBefore, len(busy)+1)
 	n, err := storage.client.ZCard(ctx, fmt.Sprintf("client:%s", clientID)).Result()
 	if err != nil {
 		t.Fatalf("ZCard failed: %v", err)
 	}
-	if n != 1 {
-		t.Errorf("a sweep ran past the limit: backlog holds %d entries, want its 1 expired member", n)
+	if n != 0 {
+		t.Errorf("the queued sweep left %d entries in the backlog, want 0", n)
 	}
-	if got := testutil.ToFloat64(expiredMessagesMetric); got != expiredBefore {
-		t.Errorf("a sweep that gave up moved the expiry counter from %v to %v", expiredBefore, got)
-	}
-	freeAll()
-
-	// The slots free up after the first try and before the first retry, which then runs.
-	takeAll()
-	sweepsBefore = storage.sweeps.Load()
-	subbed = time.Now()
-	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
-		t.Fatalf("second Sub failed: %v", err)
-	}
-	firstRetry := sweepDelay + sweepDelay<<1
-	time.Sleep(time.Until(subbed.Add(firstRetry - sweepDelay/3)))
-	freeAll()
-	waitSwept(t, storage, clientID, sweepsBefore, 0)
 	if got := testutil.ToFloat64(expiredMessagesMetric) - expiredBefore; got != 1 {
-		t.Errorf("the retried sweep counted %v expired messages, want 1", got)
+		t.Errorf("the queued sweep counted %v expired messages, want 1", got)
 	}
-	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 1 {
-		t.Errorf("skip counter moved by %v in total, want only the first sweep's 1", got)
-	}
-	if got := len(storage.sweepSlots); got != 0 {
-		t.Errorf("%d sweep slots still held after the sweep finished", got)
+	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 0 {
+		t.Errorf("skip counter moved by %v, want 0", got)
 	}
 }
 
-// TestValkeyStorage_SweepSlotIsFreeDuringDelay reconnects more keys at once than there are
-// slots. A slot is for Valkey work, so none may be held while the sweeps wait out sweepDelay.
-func TestValkeyStorage_SweepSlotIsFreeDuringDelay(t *testing.T) {
+// TestValkeyStorage_FullSweepQueueIsSkipped fills the queue with sweeps due an hour ahead. A
+// reconnect that finds it full is given up at once and counted.
+func TestValkeyStorage_FullSweepQueueIsSkipped(t *testing.T) {
 	uri := getTestValkeyURI(t)
 	storage, err := NewValkeyStorage(uri)
 	if err != nil {
@@ -692,8 +700,52 @@ func TestValkeyStorage_SweepSlotIsFreeDuringDelay(t *testing.T) {
 	}
 
 	ctx := context.Background()
-	keys := make([]string, cap(storage.sweepSlots)+3)
-	prefix := fmt.Sprintf("delayed-sweeps-%d", time.Now().UnixNano())
+	clientID := fmt.Sprintf("full-queue-%d", time.Now().UnixNano())
+	defer cleanupKeys(storage, clientID)
+
+	later := sweepRequest{clientID: clientID + "-later", due: time.Now().Add(time.Hour)}
+	fill := func() {
+		for {
+			select {
+			case storage.sweepQueue <- later:
+			default:
+				return
+			}
+		}
+	}
+	// Each worker takes one request and waits for its due time; the second fill tops up behind them.
+	fill()
+	time.Sleep(50 * time.Millisecond)
+	fill()
+
+	skippedBefore := testutil.ToFloat64(skippedSweepsMetric)
+	sweepsBefore := storage.sweeps.Load()
+	messageCh := make(chan models.SseMessage, 4)
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
+
+	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 1 {
+		t.Errorf("a sweep that found the queue full moved the skip counter by %v, want 1", got)
+	}
+	if got := storage.sweeps.Load() - sweepsBefore; got != 1 {
+		t.Errorf("a sweep that found the queue full moved the finished-sweep counter by %d, want 1", got)
+	}
+}
+
+// TestValkeyStorage_SweepBurstIsNotSkipped reconnects many more keys at once than there are
+// workers. Every sweep waits out sweepDelay, and all of them run without one being given up.
+func TestValkeyStorage_SweepBurstIsNotSkipped(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	keys := make([]string, 2*storage.client.(*redis.ClusterClient).Options().PoolSize+3)
+	prefix := fmt.Sprintf("burst-sweeps-%d", time.Now().UnixNano())
 	for i := range keys {
 		keys[i] = fmt.Sprintf("%s-%d", prefix, i)
 	}
@@ -713,21 +765,15 @@ func TestValkeyStorage_SweepSlotIsFreeDuringDelay(t *testing.T) {
 	defer func() { _ = storage.Unsub(ctx, keys, messageCh) }()
 
 	for time.Since(subbed) < sweepDelay/2 {
-		if got := len(storage.sweepSlots); got != 0 {
-			t.Fatalf("%d sweep slots held %v into sweepDelay, before any sweep reached Valkey", got, time.Since(subbed))
+		if got := storage.sweeps.Load() - sweepsBefore; got != 0 {
+			t.Fatalf("%d sweeps finished %v after Sub, before sweepDelay passed", got, time.Since(subbed))
 		}
 		time.Sleep(5 * time.Millisecond)
 	}
-	if got := storage.sweeps.Load() - sweepsBefore; got != 0 {
-		t.Fatalf("%d sweeps finished before sweepDelay passed", got)
-	}
 
 	waitAttempts(t, storage, sweepsBefore, len(keys))
-	if got := len(storage.sweepSlots); got != 0 {
-		t.Errorf("%d sweep slots still held after every sweep finished", got)
-	}
 	if got := testutil.ToFloat64(skippedSweepsMetric) - skippedBefore; got != 0 {
-		t.Errorf("%v sweeps gave up although their Valkey work lasts far less than the retries", got)
+		t.Errorf("%v sweeps of a burst were given up, want none", got)
 	}
 }
 

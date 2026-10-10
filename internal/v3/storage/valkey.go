@@ -29,10 +29,17 @@ type ValkeyStorage struct {
 	stopMarks   chan struct{}
 	writerDone  chan struct{}
 	drainErr    error
-	sweepSlots  chan struct{}
+	sweepQueue  chan sweepRequest
 	// sweeps counts sweeps that ran or gave up, once each. The metrics move after the last
 	// round trip, so nothing in Valkey marks a sweep as done; tests wait on this instead.
 	sweeps atomic.Int64
+}
+
+// sweepRequest is one reconnect's expiry sweep waiting for a worker.
+type sweepRequest struct {
+	clientID string
+	due      time.Time
+	now      int64
 }
 
 // deliveryMark is one "this event reached its client" record on its way to Valkey.
@@ -91,10 +98,13 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		marks:       make(chan deliveryMark, markQueueSize),
 		stopMarks:   make(chan struct{}),
 		writerDone:  make(chan struct{}),
-		// Half a node's pool: each sweep holds one connection at a time, so Pub and replay keep the rest.
-		sweepSlots: make(chan struct{}, max(clusterClient.Options().PoolSize/2, 1)),
+		sweepQueue:  make(chan sweepRequest, sweepQueueSize),
 	}
 	go s.runMarkWriter()
+	// Half a node's pool: each sweep holds one connection at a time, so Pub and replay keep the rest.
+	for range max(clusterClient.Options().PoolSize/2, 1) {
+		go s.runSweeper()
+	}
 
 	return s, nil
 }
@@ -249,36 +259,42 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	}
 
 	// The sweep reclaims storage and counts losses; neither has to happen before this
-	// client is subscribed, and doing it here keeps the lock window short.
+	// client is subscribed, and queueing it here keeps the lock window short.
+	due := time.Now().Add(sweepDelay)
 	for _, key := range keys {
-		clientKey := fmt.Sprintf("client:%s", key)
-		time.AfterFunc(sweepDelay, func() { s.sweep(clientKey, key, now, 1) })
+		s.queueSweep(sweepRequest{clientID: key, due: due, now: now})
 	}
 
 	logger.Debug("subscribed to channels for keys", "keys", keys)
 	return nil
 }
 
-// sweep runs one expiry sweep detached from the caller's context: the request that
-// triggered it may end at any moment, and an aborted sweep leaves the backlog uncounted.
-func (s *ValkeyStorage) sweep(clientKey, clientID string, now int64, attempt int) {
-	// Taken only once sweepDelay has passed, so the limit counts sweeps talking to Valkey.
+// queueSweep hands a sweep to the workers without waiting: Sub calls it under subMutex.
+func (s *ValkeyStorage) queueSweep(req sweepRequest) {
 	select {
-	case s.sweepSlots <- struct{}{}:
+	case s.sweepQueue <- req:
 	default:
-		if attempt < sweepAttempts {
-			time.AfterFunc(sweepDelay<<attempt, func() { s.sweep(clientKey, clientID, now, attempt+1) })
-			return
-		}
 		skippedSweepsMetric.Inc()
 		s.sweeps.Add(1)
-		return
 	}
+}
+
+// runSweeper runs queued sweeps one at a time. Sub queues under subMutex with one fixed delay, so the
+// queue is in due order and a worker waiting for its request's due time holds back none that is due.
+func (s *ValkeyStorage) runSweeper() {
+	for req := range s.sweepQueue {
+		time.Sleep(time.Until(req.due))
+		s.sweep(req)
+	}
+}
+
+// sweep runs one expiry sweep detached from the caller's context: the request that
+// triggered it may end at any moment, and an aborted sweep leaves the backlog uncounted.
+func (s *ValkeyStorage) sweep(req sweepRequest) {
 	defer s.sweeps.Add(1)
-	defer func() { <-s.sweepSlots }()
 	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
 	defer cancel()
-	s.reapExpired(ctx, clientKey, clientID, now)
+	s.reapExpired(ctx, fmt.Sprintf("client:%s", req.clientID), req.clientID, req.now)
 }
 
 // reapBatchSize and reapBatchBytes bound one sweep round trip. A client's backlog is not bounded
