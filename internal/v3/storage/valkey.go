@@ -281,10 +281,12 @@ func (s *ValkeyStorage) sweep(clientKey, clientID string, now int64, attempt int
 	s.reapExpired(ctx, clientKey, clientID, now)
 }
 
-// reapBatchSize bounds one sweep round trip. A client's backlog is not bounded by
-// anything, so reading it whole would let a reconnect after a long outage allocate every
-// stored payload at once and build a single huge delete command.
-const reapBatchSize = 256
+// reapBatchSize and reapBatchBytes bound one sweep round trip. A client's backlog is not bounded
+// by anything, and a member is a whole stored message of up to MAX_BODY_SIZE, so count alone is no bound.
+const (
+	reapBatchSize  = 256
+	reapBatchBytes = 1 << 20
+)
 
 // reapScript removes expired backlog members and returns exactly the ones it removed.
 //
@@ -292,11 +294,18 @@ const reapBatchSize = 256
 // commands lets a concurrent sweep on the other replica remove members between them, and
 // then this pod counts messages it did not remove. Inside a script the pair is atomic, so
 // the returned members are precisely this call's, which is what makes the count safe to
-// add to a metric.
+// add to a metric. Members are taken one at a time, so a call holds at most the byte budget
+// plus one member, and always removes at least one when any has expired.
 var reapScript = redis.NewScript(`
-local members = redis.call('ZRANGEBYSCORE', KEYS[1], '0', ARGV[1], 'LIMIT', 0, tonumber(ARGV[2]))
-if #members > 0 then
-  redis.call('ZREM', KEYS[1], unpack(members))
+local members, bytes = {}, 0
+while #members < tonumber(ARGV[2]) and bytes < tonumber(ARGV[3]) do
+  local member = redis.call('ZRANGEBYSCORE', KEYS[1], '-inf', ARGV[1], 'LIMIT', 0, 1)[1]
+  if not member then
+    break
+  end
+  redis.call('ZREM', KEYS[1], member)
+  members[#members + 1] = member
+  bytes = bytes + #member
 end
 return members
 `)
@@ -447,7 +456,7 @@ func (s *ValkeyStorage) reapExpired(ctx context.Context, clientKey, clientID str
 	maxScore := fmt.Sprintf("%d", now)
 
 	for {
-		raw, err := reapScript.Run(ctx, s.client, []string{clientKey}, maxScore, reapBatchSize).Result()
+		raw, err := reapScript.Run(ctx, s.client, []string{clientKey}, maxScore, reapBatchSize, reapBatchBytes).Result()
 		if err != nil {
 			if err != redis.Nil {
 				logger.Error("failed to sweep expired messages", "client_id", clientID, "err", err)
@@ -460,28 +469,31 @@ func (s *ValkeyStorage) reapExpired(ctx context.Context, clientKey, clientID str
 			return
 		}
 
-		messages, ids := decodeSwept(clientID, batch, logger)
+		messages, ids, size := decodeSwept(clientID, batch, logger)
 		if len(ids) > 0 {
 			s.countUndelivered(ctx, clientID, messages, ids, logger)
 			s.dropMarks(ctx, clientID, ids, logger)
 		}
 
-		if len(batch) < reapBatchSize {
+		if len(batch) < reapBatchSize && size < reapBatchBytes {
 			return
 		}
 	}
 }
 
-// decodeSwept turns one swept batch into its messages and their event ids, index for index.
-func decodeSwept(clientID string, batch []interface{}, logger *slog.Logger) ([]models.SseMessage, []string) {
+// decodeSwept turns one swept batch into its messages and their event ids, index for index, and
+// adds up the stored bytes the way the script measures its budget.
+func decodeSwept(clientID string, batch []interface{}, logger *slog.Logger) ([]models.SseMessage, []string, int) {
 	messages := make([]models.SseMessage, 0, len(batch))
 	ids := make([]string, 0, len(batch))
+	size := 0
 
 	for _, item := range batch {
 		payload, ok := item.(string)
 		if !ok {
 			continue
 		}
+		size += len(payload)
 		var msg models.SseMessage
 		if err := json.Unmarshal([]byte(payload), &msg); err != nil {
 			logger.Error("failed to unmarshal expired message", "client_id", clientID, "err", err)
@@ -490,7 +502,7 @@ func decodeSwept(clientID string, batch []interface{}, logger *slog.Logger) ([]m
 		messages = append(messages, msg)
 		ids = append(ids, strconv.FormatInt(msg.EventId, 10))
 	}
-	return messages, ids
+	return messages, ids, size
 }
 
 // dropMarks deletes the marks of swept members, which nothing reads again. A failure only leaves

@@ -2,9 +2,12 @@ package storagev3
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -801,5 +804,104 @@ func TestValkeyStorage_ShutdownReportsFailedDrain(t *testing.T) {
 	err = storage.Shutdown(shutdownCtx)
 	if !errors.Is(err, redis.ErrClosed) {
 		t.Errorf("Shutdown returned %v for a drain that could not write its marks, want an error wrapping %v", err, redis.ErrClosed)
+	}
+}
+
+// isReapCall reports a script call whose first key is a backlog, which only the reap script makes.
+func isReapCall(cmd redis.Cmder) bool {
+	args := cmd.Args()
+	if len(args) < 4 {
+		return false
+	}
+	name := strings.ToLower(fmt.Sprint(args[0]))
+	key, _ := args[3].(string)
+	return (name == "evalsha" || name == "eval") && strings.HasPrefix(key, "client:")
+}
+
+// reapReplies records the payload bytes of every reap reply the client reads.
+type reapReplies struct {
+	mu    sync.Mutex
+	sizes []int
+}
+
+func (h *reapReplies) DialHook(next redis.DialHook) redis.DialHook { return next }
+
+func (h *reapReplies) ProcessPipelineHook(next redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return next
+}
+
+func (h *reapReplies) ProcessHook(next redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		err := next(ctx, cmd)
+		c, ok := cmd.(*redis.Cmd)
+		if !ok || !isReapCall(cmd) {
+			return err
+		}
+		items, _ := c.Val().([]interface{})
+		size := 0
+		for _, item := range items {
+			if payload, ok := item.(string); ok {
+				size += len(payload)
+			}
+		}
+		if size > 0 {
+			h.mu.Lock()
+			h.sizes = append(h.sizes, size)
+			h.mu.Unlock()
+		}
+		return err
+	}
+}
+
+// TestValkeyStorage_ReapIsBoundedByBytes expires members far larger than an average message, as a
+// request near MAX_BODY_SIZE makes. Each reap reply must stay within the byte budget plus one member.
+func TestValkeyStorage_ReapIsBoundedByBytes(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	replies := &reapReplies{}
+	storage.client.AddHook(replies)
+
+	ctx := context.Background()
+	clientID := fmt.Sprintf("large-%d", time.Now().UnixNano())
+	defer cleanupKeys(storage, clientID)
+
+	const count = 5
+	payload := []byte(strings.Repeat("x", 400<<10))
+	member := 0
+	for i := 1; i <= count; i++ {
+		msg := models.SseMessage{EventId: int64(100 + i), Message: payload, To: clientID}
+		if err := storage.Pub(ctx, msg, 1); err != nil {
+			t.Fatalf("Pub failed: %v", err)
+		}
+		if encoded, err := json.Marshal(msg); err == nil {
+			member = max(member, len(encoded))
+		}
+	}
+	time.Sleep(1500 * time.Millisecond)
+
+	before := testutil.ToFloat64(expiredMessagesMetric)
+	sweepsBefore := storage.sweeps.Load()
+	messageCh := make(chan models.SseMessage, 4)
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
+	waitSwept(t, storage, clientID, sweepsBefore, 0)
+
+	if got := testutil.ToFloat64(expiredMessagesMetric) - before; got != count {
+		t.Errorf("the sweep counted %v of %d expired large messages", got, count)
+	}
+	replies.mu.Lock()
+	defer replies.mu.Unlock()
+	if len(replies.sizes) < 2 {
+		t.Errorf("%d members of %d bytes came back in %d reap replies, want them split by the %d-byte budget", count, member, len(replies.sizes), reapBatchBytes)
+	}
+	for _, size := range replies.sizes {
+		if size > reapBatchBytes+member {
+			t.Errorf("a reap reply carried %d bytes, over the %d-byte budget plus one %d-byte member", size, reapBatchBytes, member)
+		}
 	}
 }
