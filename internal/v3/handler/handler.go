@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -74,6 +75,8 @@ type handler struct {
 	realIP            *utils.RealIPExtractor
 	eventCollector    analytics.EventCollector
 	eventBuilder      analytics.EventBuilder
+	// streams counts EventRegistrationHandler calls that have not returned yet.
+	streams atomic.Int64
 }
 
 func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor *utils.RealIPExtractor, timeProvider ntp.TimeProvider, collector analytics.EventCollector, builder analytics.EventBuilder) *handler {
@@ -92,6 +95,8 @@ func NewHandler(s storagev3.Storage, heartbeatInterval time.Duration, extractor 
 }
 
 func (h *handler) EventRegistrationHandler(c echo.Context) error {
+	h.streams.Add(1)
+	defer h.streams.Add(-1)
 	logger := slog.With("prefix", "EventRegistrationHandler")
 	_, ok := c.Response().Writer.(http.Flusher)
 	if !ok {
@@ -233,7 +238,12 @@ loop:
 				logger.Error("msg can't write to connection", "err", err)
 				break loop
 			}
-			c.Response().Flush()
+			// echo's Flush drops the error, and a small write into a closed connection fails only at the
+			// flush; a message that never left the buffer must not be marked delivered.
+			if err = http.NewResponseController(c.Response().Writer).Flush(); err != nil {
+				logger.Error("msg can't flush to connection", "err", err)
+				break loop
+			}
 
 			fromId := "unknown"
 			toId := msg.To
@@ -277,6 +287,21 @@ loop:
 	}
 	activeConnectionMetric.Dec()
 	logger.Info("connection closed")
+	return nil
+}
+
+// WaitStreams waits until every event stream handler has returned or ctx ends. echo's Close ends the
+// connections without waiting for their handlers, and a handler still running can hand storage a mark.
+func (h *handler) WaitStreams(ctx context.Context) error {
+	ticker := time.NewTicker(10 * time.Millisecond)
+	defer ticker.Stop()
+	for h.streams.Load() > 0 {
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("%d event streams still running: %w", h.streams.Load(), ctx.Err())
+		case <-ticker.C:
+		}
+	}
 	return nil
 }
 

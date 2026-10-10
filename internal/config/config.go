@@ -17,8 +17,9 @@ var Config = struct {
 	// ShutdownDrainDelay so the load balancer health-check marks the instance unhealthy and stops
 	// routing before we stop accepting, then drain in-flight requests for up to ShutdownTimeout. SSE
 	// streams never complete on their own, so ShutdownTimeout caps how long we wait on them
-	// (clients reconnect). Both, plus the storage flush after them (storageShutdownTimeout in
-	// cmd/bridge3), must sum below the pod terminationGracePeriodSeconds (40s).
+	// (clients reconnect). Both, plus the stream exit wait and storage flush after them
+	// (streamExitTimeout, storageShutdownTimeout in cmd/bridge3), must sum below the pod
+	// terminationGracePeriodSeconds (40s).
 	ShutdownDrainDelay int `env:"SHUTDOWN_DRAIN_DELAY" envDefault:"15"`
 	ShutdownTimeout    int `env:"SHUTDOWN_TIMEOUT" envDefault:"10"`
 

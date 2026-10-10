@@ -31,9 +31,12 @@ import (
 	"golang.org/x/time/rate"
 )
 
-// storageShutdownTimeout runs after ShutdownDrainDelay and ShutdownTimeout and must fit in what
-// they leave of the pod's terminationGracePeriodSeconds.
-const storageShutdownTimeout = 5 * time.Second
+// streamExitTimeout and storageShutdownTimeout run after ShutdownDrainDelay and ShutdownTimeout and
+// must fit in what they leave of the pod's terminationGracePeriodSeconds.
+const (
+	streamExitTimeout      = 2 * time.Second
+	storageShutdownTimeout = 5 * time.Second
+)
 
 func main() {
 	// Install a JSON slog default before config loads so even a config-parse failure logs on-contract
@@ -250,10 +253,15 @@ func main() {
 	if err := e.Shutdown(shutdownCtx); err != nil {
 		slog.Error("bridge shutdown", "err", err)
 	}
-	// Shutdown returns at its deadline with SSE streams still open. Close ends them without waiting
-	// for their handlers, so a mark a handler offers after the storage flush is counted as dropped.
+	// Shutdown returns at its deadline with SSE streams still open. Close ends them without waiting for
+	// their handlers, so wait for those: a mark one offers after the storage flush is counted as dropped.
 	if err := e.Close(); err != nil {
 		slog.Error("bridge close", "err", err)
+	}
+	streamsCtx, cancelStreams := context.WithTimeout(context.Background(), streamExitTimeout)
+	defer cancelStreams()
+	if err := h.WaitStreams(streamsCtx); err != nil {
+		slog.Warn("event streams outlived close", "err", err)
 	}
 	storageCtx, cancelStorage := context.WithTimeout(context.Background(), storageShutdownTimeout)
 	defer cancelStorage()
