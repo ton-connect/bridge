@@ -706,3 +706,51 @@ func TestValkeyStorage_SweepSlotIsFreeDuringDelay(t *testing.T) {
 		t.Errorf("%d sweep slots still held after every attempt finished", got)
 	}
 }
+
+// TestValkeyStorage_ShutdownFlushesQueuedMarks queues marks inside one flush interval and
+// shuts down at once, which is what a pod does to the deliveries it made last.
+func TestValkeyStorage_ShutdownFlushesQueuedMarks(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	clientID := fmt.Sprintf("shutdown-%d", time.Now().UnixNano())
+	defer cleanupKeys(storage, clientID)
+
+	ids := []string{"41", "42", "43"}
+	for _, id := range []int64{41, 42, 43} {
+		if err := storage.MarkDelivered(ctx, clientID, id); err != nil {
+			t.Fatalf("MarkDelivered failed: %v", err)
+		}
+	}
+
+	shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	if err := storage.Shutdown(shutdownCtx); err != nil {
+		t.Fatalf("Shutdown failed: %v", err)
+	}
+
+	scores, err := storage.client.ZMScore(ctx, deliveredAtKey(clientID), ids...).Result()
+	if err != nil {
+		t.Fatalf("ZMScore failed: %v", err)
+	}
+	for i, score := range scores {
+		if score <= 0 {
+			t.Errorf("mark for event %s was not in Valkey when Shutdown returned", ids[i])
+		}
+	}
+
+	droppedBefore := testutil.ToFloat64(droppedMarksMetric)
+	if err := storage.MarkDelivered(ctx, clientID, 44); err != nil {
+		t.Fatalf("MarkDelivered after Shutdown failed: %v", err)
+	}
+	if got := testutil.ToFloat64(droppedMarksMetric) - droppedBefore; got != 1 {
+		t.Errorf("a mark after Shutdown moved the dropped counter by %v, want 1", got)
+	}
+	if err := storage.Shutdown(shutdownCtx); err != nil {
+		t.Errorf("second Shutdown failed: %v", err)
+	}
+}

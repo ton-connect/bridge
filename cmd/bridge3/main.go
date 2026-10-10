@@ -31,6 +31,10 @@ import (
 	"golang.org/x/time/rate"
 )
 
+// storageShutdownTimeout runs after ShutdownDrainDelay and ShutdownTimeout and must fit in what
+// they leave of the pod's terminationGracePeriodSeconds.
+const storageShutdownTimeout = 5 * time.Second
+
 func main() {
 	// Install a JSON slog default before config loads so even a config-parse failure logs on-contract
 	// (JSON + service/git_sha), and emit the version banner first so a crash-looping pod still shows
@@ -245,6 +249,16 @@ func main() {
 	defer cancel()
 	if err := e.Shutdown(shutdownCtx); err != nil {
 		slog.Error("bridge shutdown", "err", err)
+	}
+	// Shutdown returns at its deadline with SSE streams still open; closing them ends deliveries
+	// before the storage flushes the delivery marks they queued.
+	if err := e.Close(); err != nil {
+		slog.Error("bridge close", "err", err)
+	}
+	storageCtx, cancelStorage := context.WithTimeout(context.Background(), storageShutdownTimeout)
+	defer cancelStorage()
+	if err := dbConn.Shutdown(storageCtx); err != nil {
+		slog.Error("storage shutdown", "err", err)
 	}
 	slog.Info("bridge stopped")
 }

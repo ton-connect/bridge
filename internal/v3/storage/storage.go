@@ -47,12 +47,12 @@ const (
 // them counts a delivered message as lost.
 const sweepDelay = 3 * markFlushInterval
 
-// droppedMarksMetric counts marks abandoned because the queue was full. A dropped mark can
+// droppedMarksMetric counts marks abandoned because the queue was full or closed. A dropped mark can
 // only push number_of_expired_messages up, never down, so a loss spike with this counter
 // moving beside it is the storage falling behind rather than messages going missing.
 var droppedMarksMetric = promauto.NewCounter(prometheus.CounterOpts{
 	Name: "number_of_dropped_delivery_marks",
-	Help: "The total number of delivery marks dropped because the write queue was full",
+	Help: "The total number of delivery marks dropped because the write queue was full or closed",
 })
 
 // skippedSweepsMetric counts reconnect sweeps not started because the sweep limit was reached.
@@ -86,6 +86,9 @@ type Storage interface {
 	VerifyConnection(ctx context.Context, conn ConnectionInfo) (string, error)
 
 	HealthCheck() error
+
+	// Shutdown flushes what the backend still holds in memory; call it after deliveries stop.
+	Shutdown(ctx context.Context) error
 }
 
 func NewStorage(storageType string, uri string, collector analytics.EventCollector, builder analytics.EventBuilder) (Storage, error) {

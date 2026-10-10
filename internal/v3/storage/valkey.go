@@ -22,6 +22,10 @@ type ValkeyStorage struct {
 	subscribers map[string][]chan<- models.SseMessage
 	subMutex    sync.RWMutex
 	marks       chan deliveryMark
+	// marksMu orders every send on marks before Shutdown closes it.
+	marksMu     sync.RWMutex
+	marksClosed bool
+	writerDone  chan struct{}
 	sweepSlots  chan struct{}
 	// sweeps counts finished sweep attempts, skipped ones included. The metrics move after the
 	// last round trip, so nothing in Valkey marks an attempt as done; tests wait on this instead.
@@ -82,6 +86,7 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		client:      clusterClient,
 		subscribers: make(map[string][]chan<- models.SseMessage),
 		marks:       make(chan deliveryMark, markQueueSize),
+		writerDone:  make(chan struct{}),
 		// Half a node's pool: each sweep holds one connection at a time, so Pub and replay keep the rest.
 		sweepSlots: make(chan struct{}, max(clusterClient.Options().PoolSize/2, 1)),
 	}
@@ -299,6 +304,12 @@ func deliveredAtKey(clientID string) string {
 // be counted as lost. Keeping the mark beside the data it describes removes that skew by
 // construction rather than by hoping one pod does both halves.
 func (s *ValkeyStorage) MarkDelivered(_ context.Context, clientID string, eventID int64) error {
+	s.marksMu.RLock()
+	defer s.marksMu.RUnlock()
+	if s.marksClosed {
+		droppedMarksMetric.Inc()
+		return nil
+	}
 	select {
 	case s.marks <- deliveryMark{clientID: clientID, eventID: eventID}:
 	default:
@@ -310,15 +321,40 @@ func (s *ValkeyStorage) MarkDelivered(_ context.Context, clientID string, eventI
 	return nil
 }
 
-// runMarkWriter drains the mark queue into Valkey in batches for the life of the process.
+// Shutdown stops taking marks and waits until the queued ones are written. A mark left in the
+// queue at exit turns its delivered message into a counted loss at the client's next sweep.
+func (s *ValkeyStorage) Shutdown(ctx context.Context) error {
+	s.marksMu.Lock()
+	if !s.marksClosed {
+		s.marksClosed = true
+		close(s.marks)
+	}
+	s.marksMu.Unlock()
+
+	select {
+	case <-s.writerDone:
+		return nil
+	case <-ctx.Done():
+		return fmt.Errorf("delivery marks not flushed: %w", ctx.Err())
+	}
+}
+
+// runMarkWriter drains the mark queue into Valkey in batches until Shutdown closes it.
 func (s *ValkeyStorage) runMarkWriter() {
+	defer close(s.writerDone)
 	batch := make([]deliveryMark, 0, markBatchSize)
 	ticker := time.NewTicker(markFlushInterval)
 	defer ticker.Stop()
 
 	for {
 		select {
-		case m := <-s.marks:
+		case m, ok := <-s.marks:
+			if !ok {
+				if len(batch) > 0 {
+					s.flushMarks(batch)
+				}
+				return
+			}
 			batch = append(batch, m)
 			if len(batch) >= markBatchSize {
 				s.flushMarks(batch)

@@ -58,6 +58,11 @@ func (s *MemStorage) MarkDelivered(_ context.Context, _ string, eventID int64) e
 	return nil
 }
 
+// Shutdown has nothing to flush: marks go straight into the in-process cache.
+func (s *MemStorage) Shutdown(context.Context) error {
+	return nil
+}
+
 func removeExpiredMessages(ms []message, now time.Time) ([]message, []message) {
 	results := make([]message, 0)
 	expired := make([]message, 0)
