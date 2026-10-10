@@ -780,7 +780,7 @@ func TestValkeyStorage_ShutdownFlushesQueuedMarks(t *testing.T) {
 }
 
 // TestValkeyStorage_ShutdownReportsFailedDrain closes the client under the queued marks, so the
-// drain cannot write them and Shutdown has to say so.
+// drain cannot write them: Shutdown has to say so and the marks have to be counted as dropped.
 func TestValkeyStorage_ShutdownReportsFailedDrain(t *testing.T) {
 	uri := getTestValkeyURI(t)
 	storage, err := NewValkeyStorage(uri)
@@ -793,6 +793,7 @@ func TestValkeyStorage_ShutdownReportsFailedDrain(t *testing.T) {
 	if err := storage.client.Close(); err != nil {
 		t.Fatalf("closing the client failed: %v", err)
 	}
+	droppedBefore := testutil.ToFloat64(droppedMarksMetric)
 	for _, id := range []int64{51, 52, 53} {
 		if err := storage.MarkDelivered(ctx, clientID, id); err != nil {
 			t.Fatalf("MarkDelivered failed: %v", err)
@@ -804,6 +805,9 @@ func TestValkeyStorage_ShutdownReportsFailedDrain(t *testing.T) {
 	err = storage.Shutdown(shutdownCtx)
 	if !errors.Is(err, redis.ErrClosed) {
 		t.Errorf("Shutdown returned %v for a drain that could not write its marks, want an error wrapping %v", err, redis.ErrClosed)
+	}
+	if got := testutil.ToFloat64(droppedMarksMetric) - droppedBefore; got != 3 {
+		t.Errorf("a drain that failed to write 3 marks moved the dropped counter by %v, want 3", got)
 	}
 }
 
