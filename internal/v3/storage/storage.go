@@ -44,6 +44,10 @@ const (
 	markWriteTimeout  = 5 * time.Second
 )
 
+// sweepDelay lets marks queued before a reconnect reach Valkey first; a sweep that outruns
+// them counts a delivered message as lost.
+const sweepDelay = 3 * markFlushInterval
+
 // droppedMarksMetric counts marks abandoned because the queue was full. A dropped mark can
 // only push number_of_expired_messages up, never down, so a loss spike with this counter
 // moving beside it is the storage falling behind rather than messages going missing.

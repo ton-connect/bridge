@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/testutil"
+	"github.com/redis/go-redis/v9"
 	"github.com/ton-connect/bridge/internal/models"
 )
 
@@ -48,25 +49,25 @@ func getTestValkeyURI(t *testing.T) string {
 	return uri
 }
 
-// waitSwept blocks until the sweep Sub launched has removed the expired members, or fails
-// the test. Sub no longer sweeps inline - it would hold the subscriber lock across the
-// round trips - so the counter these tests read is written by a goroutine, and the backlog
-// shrinking is the observable edge that says the write has happened.
-func waitSwept(t *testing.T, storage *ValkeyStorage, clientID string, want int64) {
+// waitSwept blocks until a sweep has finished since sweepsBefore, then checks the backlog it
+// left. The counter is written after the sweep's last Valkey call, so a shrunken backlog
+// alone would let a test read the counter before the sweep has added to it.
+func waitSwept(t *testing.T, storage *ValkeyStorage, clientID string, sweepsBefore, wantBacklog int64) {
 	t.Helper()
-	clientKey := fmt.Sprintf("client:%s", clientID)
 	deadline := time.Now().Add(5 * time.Second)
-	for time.Now().Before(deadline) {
-		n, err := storage.client.ZCard(context.Background(), clientKey).Result()
-		if err != nil {
-			t.Fatalf("ZCard failed: %v", err)
-		}
-		if n == want {
-			return
+	for storage.sweeps.Load() <= sweepsBefore {
+		if time.Now().After(deadline) {
+			t.Fatalf("sweep of %s did not finish within 5s", clientID)
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
-	t.Fatalf("sweep did not reduce the backlog of %s to %d entries within 5s", clientID, want)
+	n, err := storage.client.ZCard(context.Background(), fmt.Sprintf("client:%s", clientID)).Result()
+	if err != nil {
+		t.Fatalf("ZCard failed: %v", err)
+	}
+	if n != wantBacklog {
+		t.Fatalf("sweep left %d entries in the backlog of %s, want %d", n, clientID, wantBacklog)
+	}
 }
 
 // cleanupKeys removes the keys a test made. They hash to different slots, so a multi-key
@@ -74,7 +75,7 @@ func waitSwept(t *testing.T, storage *ValkeyStorage, clientID string, want int64
 func cleanupKeys(storage *ValkeyStorage, clientID string) {
 	ctx := context.Background()
 	storage.client.Del(ctx, fmt.Sprintf("client:%s", clientID))
-	storage.client.Del(ctx, deliveredKey(clientID))
+	storage.client.Del(ctx, deliveredAtKey(clientID))
 }
 
 func TestValkeyStorage_ConnectionVerification_ExactMatch(t *testing.T) {
@@ -334,6 +335,7 @@ func TestValkeyStorage_SubCountsUndeliveredExpiry(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 
 	before := testutil.ToFloat64(expiredMessagesMetric)
+	sweepsBefore := storage.sweeps.Load()
 
 	messageCh := make(chan models.SseMessage, 8)
 	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
@@ -342,7 +344,7 @@ func TestValkeyStorage_SubCountsUndeliveredExpiry(t *testing.T) {
 	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
 
 	// One of the two survives its TTL, so a finished sweep leaves exactly one entry.
-	waitSwept(t, storage, clientID, 1)
+	waitSwept(t, storage, clientID, sweepsBefore, 1)
 
 	if got := testutil.ToFloat64(expiredMessagesMetric) - before; got != 1 {
 		t.Errorf("expected the undelivered expired message to be counted once, counter moved by %v", got)
@@ -359,14 +361,13 @@ func TestValkeyStorage_SubCountsUndeliveredExpiry(t *testing.T) {
 		t.Errorf("expected only the live message replayed, got event ids %v", replayed)
 	}
 
-	// A second reconnect finds nothing left to sweep and must add nothing. There is no
-	// state change to wait on here - a sweep that removes nothing leaves no trace - so this
-	// one gets a settle long enough for a sweep that did run to have finished counting.
+	// A second reconnect finds nothing left to sweep and must add nothing.
 	after := testutil.ToFloat64(expiredMessagesMetric)
+	sweepsBefore = storage.sweeps.Load()
 	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
 		t.Fatalf("second Sub failed: %v", err)
 	}
-	time.Sleep(500 * time.Millisecond)
+	waitSwept(t, storage, clientID, sweepsBefore, 1)
 	if got := testutil.ToFloat64(expiredMessagesMetric); got != after {
 		t.Errorf("second sweep double-counted: counter moved from %v to %v", after, got)
 	}
@@ -403,6 +404,7 @@ func TestValkeyStorage_DeliveredExpiryIsNotCounted(t *testing.T) {
 	time.Sleep(1500 * time.Millisecond)
 
 	before := testutil.ToFloat64(expiredMessagesMetric)
+	sweepsBefore := storage.sweeps.Load()
 
 	messageCh := make(chan models.SseMessage, 4)
 	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
@@ -411,10 +413,102 @@ func TestValkeyStorage_DeliveredExpiryIsNotCounted(t *testing.T) {
 	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
 
 	// The only message expired, so a finished sweep empties the backlog.
-	waitSwept(t, storage, clientID, 0)
+	waitSwept(t, storage, clientID, sweepsBefore, 0)
 
 	if got := testutil.ToFloat64(expiredMessagesMetric); got != before {
 		t.Errorf("a delivered message was counted as expired: counter moved from %v to %v", before, got)
+	}
+
+	cleanupKeys(storage, clientID)
+}
+
+// TestValkeyStorage_ReconnectWithinFlushIntervalIsNotCounted reconnects right after a
+// delivery, before the mark writer has flushed. Marks reach Valkey in batches on a timer, so a
+// sweep that starts the moment Sub returns finds the backlog expired and the mark still
+// queued, and counts a delivered message as lost.
+func TestValkeyStorage_ReconnectWithinFlushIntervalIsNotCounted(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	clientID := fmt.Sprintf("reconnect-%d", time.Now().UnixNano())
+
+	msg := models.SseMessage{
+		EventId: 9,
+		Message: []byte(`{"from":"sender","message":"seen late","trace_id":"trace-reconnect"}`),
+		To:      clientID,
+	}
+	if err := storage.Pub(ctx, msg, 1); err != nil {
+		t.Fatalf("Pub failed: %v", err)
+	}
+
+	time.Sleep(1500 * time.Millisecond)
+
+	before := testutil.ToFloat64(expiredMessagesMetric)
+	sweepsBefore := storage.sweeps.Load()
+
+	// The mark is queued and the reconnect follows at once, inside one flush interval.
+	if err := storage.MarkDelivered(ctx, clientID, msg.EventId); err != nil {
+		t.Fatalf("MarkDelivered failed: %v", err)
+	}
+	messageCh := make(chan models.SseMessage, 4)
+	if err := storage.Sub(ctx, []string{clientID}, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	defer func() { _ = storage.Unsub(ctx, []string{clientID}, messageCh) }()
+
+	waitSwept(t, storage, clientID, sweepsBefore, 0)
+
+	if got := testutil.ToFloat64(expiredMessagesMetric); got != before {
+		t.Errorf("a message delivered just before the reconnect was counted as expired: counter moved from %v to %v", before, got)
+	}
+
+	cleanupKeys(storage, clientID)
+}
+
+// TestValkeyStorage_DeliveredMarksAreBounded seeds a mark older than deliveredMarkTTL and
+// checks that the next write for the same client trims it. A key-level EXPIRE alone cannot
+// do this: every new mark refreshes it, so a client that keeps receiving keeps every mark.
+func TestValkeyStorage_DeliveredMarksAreBounded(t *testing.T) {
+	uri := getTestValkeyURI(t)
+	storage, err := NewValkeyStorage(uri)
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+
+	ctx := context.Background()
+	clientID := fmt.Sprintf("bounded-%d", time.Now().UnixNano())
+	key := deliveredAtKey(clientID)
+
+	stale := float64(time.Now().Add(-2 * deliveredMarkTTL).Unix())
+	if err := storage.client.ZAdd(ctx, key, redis.Z{Score: stale, Member: "999"}).Err(); err != nil {
+		t.Fatalf("seeding a stale mark failed: %v", err)
+	}
+
+	if err := storage.MarkDelivered(ctx, clientID, 7); err != nil {
+		t.Fatalf("MarkDelivered failed: %v", err)
+	}
+
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		if _, err := storage.client.ZScore(ctx, key, "7").Result(); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("mark for event 7 did not reach %s within 2s", key)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	members, err := storage.client.ZRange(ctx, key, 0, -1).Result()
+	if err != nil {
+		t.Fatalf("ZRange failed: %v", err)
+	}
+	if len(members) != 1 || members[0] != "7" {
+		t.Errorf("expected the stale mark trimmed and only event 7 kept, got members %v", members)
 	}
 
 	cleanupKeys(storage, clientID)

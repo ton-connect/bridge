@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
@@ -20,6 +22,9 @@ type ValkeyStorage struct {
 	subscribers map[string][]chan<- models.SseMessage
 	subMutex    sync.RWMutex
 	marks       chan deliveryMark
+	// sweeps counts finished sweeps. The metric is written after the sweep's last round
+	// trip, so nothing in Valkey marks a sweep as done; tests wait on this instead.
+	sweeps atomic.Int64
 }
 
 // deliveryMark is one "this event reached its client" record on its way to Valkey.
@@ -249,6 +254,8 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 // sweep runs one expiry sweep detached from the caller's context: the request that
 // triggered it may end at any moment, and an aborted sweep leaves the backlog uncounted.
 func (s *ValkeyStorage) sweep(clientKey, clientID string, now int64) {
+	defer s.sweeps.Add(1)
+	time.Sleep(sweepDelay)
 	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
 	defer cancel()
 	s.reapExpired(ctx, clientKey, clientID, now)
@@ -274,8 +281,8 @@ end
 return members
 `)
 
-func deliveredKey(clientID string) string {
-	return fmt.Sprintf("delivered:%s", clientID)
+func deliveredAtKey(clientID string) string {
+	return fmt.Sprintf("delivered-at:%s", clientID)
 }
 
 // MarkDelivered records the delivery in Valkey rather than in process memory.
@@ -320,15 +327,28 @@ func (s *ValkeyStorage) runMarkWriter() {
 	}
 }
 
-// flushMarks writes one batch of marks as a single pipeline.
+// flushMarks writes one batch as a single pipeline. Marks are scored by write time and
+// trimmed on every write, so a client that never stops receiving holds a bounded set.
 func (s *ValkeyStorage) flushMarks(batch []deliveryMark) {
 	ctx, cancel := context.WithTimeout(context.Background(), markWriteTimeout)
 	defer cancel()
 
-	pipe := s.client.Pipeline()
+	now := time.Now().Unix()
+	cutoff := fmt.Sprintf("(%d", now-int64(deliveredMarkTTL/time.Second))
+
+	byClient := make(map[string][]redis.Z)
 	for _, m := range batch {
-		key := deliveredKey(m.clientID)
-		pipe.SAdd(ctx, key, m.eventID)
+		byClient[m.clientID] = append(byClient[m.clientID], redis.Z{
+			Score:  float64(now),
+			Member: strconv.FormatInt(m.eventID, 10),
+		})
+	}
+
+	pipe := s.client.Pipeline()
+	for clientID, marks := range byClient {
+		key := deliveredAtKey(clientID)
+		pipe.ZAdd(ctx, key, marks...)
+		pipe.ZRemRangeByScore(ctx, key, "-inf", cutoff)
 		pipe.Expire(ctx, key, deliveredMarkTTL)
 	}
 	if _, err := pipe.Exec(ctx); err != nil {
@@ -379,7 +399,7 @@ func (s *ValkeyStorage) reapExpired(ctx context.Context, clientKey, clientID str
 // countUndelivered adds the members of one swept batch that carry no delivery mark.
 func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, batch []interface{}, logger *slog.Logger) {
 	messages := make([]models.SseMessage, 0, len(batch))
-	ids := make([]interface{}, 0, len(batch))
+	ids := make([]string, 0, len(batch))
 
 	for _, item := range batch {
 		payload, ok := item.(string)
@@ -392,16 +412,15 @@ func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, b
 			continue
 		}
 		messages = append(messages, msg)
-		ids = append(ids, msg.EventId)
+		ids = append(ids, strconv.FormatInt(msg.EventId, 10))
 	}
 	if len(messages) == 0 {
 		return
 	}
 
-	// A missing delivered set answers false for every id, so a client whose marks have
-	// already expired counts as undelivered. That is the safe direction: the metric may
-	// overstate loss after an hour of silence, never hide it.
-	marked, err := s.client.SMIsMember(ctx, deliveredKey(clientID), ids...).Result()
+	// A missing member reads as 0, which no mark time can be, so a client whose marks have
+	// expired counts as undelivered: loss may be overstated after an hour, never hidden.
+	scores, err := s.client.ZMScore(ctx, deliveredAtKey(clientID), ids...).Result()
 	if err != nil {
 		// The script has already removed this batch, so there is no retry and no second
 		// chance to learn which of these were delivered. Counting them all would turn one
@@ -413,7 +432,7 @@ func (s *ValkeyStorage) countUndelivered(ctx context.Context, clientID string, b
 
 	undelivered := 0
 	for i, msg := range messages {
-		if i < len(marked) && marked[i] {
+		if i < len(scores) && scores[i] > 0 {
 			continue
 		}
 		undelivered++
