@@ -1,12 +1,12 @@
 package app
 
 import (
+	"bytes"
+	"io"
 	"net/http"
-	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
-	"github.com/labstack/echo/v4/middleware"
 	"github.com/ton-connect/bridge/internal/config"
 	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
 	"github.com/ton-connect/bridge/internal/utils"
@@ -48,7 +48,27 @@ func ConnectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, s
 	}
 }
 
-// BodyLimitMiddleware rejects request bodies larger than maxBodySize bytes.
+// BodyLimitMiddleware reads the body before the handler runs and answers 413 once it passes
+// maxBodySize, so the status does not depend on Content-Length or on how a handler reads.
 func BodyLimitMiddleware(maxBodySize int64) echo.MiddlewareFunc {
-	return middleware.BodyLimit(strconv.FormatInt(maxBodySize, 10))
+	return func(next echo.HandlerFunc) echo.HandlerFunc {
+		return func(c echo.Context) error {
+			req := c.Request()
+			if req.ContentLength > maxBodySize {
+				return echo.ErrStatusRequestEntityTooLarge
+			}
+			if req.Body == nil || req.Body == http.NoBody {
+				return next(c)
+			}
+			body, err := io.ReadAll(io.LimitReader(req.Body, maxBodySize+1))
+			if err != nil {
+				return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+			}
+			if int64(len(body)) > maxBodySize {
+				return echo.ErrStatusRequestEntityTooLarge
+			}
+			req.Body = io.NopCloser(bytes.NewReader(body))
+			return next(c)
+		}
+	}
 }

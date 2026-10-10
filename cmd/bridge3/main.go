@@ -174,7 +174,6 @@ func main() {
 			return nil
 		},
 	}))
-	e.Use(app.BodyLimitMiddleware(config.Config.MaxBodySize))
 	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
 		Skipper: func(c echo.Context) bool {
 			if app.SkipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/message" {
@@ -201,6 +200,7 @@ func main() {
 		})
 		e.Use(corsConfig)
 	}
+	e.Use(app.BodyLimitMiddleware(config.Config.MaxBodySize))
 
 	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, collector, analyticsBuilder)
 

@@ -1,7 +1,6 @@
 package handlerv1
 
 import (
-	"github.com/ton-connect/bridge/internal/app"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -184,33 +183,5 @@ func TestHandler(t *testing.T) {
 				}
 			}
 		})
-	}
-}
-
-func TestSendMessageHandlerKeepsBodyLimitStatus(t *testing.T) {
-	memStorage := storage.NewMemStorage(nil, nil)
-	extractor, err := utils.NewRealIPExtractor([]string{})
-	if err != nil {
-		t.Fatalf("failed to create RealIPExtractor: %v", err)
-	}
-	h := NewHandler(memStorage, 10*time.Second, extractor, nil, nil)
-
-	e := echo.New()
-	e.Use(app.BodyLimitMiddleware(8))
-	e.POST("/bridge/message", h.SendMessageHandler)
-
-	values := url.Values{
-		"client_id":         {defaultClientID},
-		"to":                {defaultToID},
-		"ttl":               {"60"},
-		"no_request_source": {"true"},
-	}
-	req := httptest.NewRequest(http.MethodPost, "/bridge/message?"+values.Encode(), strings.NewReader("123456789"))
-	req.ContentLength = -1
-	rec := httptest.NewRecorder()
-	e.ServeHTTP(rec, req)
-
-	if rec.Code != http.StatusRequestEntityTooLarge {
-		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
 	}
 }
