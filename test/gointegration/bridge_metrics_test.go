@@ -10,6 +10,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 var BRIDGE_METRICS_URL = os.Getenv("BRIDGE_METRICS_URL")
@@ -30,6 +31,9 @@ func TestBridgeMetrics_CountsRequestsRejectedByBodyLimit(t *testing.T) {
 		t.Fatalf("dial bridge: %v", err)
 	}
 	defer func() { _ = conn.Close() }()
+	if err := conn.SetDeadline(time.Now().Add(testHTTPTimeout)); err != nil {
+		t.Fatalf("set deadline: %v", err)
+	}
 
 	// net/http will not send a declared length its body does not match, so the request is written by hand.
 	if _, err := fmt.Fprintf(conn, "POST %s HTTP/1.1\r\nHost: %s\r\nContent-Length: %d\r\n\r\n", u.Path, u.Host, int64(1)<<40); err != nil {
