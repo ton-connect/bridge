@@ -1,7 +1,6 @@
 package handlerv1
 
 import (
-	"github.com/ton-connect/bridge/internal/app"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -10,6 +9,7 @@ import (
 	"time"
 
 	"github.com/labstack/echo/v4"
+	"github.com/ton-connect/bridge/internal/app"
 	"github.com/ton-connect/bridge/internal/utils"
 	"github.com/ton-connect/bridge/internal/v1/storage"
 )
