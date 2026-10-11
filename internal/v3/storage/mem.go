@@ -10,16 +10,9 @@ import (
 
 	"log/slog"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promauto"
 	"github.com/ton-connect/bridge/internal/analytics"
 	"github.com/ton-connect/bridge/internal/models"
 )
-
-var expiredMessagesMetric = promauto.NewCounter(prometheus.CounterOpts{
-	Name: "number_of_expired_messages",
-	Help: "The total number of expired messages",
-})
 
 type MemStorage struct {
 	db           map[string][]message
@@ -63,9 +56,7 @@ func removeExpiredMessages(ms []message, now time.Time) ([]message, []message) {
 	expired := make([]message, 0)
 	for _, m := range ms {
 		if m.IsExpired(now) {
-			if !ExpiredCache.IsMarked(m.EventId) {
-				expired = append(expired, m)
-			}
+			expired = append(expired, m)
 		} else {
 			results = append(results, m)
 		}
@@ -91,7 +82,6 @@ func (s *MemStorage) watcher() {
 					contentHash := sha256.Sum256([]byte(bridgeMsg.Message))
 					messageHash = hex.EncodeToString(contentHash[:])
 				}
-				expiredMessagesMetric.Inc()
 				slog.Debug("message expired", "hash", messageHash, "from", fromID, "to", key, "event_id", m.EventId, "trace_id", bridgeMsg.TraceId)
 
 				_ = s.analytics.TryAdd(s.eventBuilder.NewBridgeMessageExpiredEvent(
@@ -124,7 +114,7 @@ func (s *MemStorage) Pub(ctx context.Context, mes models.SseMessage, ttl int64) 
 			select {
 			case ch <- mes:
 			default:
-				// Channel is full or closed, skip
+				MessagesDropped.WithLabelValues(DropPathLive, DropReasonSubscriberFull).Inc()
 			}
 		}
 	}
@@ -164,7 +154,7 @@ func (s *MemStorage) Sub(ctx context.Context, keys []string, lastEventId int64, 
 			select {
 			case messageCh <- msg.SseMessage:
 			default:
-				// Channel is full or closed, skip
+				MessagesDropped.WithLabelValues(DropPathReplay, DropReasonSubscriberFull).Inc()
 			}
 		}
 	}
