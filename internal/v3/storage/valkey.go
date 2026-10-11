@@ -196,7 +196,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 				select {
 				case messageCh <- msg:
 				default:
-					// Channel is full or closed, skip
+					MessagesDropped.WithLabelValues(DropPathReplay, DropReasonSubscriberFull).Inc()
 				}
 			}
 		}
@@ -299,7 +299,7 @@ func (s *ValkeyStorage) handlePubSub() {
 				select {
 				case ch <- sseMessage:
 				default:
-					// Channel is full or closed, skip
+					MessagesDropped.WithLabelValues(DropPathLive, DropReasonSubscriberFull).Inc()
 				}
 			}
 		}

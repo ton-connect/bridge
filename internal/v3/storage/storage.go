@@ -6,14 +6,7 @@ import (
 	"time"
 
 	"github.com/ton-connect/bridge/internal/analytics"
-	"github.com/ton-connect/bridge/internal/config"
 	"github.com/ton-connect/bridge/internal/models"
-	common_storage "github.com/ton-connect/bridge/internal/storage"
-)
-
-var (
-	ExpiredCache = common_storage.NewMessageCache(config.Config.EnableExpiredCache, time.Hour)
-	// TransferedCache = common_storage.NewMessageCache(config.Config.EnableTransferedCache, time.Minute)
 )
 
 // ConnectionInfo represents connection metadata for verification

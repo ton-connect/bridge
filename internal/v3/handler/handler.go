@@ -229,11 +229,14 @@ loop:
 				break loop
 			}
 			_, err = fmt.Fprintf(c.Response(), "event: %v\nid: %v\ndata: %v\n\n", "message", msg.EventId, string(msg.Message))
+			if err == nil {
+				err = http.NewResponseController(c.Response().Writer).Flush()
+			}
 			if err != nil {
+				storagev3.MessagesDropped.WithLabelValues(storagev3.DropPathSSE, storagev3.DropReasonWriteError).Inc()
 				logger.Error("msg can't write to connection", "err", err)
 				break loop
 			}
-			c.Response().Flush()
 
 			fromId := "unknown"
 			toId := msg.To
@@ -261,7 +264,6 @@ loop:
 				))
 			}
 			deliveredMessagesMetric.Inc()
-			storagev3.ExpiredCache.Mark(msg.EventId)
 		case <-ticker.C:
 			_, err = fmt.Fprint(c.Response(), heartbeatMsg)
 			if err != nil {
