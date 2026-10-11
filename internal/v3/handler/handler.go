@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -342,6 +343,9 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if err != nil {
 		badRequestMetric.Inc()
 		logger.Error(err.Error())
+		if errors.Is(err, echo.ErrStatusRequestEntityTooLarge) {
+			return err
+		}
 		return h.failValidation(c, err.Error(), clientID.String(), traceId, "", "")
 	}
 

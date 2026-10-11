@@ -189,6 +189,7 @@ func main() {
 		}
 		return false
 	}))
+	e.Use(app.BodyLimitMiddleware(config.Config.MaxBodySize))
 
 	if config.Config.CorsEnable {
 		corsConfig := middleware.CORSWithConfig(middleware.CORSConfig{
@@ -200,7 +201,6 @@ func main() {
 		})
 		e.Use(corsConfig)
 	}
-	e.Use(app.BodyLimitMiddleware(config.Config.MaxBodySize))
 
 	h := handlerv3.NewHandler(dbConn, time.Duration(config.Config.HeartbeatInterval)*time.Second, extractor, timeProvider, collector, analyticsBuilder)
 
