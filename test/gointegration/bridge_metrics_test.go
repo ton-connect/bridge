@@ -55,7 +55,8 @@ func TestBridgeMetrics_CountsRequestsRejectedByBodyLimit(t *testing.T) {
 
 func scrapeCounter(t *testing.T, name string, labels []string) float64 {
 	t.Helper()
-	resp, err := http.Get(BRIDGE_METRICS_URL)
+	client := &http.Client{Timeout: testHTTPTimeout}
+	resp, err := client.Get(BRIDGE_METRICS_URL)
 	if err != nil {
 		t.Fatalf("scrape metrics: %v", err)
 	}
