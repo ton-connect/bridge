@@ -7,6 +7,7 @@ import (
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -343,6 +344,9 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 	if err != nil {
 		badRequestMetric.Inc()
 		log.Error(err)
+		if errors.Is(err, echo.ErrStatusRequestEntityTooLarge) {
+			return err
+		}
 		return h.logMessageSentValidationFailure(c, err.Error(), clientID.String(), traceId, "", "")
 	}
 

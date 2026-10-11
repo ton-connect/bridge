@@ -158,6 +158,17 @@ rate(number_of_bad_requests[5m]) /
 rate(http_requests_total[5m]) * 100
 ```
 
+#### `http_requests_total`
+**Type:** Counter  
+**Labels:** `code`, `method`, `host`, `url`  
+**Description:** Requests to registered routes by response code, including those the rate, connection and body limits reject (`429`, `413`).
+
+**Usage:**
+```promql
+# Requests rejected for an oversized body, by route
+sum by (url) (rate(http_requests_total{code="413"}[5m]))
+```
+
 ### Token Usage Metrics
 
 #### `bridge_token_usage`

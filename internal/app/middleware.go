@@ -2,9 +2,11 @@ package app
 
 import (
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/labstack/echo/v4"
+	"github.com/labstack/echo/v4/middleware"
 	"github.com/ton-connect/bridge/internal/config"
 	bridge_middleware "github.com/ton-connect/bridge/internal/middleware"
 	"github.com/ton-connect/bridge/internal/utils"
@@ -44,4 +46,9 @@ func ConnectionsLimitMiddleware(counter *bridge_middleware.ConnectionsLimiter, s
 			return next(c)
 		}
 	}
+}
+
+// BodyLimitMiddleware rejects request bodies larger than maxBodySize bytes.
+func BodyLimitMiddleware(maxBodySize int64) echo.MiddlewareFunc {
+	return middleware.BodyLimit(strconv.FormatInt(maxBodySize, 10))
 }

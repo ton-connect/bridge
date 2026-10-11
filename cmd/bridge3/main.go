@@ -9,6 +9,7 @@ import (
 	"net/http/pprof"
 	"os"
 	"os/signal"
+	"sync"
 	"syscall"
 	"time"
 
@@ -142,14 +143,15 @@ func main() {
 	// consistent with the app logs. Replaces the deprecated middleware.Logger(), whose hardcoded JSON
 	// template had neither field.
 	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		LogMethod:    true,
-		LogURI:       true,
-		LogStatus:    true,
-		LogLatency:   true,
-		LogRemoteIP:  true,
-		LogHost:      true,
-		LogUserAgent: true,
-		LogError:     true,
+		LogMethod:        true,
+		LogURI:           true,
+		LogStatus:        true,
+		LogLatency:       true,
+		LogRemoteIP:      true,
+		LogHost:          true,
+		LogUserAgent:     true,
+		LogError:         true,
+		LogContentLength: true,
 		LogValuesFunc: func(c echo.Context, v middleware.RequestLoggerValues) error {
 			level := slog.LevelInfo
 			switch {
@@ -170,10 +172,26 @@ func main() {
 			if v.Error != nil {
 				attrs = append(attrs, slog.String("err", v.Error.Error()))
 			}
+			if v.ContentLength != "" {
+				attrs = append(attrs, slog.String("content_length", v.ContentLength))
+			}
 			slog.LogAttrs(c.Request().Context(), level, "http_request", attrs...)
 			return nil
 		},
 	}))
+	// Ahead of the limiters, so the requests they reject (429, 413) are counted as well.
+	// The route list is read on the first request, once every route is registered.
+	routePaths := sync.OnceValue(func() []string {
+		var paths []string
+		for _, r := range e.Routes() {
+			paths = append(paths, r.Path)
+		}
+		return paths
+	})
+	p := prometheus.NewPrometheus("http", func(c echo.Context) bool {
+		return !slices.Contains(routePaths(), c.Path())
+	})
+	e.Use(p.HandlerFunc)
 	e.Use(middleware.RateLimiterWithConfig(middleware.RateLimiterConfig{
 		Skipper: func(c echo.Context) bool {
 			if app.SkipRateLimitsByToken(c.Request()) || c.Path() != "/bridge/message" {
@@ -189,6 +207,7 @@ func main() {
 		}
 		return false
 	}))
+	e.Use(app.BodyLimitMiddleware(config.Config.MaxBodySize))
 
 	if config.Config.CorsEnable {
 		corsConfig := middleware.CORSWithConfig(middleware.CORSConfig{
@@ -207,14 +226,6 @@ func main() {
 	e.POST("/bridge/message", h.SendMessageHandler)
 	e.POST("/bridge/verify", h.ConnectVerifyHandler)
 
-	var existedPaths []string
-	for _, r := range e.Routes() {
-		existedPaths = append(existedPaths, r.Path)
-	}
-	p := prometheus.NewPrometheus("http", func(c echo.Context) bool {
-		return !slices.Contains(existedPaths, c.Path())
-	})
-	e.Use(p.HandlerFunc)
 	go func() {
 		var err error
 		if config.Config.SelfSignedTLS {
