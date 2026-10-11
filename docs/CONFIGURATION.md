@@ -25,7 +25,7 @@ Complete reference for all environment variables supported by TON Connect Bridge
 | `HEARTBEAT_INTERVAL` | int | `10` | SSE heartbeat interval (seconds) |
 | `RPS_LIMIT` | int | `1` | Requests/sec per IP for `/bridge/message` |
 | `CONNECTIONS_LIMIT` | int | `50` | Max concurrent SSE connections per IP |
-| `MAX_BODY_SIZE` | int | `10485760` | Max HTTP request body size (bytes) on every route. A larger declared `Content-Length` gets 413 before the handler runs; a body without `Content-Length` is cut off at this size as the handler reads it, and `/bridge/message` then answers 413 |
+| `MAX_BODY_SIZE` | int | `10485760` | Max HTTP request body size (bytes) on every route of the bridge API server (`PORT`); requests to the `METRICS_PORT` listener are not limited. A larger declared `Content-Length` gets 413 before the handler runs; a body without `Content-Length` is cut off at this size as the handler reads it, and `/bridge/message` then answers 413 |
 | `RATE_LIMITS_BY_PASS_TOKEN` | string | - | Bypass tokens (comma-separated) |
 
 ## Security
