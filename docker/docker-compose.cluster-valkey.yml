@@ -157,6 +157,7 @@ services:
     container_name: bridge-gointegration
     environment:
       BRIDGE_URL: "http://bridge:8081/bridge"
+      BRIDGE_METRICS_URL: "http://bridge:9103/metrics"
     depends_on:
       bridge:
         condition: service_started
