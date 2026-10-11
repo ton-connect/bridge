@@ -131,6 +131,17 @@ rate(number_of_delivered_messages[5m]) /
 rate(number_of_transfered_messages[5m]) * 100
 ```
 
+#### `bridge_messages_dropped_total`
+**Type:** Counter  
+**Labels:** `path` (`replay`, `live`, `sse`), `reason` (`subscriber_full`, `write_error`)  
+**Description:** Messages discarded on the way to a connected client. `subscriber_full` means the connection's 100-message buffer was full when the message arrived, while the stored backlog was replayed on connect or while live traffic was fanned out; `write_error` means writing the event to the SSE stream failed. A dropped message stays in storage until its TTL, so a reconnect can still replay it unless the client has already moved past its event id.
+
+**Usage:**
+```promql
+# Drops by path and reason
+sum by (path, reason) (rate(bridge_messages_dropped_total[5m]))
+```
+
 ### Error Metrics
 
 #### `number_of_bad_requests`
