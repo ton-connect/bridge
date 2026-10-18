@@ -16,7 +16,7 @@ type Session struct {
 	messageCh   chan models.SseMessage
 	Closer      chan interface{}
 	lastEventId int64
-	closeOnce   sync.Once
+	closed      bool
 }
 
 func NewSession(s storagev3.Storage, clientIds []string, lastEventId int64) *Session {
@@ -38,29 +38,39 @@ func (s *Session) GetMessages() <-chan models.SseMessage {
 
 // Close stops the session and cleans up resources. Safe to call multiple times.
 func (s *Session) Close() {
-	s.closeOnce.Do(func() {
-		logger := slog.With("prefix", "Session.Close")
-		s.mux.Lock()
-		defer s.mux.Unlock()
-
-		err := s.storage.Unsub(context.Background(), s.ClientIds, s.messageCh)
-		if err != nil {
-			logger.Error("failed to unsubscribe from storage", "err", err)
-		}
-
-		close(s.Closer)
-		close(s.messageCh)
-	})
+	s.mux.Lock()
+	defer s.mux.Unlock()
+	s.closeLocked()
 }
 
-// Start begins the session by subscribing to storage
+// Start begins the session by subscribing to storage. A session closed before it starts, as
+// one whose client left during the handshake is, stays unsubscribed.
 func (s *Session) Start() {
 	s.mux.Lock()
 	defer s.mux.Unlock()
 
-	err := s.storage.Sub(context.Background(), s.ClientIds, s.lastEventId, s.messageCh)
-	if err != nil {
-		close(s.messageCh)
+	if s.closed {
 		return
 	}
+	err := s.storage.Sub(context.Background(), s.ClientIds, s.lastEventId, s.messageCh)
+	if err != nil {
+		s.closeLocked()
+	}
+}
+
+// closeLocked unsubscribes before closing messageCh, so no storage still holds the channel.
+func (s *Session) closeLocked() {
+	if s.closed {
+		return
+	}
+	s.closed = true
+
+	logger := slog.With("prefix", "Session.Close")
+	err := s.storage.Unsub(context.Background(), s.ClientIds, s.messageCh)
+	if err != nil {
+		logger.Error("failed to unsubscribe from storage", "err", err)
+	}
+
+	close(s.Closer)
+	close(s.messageCh)
 }
