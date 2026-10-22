@@ -1,10 +1,10 @@
 name: codeql
 
 on:
-  # Skip config-only changes: the deploy descriptor, release pointer and docs don't touch the
-  # Go binary, so there is nothing here to analyze. service.yaml still triggers an image build
-  # in build-image.yml, so every release-pointable commit stays deployable. The scheduled scan
-  # below is unaffected and keeps covering the full tree.
+  # Skip config-only changes: the deploy descriptor, release policy (version.yaml) and docs
+  # don't touch the Go binary, so there is nothing here to analyze. service.yaml still triggers
+  # an image build in build-image.yml, so every commit version.yaml can select stays deployable.
+  # The scheduled scan below is unaffected and keeps covering the full tree.
   push:
     branches: [ master ]
     paths-ignore:
