@@ -1,9 +1,9 @@
 name: build
 
 on:
-  # Skip config-only changes: the deploy descriptor, release pointer and docs don't touch the
-  # Go binary, so there is nothing here to re-check. service.yaml still triggers an image build
-  # in build-image.yml, so every release-pointable commit stays deployable.
+  # Skip config-only changes: the deploy descriptor, release policy (version.yaml) and docs
+  # don't touch the Go binary, so there is nothing here to re-check. service.yaml still triggers
+  # an image build in build-image.yml, so every commit version.yaml can select stays deployable.
   push:
     branches: [ master ]
     paths-ignore:
