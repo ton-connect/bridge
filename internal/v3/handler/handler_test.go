@@ -12,6 +12,7 @@ import (
 
 	"github.com/labstack/echo/v4"
 	"github.com/ton-connect/bridge/internal/app"
+	"github.com/ton-connect/bridge/internal/config"
 	"github.com/ton-connect/bridge/internal/models"
 	"github.com/ton-connect/bridge/internal/ntp"
 	"github.com/ton-connect/bridge/internal/utils"
@@ -251,6 +252,10 @@ func (r *flushRecorder) Flushed() bool {
 }
 
 func TestEventRegistrationAnnouncesStreamAfterSubscribing(t *testing.T) {
+	lifetime := config.Config.SSEMaxLifetime
+	config.Config.SSEMaxLifetime = 60
+	t.Cleanup(func() { config.Config.SSEMaxLifetime = lifetime })
+
 	storage := &subscribeGateStorage{
 		Storage: storagev3.NewMemStorage(nil, nil),
 		entered: make(chan struct{}),
@@ -269,7 +274,11 @@ func TestEventRegistrationAnnouncesStreamAfterSubscribing(t *testing.T) {
 	done := make(chan error, 1)
 	go func() { done <- h.EventRegistrationHandler(echo.New().NewContext(req, rec)) }()
 
-	<-storage.entered
+	select {
+	case <-storage.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the handler never subscribed the session")
+	}
 	if rec.Flushed() {
 		t.Error("the stream was flushed to the client before its session subscribed")
 	}

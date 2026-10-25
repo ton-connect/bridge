@@ -1,7 +1,6 @@
 package storagev3
 
 import (
-	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
@@ -46,37 +45,75 @@ type probeWaiter struct {
 	resend  chan<- struct{}
 }
 
-// valkeySubscriber delivers to one session. A message published while Sub runs can arrive both live
-// and from history, so the events delivered until the replay ends are remembered and not sent twice.
+// valkeySubscriber delivers to one session. Live messages are held back until the history replay
+// ends, so history comes first as from the memory storage, and an event seen both ways is sent once.
 type valkeySubscriber struct {
 	ch        chan<- models.SseMessage
 	mu        sync.Mutex
 	replaying bool
-	delivered map[int64][]byte
+	held      []models.SseMessage
+	replayed  map[deliveryKey]struct{}
 }
 
-func (v *valkeySubscriber) deliver(msg models.SseMessage, dropPath string) {
+// deliveryKey carries the payload because event IDs from different instances can collide.
+type deliveryKey struct {
+	eventID int64
+	payload string
+}
+
+func newValkeySubscriber(ch chan<- models.SseMessage) *valkeySubscriber {
+	return &valkeySubscriber{ch: ch, replaying: true, replayed: make(map[deliveryKey]struct{})}
+}
+
+func (v *valkeySubscriber) deliverLive(msg models.SseMessage) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if payload, ok := v.delivered[msg.EventId]; ok && bytes.Equal(payload, msg.Message) {
+	if _, ok := v.replayed[deliveryKey{msg.EventId, string(msg.Message)}]; ok {
 		return
 	}
-	select {
-	case v.ch <- msg:
-		if v.replaying {
-			v.delivered[msg.EventId] = msg.Message
-		}
-	default:
-		MessagesDropped.WithLabelValues(dropPath, DropReasonSubscriberFull).Inc()
+	if !v.replaying {
+		v.send(msg, DropPathLive)
+	} else if len(v.held) < cap(v.ch) {
+		v.held = append(v.held, msg)
+	} else {
+		MessagesDropped.WithLabelValues(DropPathLive, DropReasonSubscriberFull).Inc()
 	}
 }
 
-// replayDone stops recording deliveries but keeps what was recorded: the live copy of a replayed
+func (v *valkeySubscriber) deliverReplay(msg models.SseMessage) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	key := deliveryKey{msg.EventId, string(msg.Message)}
+	if _, ok := v.replayed[key]; ok {
+		return
+	}
+	if v.send(msg, DropPathReplay) {
+		v.replayed[key] = struct{}{}
+	}
+}
+
+// replayDone sends the held live messages but keeps the replayed set: the live copy of a replayed
 // event may still be on its way.
 func (v *valkeySubscriber) replayDone() {
 	v.mu.Lock()
 	defer v.mu.Unlock()
 	v.replaying = false
+	for _, msg := range v.held {
+		if _, ok := v.replayed[deliveryKey{msg.EventId, string(msg.Message)}]; !ok {
+			v.send(msg, DropPathLive)
+		}
+	}
+	v.held = nil
+}
+
+func (v *valkeySubscriber) send(msg models.SseMessage, dropPath string) bool {
+	select {
+	case v.ch <- msg:
+		return true
+	default:
+		MessagesDropped.WithLabelValues(dropPath, DropReasonSubscriberFull).Inc()
+		return false
+	}
 }
 
 // NewValkeyStorage creates a Valkey-backed storage client.
@@ -94,19 +131,7 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		return nil, fmt.Errorf("failed to detect cluster mode or redis endpoint is not in cluster mode: %w", err)
 	}
 
-	clusterClient := redis.NewClusterClient(&redis.ClusterOptions{
-		Addrs:          []string{opts.Addr},
-		Username:       opts.Username,
-		Password:       opts.Password,
-		TLSConfig:      opts.TLSConfig,
-		ReadOnly:       false,
-		RouteByLatency: true,
-		MaxRedirects:   3,
-		ReadTimeout:    30 * time.Second,
-		WriteTimeout:   30 * time.Second,
-		DialTimeout:    10 * time.Second,
-		PoolTimeout:    30 * time.Second,
-	})
+	clusterClient := redis.NewClusterClient(clusterOptions(opts))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -124,6 +149,24 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 	logger.Info("Successfully connected to Valkey/Redis")
 
 	return newValkeyStorage(clusterClient), nil
+}
+
+func clusterOptions(opts *redis.Options) *redis.ClusterOptions {
+	return &redis.ClusterOptions{
+		Addrs:          []string{opts.Addr},
+		Username:       opts.Username,
+		Password:       opts.Password,
+		TLSConfig:      opts.TLSConfig,
+		ReadOnly:       false,
+		RouteByLatency: true,
+		MaxRedirects:   3,
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		DialTimeout:    10 * time.Second,
+		PoolTimeout:    30 * time.Second,
+		// Without it go-redis drops context deadlines and waits out the 30s timeouts above.
+		ContextTimeoutEnabled: true,
+	}
 }
 
 func newValkeyStorage(client redis.UniversalClient) *ValkeyStorage {
@@ -221,7 +264,7 @@ func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl 
 func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int64, messageCh chan<- models.SseMessage) error {
 	logger := slog.With("prefix", "ValkeyStorage.Sub")
 
-	sub := &valkeySubscriber{ch: messageCh, replaying: true, delivered: make(map[int64][]byte)}
+	sub := newValkeySubscriber(messageCh)
 
 	// Create channels list for subscription
 	channels := make([]string, len(keys))
@@ -293,7 +336,7 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 
 			// Filter by event ID - only send messages after lastEventId
 			if msg.EventId > lastEventId {
-				sub.deliver(msg, DropPathReplay)
+				sub.deliverReplay(msg)
 			}
 		}
 	}
@@ -306,6 +349,9 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 // awaitSubscribed publishes a probe to each channel until it comes back to this instance, and
 // reports whether all of them did before the timeout.
 func (s *ValkeyStorage) awaitSubscribed(ctx context.Context, channels []string) bool {
+	ctx, cancel := context.WithTimeout(ctx, subscribeProbeTimeout)
+	defer cancel()
+
 	arrived := make(chan string, len(channels))
 	resend := make(chan struct{}, 1)
 	pending := make(map[string]string, len(channels))
@@ -325,18 +371,19 @@ func (s *ValkeyStorage) awaitSubscribed(ctx context.Context, channels []string) 
 	}()
 
 	// A probe can reach the server before the SUBSCRIBE does and be lost, so it is resent. Rounds
-	// run off this loop, so a node that stops answering cannot hold Sub past the timeout.
+	// run off this loop and end with ctx, so a node that stops answering cannot outlast the wait.
 	tokens := maps.Clone(pending)
 	rounds := make(chan struct{}, 1)
-	done := make(chan struct{})
-	defer close(done)
 	go func() {
 		for {
 			select {
-			case <-done:
+			case <-ctx.Done():
 				return
 			case <-rounds:
 				for token, channel := range tokens {
+					if ctx.Err() != nil {
+						return
+					}
 					s.client.Publish(ctx, channel, token)
 				}
 			}
@@ -350,8 +397,6 @@ func (s *ValkeyStorage) awaitSubscribed(ctx context.Context, channels []string) 
 	}
 	retry := time.NewTicker(subscribeProbeRetry)
 	defer retry.Stop()
-	timeout := time.NewTimer(subscribeProbeTimeout)
-	defer timeout.Stop()
 
 	publish()
 	for len(pending) > 0 {
@@ -362,7 +407,7 @@ func (s *ValkeyStorage) awaitSubscribed(ctx context.Context, channels []string) 
 			publish()
 		case <-retry.C:
 			publish()
-		case <-timeout.C:
+		case <-ctx.Done():
 			return false
 		}
 	}
@@ -453,7 +498,7 @@ func (s *ValkeyStorage) handlePubSub() {
 		subscribers, exists := s.subscribers[key]
 		if exists {
 			for _, sub := range subscribers {
-				sub.deliver(sseMessage, DropPathLive)
+				sub.deliverLive(sseMessage)
 			}
 		}
 		s.subMutex.RUnlock()

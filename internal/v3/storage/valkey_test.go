@@ -384,27 +384,24 @@ func newDelayedValkeyStorage(t *testing.T, delays map[string]time.Duration) *Val
 	if err != nil {
 		t.Fatalf("failed to parse URI: %v", err)
 	}
-	client := redis.NewClusterClient(&redis.ClusterOptions{
-		Addrs:    []string{opts.Addr},
-		Username: opts.Username,
-		Password: opts.Password,
-		Dialer: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
-			if err != nil {
-				return nil, err
-			}
-			c := &delayedConn{Conn: conn, delays: delays, queue: make(chan delayedWrite, 1024)}
-			go func() {
-				for w := range c.queue {
-					time.Sleep(time.Until(w.due))
-					if _, err := c.Conn.Write(w.data); err != nil {
-						return
-					}
+	options := clusterOptions(opts)
+	options.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		if err != nil {
+			return nil, err
+		}
+		c := &delayedConn{Conn: conn, delays: delays, queue: make(chan delayedWrite, 1024)}
+		go func() {
+			for w := range c.queue {
+				time.Sleep(time.Until(w.due))
+				if _, err := c.Conn.Write(w.data); err != nil {
+					return
 				}
-			}()
-			return c, nil
-		},
-	})
+			}
+		}()
+		return c, nil
+	}
+	client := redis.NewClusterClient(options)
 	t.Cleanup(func() { _ = client.Close() })
 	return newValkeyStorage(client)
 }
@@ -448,6 +445,31 @@ func TestValkeyStorage_SubKeepsProbeTimeoutWhenPublishHangs(t *testing.T) {
 	}
 }
 
+func TestValkeyStorage_PubFailsWithoutPublishingWhenStoreFails(t *testing.T) {
+	storage, err := NewValkeyStorage(getTestValkeyURI(t))
+	if err != nil {
+		t.Fatalf("failed to create storage: %v", err)
+	}
+	ctx := context.Background()
+	key := testClientKey(t, 0)
+	messageCh := make(chan models.SseMessage, 10)
+	if err := storage.Sub(ctx, []string{key}, 0, messageCh); err != nil {
+		t.Fatalf("Sub failed: %v", err)
+	}
+	defer func() { _ = storage.Unsub(ctx, []string{key}, messageCh) }()
+	// A string under the channel key makes ZADD answer WRONGTYPE.
+	if err := storage.client.Set(ctx, "client:"+key, "not a sorted set", time.Minute).Err(); err != nil {
+		t.Fatalf("SET failed: %v", err)
+	}
+
+	if err := storage.Pub(ctx, models.SseMessage{EventId: 1, Message: []byte("m"), To: key}, 60); err == nil {
+		t.Fatal("Pub returned nil although ZADD failed")
+	}
+	if n := countDeliveries(messageCh, 1, 500*time.Millisecond, 0); n != 0 {
+		t.Errorf("a message Pub reported as failed was delivered live %d time(s)", n)
+	}
+}
+
 func TestValkeyStorage_PubStoresBeforePublishing(t *testing.T) {
 	storage := newDelayedValkeyStorage(t, map[string]time.Duration{
 		"subscribe": 20 * time.Millisecond,
@@ -458,25 +480,29 @@ func TestValkeyStorage_PubStoresBeforePublishing(t *testing.T) {
 	}
 }
 
-func TestValkeySubscriberDeliversReplayedEventOnce(t *testing.T) {
+func TestValkeySubscriberSendsHistoryFirstAndEachEventOnce(t *testing.T) {
 	messageCh := make(chan models.SseMessage, 10)
-	sub := &valkeySubscriber{ch: messageCh, replaying: true, delivered: make(map[int64][]byte)}
+	sub := newValkeySubscriber(messageCh)
+	msg := func(id int64, payload string) models.SseMessage {
+		return models.SseMessage{EventId: id, Message: []byte(payload)}
+	}
 
-	sub.deliver(models.SseMessage{EventId: 1, Message: []byte("a")}, DropPathLive)
-	sub.deliver(models.SseMessage{EventId: 1, Message: []byte("a")}, DropPathReplay)
-	sub.deliver(models.SseMessage{EventId: 2, Message: []byte("b")}, DropPathReplay)
+	sub.deliverLive(msg(2, "b"))
+	sub.deliverLive(msg(7, "x"))
+	sub.deliverLive(msg(7, "y"))
+	sub.deliverReplay(msg(1, "a"))
+	sub.deliverReplay(msg(7, "x"))
+	sub.deliverReplay(msg(7, "y"))
 	sub.replayDone()
-	sub.deliver(models.SseMessage{EventId: 2, Message: []byte("b")}, DropPathLive)
-	sub.deliver(models.SseMessage{EventId: 2, Message: []byte("other")}, DropPathLive)
-	sub.deliver(models.SseMessage{EventId: 3, Message: []byte("c")}, DropPathLive)
-	sub.deliver(models.SseMessage{EventId: 3, Message: []byte("c")}, DropPathLive)
+	sub.deliverLive(msg(1, "a"))
+	sub.deliverLive(msg(3, "c"))
 	close(messageCh)
 
 	var got []string
-	for msg := range messageCh {
-		got = append(got, fmt.Sprintf("%d:%s", msg.EventId, msg.Message))
+	for m := range messageCh {
+		got = append(got, fmt.Sprintf("%d:%s", m.EventId, m.Message))
 	}
-	want := []string{"1:a", "2:b", "2:other", "3:c", "3:c"}
+	want := []string{"1:a", "7:x", "7:y", "2:b", "3:c"}
 	if fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("delivered %v, want %v", got, want)
 	}
