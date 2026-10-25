@@ -347,6 +347,11 @@ func (h *handler) SendMessageHandler(c echo.Context) error {
 		if errors.Is(err, echo.ErrStatusRequestEntityTooLarge) {
 			return err
 		}
+		// The client stopped sending mid-body (RFC 9110 408): a separate code keeps its
+		// wait out of the 400s and lets latency signals tell it apart from our own slowness.
+		if errors.Is(err, io.ErrUnexpectedEOF) {
+			return h.logMessageSentValidationFailureStatus(c, http.StatusRequestTimeout, err.Error(), clientID.String(), traceId, "", "")
+		}
 		return h.logMessageSentValidationFailure(c, err.Error(), clientID.String(), traceId, "", "")
 	}
 
@@ -646,6 +651,18 @@ func (h *handler) logMessageSentValidationFailure(
 	topic string,
 	messageHash string,
 ) error {
+	return h.logMessageSentValidationFailureStatus(c, http.StatusBadRequest, msg, clientID, traceID, topic, messageHash)
+}
+
+func (h *handler) logMessageSentValidationFailureStatus(
+	c echo.Context,
+	status int,
+	msg string,
+	clientID string,
+	traceID string,
+	topic string,
+	messageHash string,
+) error {
 	if h.eventCollector != nil {
 		_ = h.eventCollector.TryAdd(h.eventBuilder.NewBridgeMessageValidationFailedEvent(
 			clientID,
@@ -654,5 +671,5 @@ func (h *handler) logMessageSentValidationFailure(
 			messageHash,
 		))
 	}
-	return c.JSON(utils.HttpResError(msg, http.StatusBadRequest))
+	return c.JSON(utils.HttpResError(msg, status))
 }

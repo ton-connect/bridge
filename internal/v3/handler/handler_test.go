@@ -1,6 +1,9 @@
 package handlerv3
 
 import (
+	"bufio"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -213,5 +216,46 @@ func TestSendMessageHandlerKeepsBodyLimitStatus(t *testing.T) {
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestSendMessageHandlerIncompleteBodyIsRequestTimeout(t *testing.T) {
+	memStorage := storagev3.NewMemStorage(nil, nil)
+	extractor, err := utils.NewRealIPExtractor([]string{})
+	if err != nil {
+		t.Fatalf("failed to create RealIPExtractor: %v", err)
+	}
+	h := NewHandler(memStorage, 10*time.Second, extractor, ntp.NewLocalTimeProvider(), nil, nil)
+
+	e := echo.New()
+	e.POST("/bridge/message", h.SendMessageHandler)
+	srv := httptest.NewServer(e)
+	defer srv.Close()
+
+	values := url.Values{
+		"client_id":         {defaultClientID},
+		"to":                {defaultToID},
+		"ttl":               {"60"},
+		"no_request_source": {"true"},
+	}
+	conn, err := net.Dial("tcp", srv.Listener.Addr().String())
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	defer func() { _ = conn.Close() }()
+	// A real socket, not a stub reader: what is under test is that a peer closing
+	// mid-body surfaces from net/http as the error the handler maps to 408.
+	_, _ = fmt.Fprintf(conn, "POST /bridge/message?%s HTTP/1.1\r\nHost: bridge\r\nContent-Length: 100\r\n\r\n12345", values.Encode())
+	if err := conn.(*net.TCPConn).CloseWrite(); err != nil {
+		t.Fatalf("close write: %v", err)
+	}
+	resp, err := http.ReadResponse(bufio.NewReader(conn), nil)
+	if err != nil {
+		t.Fatalf("read response: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	if resp.StatusCode != http.StatusRequestTimeout {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusRequestTimeout)
 	}
 }
