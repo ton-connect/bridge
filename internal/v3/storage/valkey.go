@@ -3,6 +3,7 @@ package storagev3
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log/slog"
@@ -55,16 +56,16 @@ type valkeySubscriber struct {
 	replayed  map[deliveryKey]struct{}
 }
 
-// deliveryKey carries the payload because event IDs from different instances can collide, and the
-// recipient because one session can subscribe several client IDs.
+// deliveryKey carries the recipient, since one session can subscribe several client IDs, and a payload
+// digest, since event IDs from different instances can collide and the set lives as long as the session.
 type deliveryKey struct {
 	eventID int64
 	to      string
-	payload string
+	payload [sha256.Size]byte
 }
 
 func keyOf(msg models.SseMessage) deliveryKey {
-	return deliveryKey{msg.EventId, msg.To, string(msg.Message)}
+	return deliveryKey{msg.EventId, msg.To, sha256.Sum256(msg.Message)}
 }
 
 func newValkeySubscriber(ch chan<- models.SseMessage) *valkeySubscriber {
