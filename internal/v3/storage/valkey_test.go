@@ -342,6 +342,7 @@ func deliveryFailures(t *testing.T, storage *ValkeyStorage, rounds int, concurre
 type delayedConn struct {
 	net.Conn
 	delays map[string]time.Duration
+	stalls map[string]time.Duration
 	queue  chan delayedWrite
 	mu     sync.Mutex
 	closed bool
@@ -352,7 +353,14 @@ type delayedWrite struct {
 	due  time.Time
 }
 
+// Write holds a write containing a stall pattern before returning, as a full socket buffer would, and
+// queues the rest to go out late in order.
 func (c *delayedConn) Write(b []byte) (int, error) {
+	for pattern, stall := range c.stalls {
+		if bytes.Contains(b, []byte(pattern)) {
+			time.Sleep(stall)
+		}
+	}
 	due := time.Now()
 	for command, delay := range c.delays {
 		if bytes.Contains(b, []byte("\r\n"+command+"\r\n")) {
@@ -378,7 +386,7 @@ func (c *delayedConn) Close() error {
 	return c.Conn.Close()
 }
 
-func newDelayedValkeyStorage(t *testing.T, delays map[string]time.Duration) *ValkeyStorage {
+func newDelayedValkeyStorage(t *testing.T, delays, stalls map[string]time.Duration) *ValkeyStorage {
 	t.Helper()
 	opts, err := redis.ParseURL(getTestValkeyURI(t))
 	if err != nil {
@@ -391,7 +399,7 @@ func newDelayedValkeyStorage(t *testing.T, delays map[string]time.Duration) *Val
 		if err != nil {
 			return nil, err
 		}
-		c := &delayedConn{Conn: conn, delays: delays, queue: make(chan delayedWrite, 1024)}
+		c := &delayedConn{Conn: conn, delays: delays, stalls: stalls, queue: make(chan delayedWrite, 1024)}
 		go func() {
 			for w := range c.queue {
 				time.Sleep(time.Until(w.due))
@@ -428,14 +436,14 @@ func TestValkeyStorage_PubAroundSubDeliversExactlyOnce(t *testing.T) {
 }
 
 func TestValkeyStorage_SubWaitsForLateSubscribe(t *testing.T) {
-	storage := newDelayedValkeyStorage(t, map[string]time.Duration{"subscribe": 20 * time.Millisecond})
+	storage := newDelayedValkeyStorage(t, map[string]time.Duration{"subscribe": 20 * time.Millisecond}, nil)
 	if lost, duplicated := deliveryFailures(t, storage, 20, false); lost > 0 || duplicated > 0 {
 		t.Errorf("with SUBSCRIBE reaching the server late, of 20 messages published right after Sub returned, %d were lost and %d delivered twice", lost, duplicated)
 	}
 }
 
 func TestValkeyStorage_SubKeepsBarrierTimeoutWhenSubscribeHangs(t *testing.T) {
-	storage := newDelayedValkeyStorage(t, map[string]time.Duration{"subscribe": 3 * subscribeBarrierTimeout})
+	storage := newDelayedValkeyStorage(t, map[string]time.Duration{"subscribe": 3 * subscribeBarrierTimeout}, nil)
 	messageCh := make(chan models.SseMessage, 10)
 	start := time.Now()
 	if err := storage.Sub(context.Background(), []string{testClientKey(t, 0)}, 0, messageCh); err != nil {
@@ -475,7 +483,7 @@ func TestValkeyStorage_PubStoresBeforePublishing(t *testing.T) {
 	storage := newDelayedValkeyStorage(t, map[string]time.Duration{
 		"subscribe": 20 * time.Millisecond,
 		"zadd":      50 * time.Millisecond,
-	})
+	}, nil)
 	if lost, duplicated := deliveryFailures(t, storage, 20, true); lost > 0 || duplicated > 0 {
 		t.Errorf("with SUBSCRIBE and ZADD reaching the server late, of 20 messages published while Sub ran, %d were lost and %d delivered twice", lost, duplicated)
 	}
@@ -532,7 +540,7 @@ func TestValkeyStorage_SubWaitsOutUnsubscribeOfPreviousSession(t *testing.T) {
 	storage := newDelayedValkeyStorage(t, map[string]time.Duration{
 		"unsubscribe": 30 * time.Millisecond,
 		"subscribe":   100 * time.Millisecond,
-	})
+	}, nil)
 	ctx := context.Background()
 	for i := 0; i < 5; i++ {
 		key := testClientKey(t, i)
@@ -561,5 +569,29 @@ func TestValkeyStorage_SubWaitsOutUnsubscribeOfPreviousSession(t *testing.T) {
 			t.Errorf("round %d: a message published between the previous session's UNSUBSCRIBE and this SUBSCRIBE was delivered %d times", i, n)
 		}
 		_ = storage.Unsub(ctx, []string{key}, messageCh)
+	}
+}
+
+func TestValkeyStorage_SubKeepsBarrierTimeoutWhenWritesStall(t *testing.T) {
+	stall := 2 * subscribeBarrierTimeout
+	for _, tc := range []struct {
+		name   string
+		stalls map[string]time.Duration
+		within time.Duration
+	}{
+		{"unsubscribe", map[string]time.Duration{"\r\nunsubscribe\r\n": stall}, time.Second},
+		{"subscribe", map[string]time.Duration{subscribeBarrierPrefix: stall}, subscribeBarrierTimeout + time.Second},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			storage := newDelayedValkeyStorage(t, nil, tc.stalls)
+			messageCh := make(chan models.SseMessage, 10)
+			start := time.Now()
+			if err := storage.Sub(context.Background(), []string{testClientKey(t, 0)}, 0, messageCh); err != nil {
+				t.Fatalf("Sub failed: %v", err)
+			}
+			if elapsed := time.Since(start); elapsed > tc.within {
+				t.Errorf("with the barrier's %s write stalled for %s, Sub took %s", tc.name, stall, elapsed)
+			}
+		})
 	}
 }

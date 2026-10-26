@@ -357,17 +357,26 @@ func (s *ValkeyStorage) awaitSubscribed(ctx context.Context, pubSubConn *redis.P
 		s.barriersMutex.Lock()
 		delete(s.barriers, barrier)
 		s.barriersMutex.Unlock()
+	}()
+
+	// The barrier's writes run apart from the wait, under the connection's own timeouts: a stalled
+	// connection cannot hold Sub past its timeout, and a deadline spent waiting cannot drop the connection.
+	failed := make(chan struct{})
+	go func() {
+		if err := pubSubConn.Subscribe(context.Background(), barrier); err != nil {
+			close(failed)
+		}
+		<-ctx.Done()
 		if err := pubSubConn.Unsubscribe(context.Background(), barrier); err != nil {
 			slog.Warn("failed to unsubscribe from subscribe barrier", "err", err)
 		}
 	}()
 
-	if err := pubSubConn.Subscribe(ctx, barrier); err != nil {
-		return false
-	}
 	select {
 	case <-acked:
 		return true
+	case <-failed:
+		return false
 	case <-ctx.Done():
 		return false
 	}
