@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
-	"maps"
 	"net/url"
 	"strings"
 	"sync"
@@ -18,12 +17,11 @@ import (
 	"github.com/ton-connect/bridge/internal/models"
 )
 
-// A subscribe probe is a marker Sub publishes to its own channel; seeing it come back proves the
-// channel is subscribed here. Past the timeout Sub reads history anyway, no worse off than before.
+// Sub subscribes a barrier channel of its own after the real ones: a connection's replies come in order,
+// so its ack means every earlier SUBSCRIBE and UNSUBSCRIBE there took effect. Past the timeout Sub reads anyway.
 const (
-	subscribeProbePrefix  = "subscribe-probe:"
-	subscribeProbeRetry   = 100 * time.Millisecond
-	subscribeProbeTimeout = 5 * time.Second
+	subscribeBarrierPrefix  = "subscribe-barrier:"
+	subscribeBarrierTimeout = 5 * time.Second
 )
 
 type ValkeyStorage struct {
@@ -32,18 +30,10 @@ type ValkeyStorage struct {
 	subscribers map[string][]*valkeySubscriber
 	subMutex    sync.RWMutex
 
-	probeNonce  string
-	probeSeq    atomic.Uint64
-	probes      map[string]probeWaiter
-	probesMutex sync.Mutex
-}
-
-// probeWaiter is a Sub waiting for its probe. resend asks it to publish again once the server has
-// answered a SUBSCRIBE for the channel, rather than at the next retry.
-type probeWaiter struct {
-	channel string
-	arrived chan<- string
-	resend  chan<- struct{}
+	barrierNonce  string
+	barrierSeq    atomic.Uint64
+	barriers      map[string]chan struct{}
+	barriersMutex sync.Mutex
 }
 
 // valkeySubscriber delivers to one session. Live messages are held back until the history replay
@@ -171,17 +161,15 @@ func clusterOptions(opts *redis.Options) *redis.ClusterOptions {
 		WriteTimeout:   30 * time.Second,
 		DialTimeout:    10 * time.Second,
 		PoolTimeout:    30 * time.Second,
-		// Without it go-redis drops context deadlines and waits out the 30s timeouts above.
-		ContextTimeoutEnabled: true,
 	}
 }
 
 func newValkeyStorage(client redis.UniversalClient) *ValkeyStorage {
 	return &ValkeyStorage{
-		client:      client,
-		subscribers: make(map[string][]*valkeySubscriber),
-		probeNonce:  rand.Text(),
-		probes:      make(map[string]probeWaiter),
+		client:       client,
+		subscribers:  make(map[string][]*valkeySubscriber),
+		barrierNonce: rand.Text(),
+		barriers:     make(map[string]chan struct{}),
 	}
 }
 
@@ -301,9 +289,10 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		}
 	}
 
+	pubSubConn := s.pubSubConn
 	s.subMutex.Unlock()
 
-	if !s.awaitSubscribed(ctx, channels) {
+	if !s.awaitSubscribed(ctx, pubSubConn) {
 		logger.Warn("subscription not seen live in time, reading history anyway", "keys", keys)
 	}
 
@@ -353,72 +342,35 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 	return nil
 }
 
-// awaitSubscribed publishes a probe to each channel until it comes back to this instance, and
-// reports whether all of them did before the timeout.
-func (s *ValkeyStorage) awaitSubscribed(ctx context.Context, channels []string) bool {
-	ctx, cancel := context.WithTimeout(ctx, subscribeProbeTimeout)
+// awaitSubscribed waits for the ack of a barrier channel nobody else subscribes. An ack for a real channel
+// could answer a previous session's SUBSCRIBE that its UNSUBSCRIBE has since undone.
+func (s *ValkeyStorage) awaitSubscribed(ctx context.Context, pubSubConn *redis.PubSub) bool {
+	ctx, cancel := context.WithTimeout(ctx, subscribeBarrierTimeout)
 	defer cancel()
 
-	arrived := make(chan string, len(channels))
-	resend := make(chan struct{}, 1)
-	pending := make(map[string]string, len(channels))
-	s.probesMutex.Lock()
-	for _, channel := range channels {
-		token := fmt.Sprintf("%s%s:%d", subscribeProbePrefix, s.probeNonce, s.probeSeq.Add(1))
-		s.probes[token] = probeWaiter{channel: channel, arrived: arrived, resend: resend}
-		pending[token] = channel
-	}
-	s.probesMutex.Unlock()
+	barrier := fmt.Sprintf("%s%s:%d", subscribeBarrierPrefix, s.barrierNonce, s.barrierSeq.Add(1))
+	acked := make(chan struct{})
+	s.barriersMutex.Lock()
+	s.barriers[barrier] = acked
+	s.barriersMutex.Unlock()
 	defer func() {
-		s.probesMutex.Lock()
-		for token := range pending {
-			delete(s.probes, token)
-		}
-		s.probesMutex.Unlock()
-	}()
-
-	// A probe can reach the server before the SUBSCRIBE does and be lost, so it is resent. Rounds
-	// run off this loop and end with ctx, so a node that stops answering cannot outlast the wait.
-	tokens := maps.Clone(pending)
-	rounds := make(chan struct{}, 1)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-rounds:
-				for token, channel := range tokens {
-					if ctx.Err() != nil {
-						return
-					}
-					s.client.Publish(ctx, channel, token)
-				}
-			}
+		s.barriersMutex.Lock()
+		delete(s.barriers, barrier)
+		s.barriersMutex.Unlock()
+		if err := pubSubConn.Unsubscribe(context.Background(), barrier); err != nil {
+			slog.Warn("failed to unsubscribe from subscribe barrier", "err", err)
 		}
 	}()
-	publish := func() {
-		select {
-		case rounds <- struct{}{}:
-		default:
-		}
-	}
-	retry := time.NewTicker(subscribeProbeRetry)
-	defer retry.Stop()
 
-	publish()
-	for len(pending) > 0 {
-		select {
-		case token := <-arrived:
-			delete(pending, token)
-		case <-resend:
-			publish()
-		case <-retry.C:
-			publish()
-		case <-ctx.Done():
-			return false
-		}
+	if err := pubSubConn.Subscribe(ctx, barrier); err != nil {
+		return false
 	}
-	return true
+	select {
+	case <-acked:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // Unsub unsubscribes from Redis channels for the given keys
@@ -475,12 +427,8 @@ func (s *ValkeyStorage) handlePubSub() {
 		msg, ok := m.(*redis.Message)
 		if !ok {
 			if sub, ok := m.(*redis.Subscription); ok && sub.Kind == "subscribe" {
-				s.probeResend(sub.Channel)
+				s.barrierAcked(sub.Channel)
 			}
-			continue
-		}
-		if strings.HasPrefix(msg.Payload, subscribeProbePrefix) {
-			s.probeArrived(msg.Payload)
 			continue
 		}
 
@@ -512,28 +460,15 @@ func (s *ValkeyStorage) handlePubSub() {
 	}
 }
 
-// probeArrived wakes the Sub waiting for this probe. Another instance's probe, or a resent copy of
-// one already seen, matches nothing and is dropped.
-func (s *ValkeyStorage) probeArrived(token string) {
-	s.probesMutex.Lock()
-	waiter, ok := s.probes[token]
-	delete(s.probes, token)
-	s.probesMutex.Unlock()
+// barrierAcked wakes the Sub waiting for this barrier. Acks for real channels, and a barrier acked
+// again after go-redis resubscribes, match nothing.
+func (s *ValkeyStorage) barrierAcked(channel string) {
+	s.barriersMutex.Lock()
+	acked, ok := s.barriers[channel]
+	delete(s.barriers, channel)
+	s.barriersMutex.Unlock()
 	if ok {
-		waiter.arrived <- token
-	}
-}
-
-func (s *ValkeyStorage) probeResend(channel string) {
-	s.probesMutex.Lock()
-	defer s.probesMutex.Unlock()
-	for _, waiter := range s.probes {
-		if waiter.channel == channel {
-			select {
-			case waiter.resend <- struct{}{}:
-			default:
-			}
-		}
+		close(acked)
 	}
 }
 

@@ -434,15 +434,15 @@ func TestValkeyStorage_SubWaitsForLateSubscribe(t *testing.T) {
 	}
 }
 
-func TestValkeyStorage_SubKeepsProbeTimeoutWhenPublishHangs(t *testing.T) {
-	storage := newDelayedValkeyStorage(t, map[string]time.Duration{"publish": 3 * subscribeProbeTimeout})
+func TestValkeyStorage_SubKeepsBarrierTimeoutWhenSubscribeHangs(t *testing.T) {
+	storage := newDelayedValkeyStorage(t, map[string]time.Duration{"subscribe": 3 * subscribeBarrierTimeout})
 	messageCh := make(chan models.SseMessage, 10)
 	start := time.Now()
 	if err := storage.Sub(context.Background(), []string{testClientKey(t, 0)}, 0, messageCh); err != nil {
 		t.Fatalf("Sub failed: %v", err)
 	}
-	if elapsed := time.Since(start); elapsed > subscribeProbeTimeout+time.Second {
-		t.Errorf("with PUBLISH unanswered, Sub took %s, past its %s probe timeout", elapsed, subscribeProbeTimeout)
+	if elapsed := time.Since(start); elapsed > subscribeBarrierTimeout+time.Second {
+		t.Errorf("with SUBSCRIBE unanswered, Sub took %s, past its %s barrier timeout", elapsed, subscribeBarrierTimeout)
 	}
 }
 
@@ -525,5 +525,41 @@ func TestValkeySubscriberKeepsSameEventForDifferentRecipients(t *testing.T) {
 	}
 	if want := []string{"5:a", "5:b"}; fmt.Sprint(got) != fmt.Sprint(want) {
 		t.Errorf("delivered %v, want %v", got, want)
+	}
+}
+
+func TestValkeyStorage_SubWaitsOutUnsubscribeOfPreviousSession(t *testing.T) {
+	storage := newDelayedValkeyStorage(t, map[string]time.Duration{
+		"unsubscribe": 30 * time.Millisecond,
+		"subscribe":   100 * time.Millisecond,
+	})
+	ctx := context.Background()
+	for i := 0; i < 5; i++ {
+		key := testClientKey(t, i)
+		previous := make(chan models.SseMessage, 10)
+		if err := storage.Sub(ctx, []string{key}, 0, previous); err != nil {
+			t.Fatalf("Sub failed: %v", err)
+		}
+		if err := storage.Unsub(ctx, []string{key}, previous); err != nil {
+			t.Fatalf("Unsub failed: %v", err)
+		}
+
+		messageCh := make(chan models.SseMessage, 10)
+		msg := models.SseMessage{EventId: int64(i + 1), Message: []byte("m"), To: key}
+		published := make(chan error, 1)
+		go func() {
+			time.Sleep(60 * time.Millisecond)
+			published <- storage.Pub(ctx, msg, 60)
+		}()
+		if err := storage.Sub(ctx, []string{key}, 0, messageCh); err != nil {
+			t.Fatalf("Sub failed: %v", err)
+		}
+		if err := <-published; err != nil {
+			t.Fatalf("Pub failed: %v", err)
+		}
+		if n := countDeliveries(messageCh, msg.EventId, time.Second, 50*time.Millisecond); n != 1 {
+			t.Errorf("round %d: a message published between the previous session's UNSUBSCRIBE and this SUBSCRIBE was delivered %d times", i, n)
+		}
+		_ = storage.Unsub(ctx, []string{key}, messageCh)
 	}
 }
