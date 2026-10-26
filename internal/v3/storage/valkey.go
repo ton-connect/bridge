@@ -2,23 +2,115 @@ package storagev3
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/redis/go-redis/v9"
 	"github.com/ton-connect/bridge/internal/models"
 )
 
+// Sub subscribes a barrier channel of its own after the real ones: a connection's replies come in order,
+// so its ack means every earlier SUBSCRIBE and UNSUBSCRIBE there took effect. Past the timeout Sub reads anyway.
+const (
+	subscribeBarrierPrefix  = "subscribe-barrier:"
+	subscribeBarrierTimeout = 5 * time.Second
+)
+
 type ValkeyStorage struct {
 	client      redis.UniversalClient
 	pubSubConn  *redis.PubSub
-	subscribers map[string][]chan<- models.SseMessage
+	subscribers map[string][]*valkeySubscriber
 	subMutex    sync.RWMutex
+
+	barrierNonce  string
+	barrierSeq    atomic.Uint64
+	barriers      map[string]chan struct{}
+	barriersMutex sync.Mutex
+}
+
+// valkeySubscriber delivers to one session. Live messages are held back until the history replay
+// ends, so history comes first as from the memory storage, and an event seen both ways is sent once.
+type valkeySubscriber struct {
+	ch        chan<- models.SseMessage
+	mu        sync.Mutex
+	replaying bool
+	held      []models.SseMessage
+	replayed  map[deliveryKey]struct{}
+}
+
+// deliveryKey carries the recipient, since one session can subscribe several client IDs, and a payload
+// digest, since event IDs from different instances can collide and the set lives as long as the session.
+type deliveryKey struct {
+	eventID int64
+	to      string
+	payload [sha256.Size]byte
+}
+
+func keyOf(msg models.SseMessage) deliveryKey {
+	return deliveryKey{msg.EventId, msg.To, sha256.Sum256(msg.Message)}
+}
+
+func newValkeySubscriber(ch chan<- models.SseMessage) *valkeySubscriber {
+	return &valkeySubscriber{ch: ch, replaying: true, replayed: make(map[deliveryKey]struct{})}
+}
+
+func (v *valkeySubscriber) deliverLive(msg models.SseMessage) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if _, ok := v.replayed[keyOf(msg)]; ok {
+		return
+	}
+	if !v.replaying {
+		v.send(msg, DropPathLive)
+	} else if len(v.held) < cap(v.ch) {
+		v.held = append(v.held, msg)
+	} else {
+		MessagesDropped.WithLabelValues(DropPathLive, DropReasonSubscriberFull).Inc()
+	}
+}
+
+func (v *valkeySubscriber) deliverReplay(msg models.SseMessage) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	key := keyOf(msg)
+	if _, ok := v.replayed[key]; ok {
+		return
+	}
+	if v.send(msg, DropPathReplay) {
+		v.replayed[key] = struct{}{}
+	}
+}
+
+// replayDone sends the held live messages but keeps the replayed set: the live copy of a replayed
+// event may still be on its way.
+func (v *valkeySubscriber) replayDone() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	v.replaying = false
+	for _, msg := range v.held {
+		if _, ok := v.replayed[keyOf(msg)]; !ok {
+			v.send(msg, DropPathLive)
+		}
+	}
+	v.held = nil
+}
+
+func (v *valkeySubscriber) send(msg models.SseMessage, dropPath string) bool {
+	select {
+	case v.ch <- msg:
+		return true
+	default:
+		MessagesDropped.WithLabelValues(dropPath, DropReasonSubscriberFull).Inc()
+		return false
+	}
 }
 
 // NewValkeyStorage creates a Valkey-backed storage client.
@@ -36,19 +128,7 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 		return nil, fmt.Errorf("failed to detect cluster mode or redis endpoint is not in cluster mode: %w", err)
 	}
 
-	clusterClient := redis.NewClusterClient(&redis.ClusterOptions{
-		Addrs:          []string{opts.Addr},
-		Username:       opts.Username,
-		Password:       opts.Password,
-		TLSConfig:      opts.TLSConfig,
-		ReadOnly:       false,
-		RouteByLatency: true,
-		MaxRedirects:   3,
-		ReadTimeout:    30 * time.Second,
-		WriteTimeout:   30 * time.Second,
-		DialTimeout:    10 * time.Second,
-		PoolTimeout:    30 * time.Second,
-	})
+	clusterClient := redis.NewClusterClient(clusterOptions(opts))
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -65,10 +145,32 @@ func NewValkeyStorage(valkeyURI string) (*ValkeyStorage, error) {
 
 	logger.Info("Successfully connected to Valkey/Redis")
 
+	return newValkeyStorage(clusterClient), nil
+}
+
+func clusterOptions(opts *redis.Options) *redis.ClusterOptions {
+	return &redis.ClusterOptions{
+		Addrs:          []string{opts.Addr},
+		Username:       opts.Username,
+		Password:       opts.Password,
+		TLSConfig:      opts.TLSConfig,
+		ReadOnly:       false,
+		RouteByLatency: true,
+		MaxRedirects:   3,
+		ReadTimeout:    30 * time.Second,
+		WriteTimeout:   30 * time.Second,
+		DialTimeout:    10 * time.Second,
+		PoolTimeout:    30 * time.Second,
+	}
+}
+
+func newValkeyStorage(client redis.UniversalClient) *ValkeyStorage {
 	return &ValkeyStorage{
-		client:      clusterClient,
-		subscribers: make(map[string][]chan<- models.SseMessage),
-	}, nil
+		client:       client,
+		subscribers:  make(map[string][]*valkeySubscriber),
+		barrierNonce: rand.Text(),
+		barriers:     make(map[string]chan struct{}),
+	}
 }
 
 // detectClusterMode checks if the Redis endpoint is in cluster mode
@@ -119,18 +221,14 @@ func logDiscoveredNodes(ctx context.Context, client *redis.ClusterClient) {
 func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl int64) error {
 	logger := slog.With("prefix", "ValkeyStorage.Pub")
 
-	// Publish to Redis channel
 	channel := fmt.Sprintf("client:%s", message.To)
 	messageData, err := json.Marshal(message)
 	if err != nil {
 		return fmt.Errorf("failed to marshal message: %w", err)
 	}
 
-	err = s.client.Publish(ctx, channel, messageData).Err()
-	if err != nil {
-		return fmt.Errorf("failed to publish message to channel %s: %w", channel, err)
-	}
-
+	// Stored before it is published: a subscriber that misses the live copy reads history only
+	// after its subscription is live, and has to find the message there.
 	// Store message with TTL as backup for offline clients
 	expireTime := time.Now().Add(time.Duration(ttl) * time.Second).Unix()
 	err = s.client.ZAdd(ctx, channel, redis.Z{
@@ -145,67 +243,38 @@ func (s *ValkeyStorage) Pub(ctx context.Context, message models.SseMessage, ttl 
 	// Set expiration on the key itself
 	s.client.Expire(ctx, channel, time.Duration(ttl+60)*time.Second) // TODO remove 60 seconds buffer?
 
+	// Publish to Redis channel
+	err = s.client.Publish(ctx, channel, messageData).Err()
+	if err != nil {
+		return fmt.Errorf("failed to publish message to channel %s: %w", channel, err)
+	}
+
 	logger.Debug("published and stored message", "client_id", message.To, "ttl", ttl)
 	return nil
 }
 
-// Sub subscribes to Redis channels for the given keys and sends historical messages after lastEventId
+// Sub subscribes to Redis channels for the given keys and sends historical messages after lastEventId.
+// History is read only once the subscription is live: a message published before that point is
+// then in history, and one published after it arrives live.
 func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int64, messageCh chan<- models.SseMessage) error {
 	logger := slog.With("prefix", "ValkeyStorage.Sub")
 
-	s.subMutex.Lock()
-	defer s.subMutex.Unlock()
-
-	// Add messageCh to subscribers for each key
-	for _, key := range keys {
-		if s.subscribers[key] == nil {
-			s.subscribers[key] = make([]chan<- models.SseMessage, 0)
-		}
-		s.subscribers[key] = append(s.subscribers[key], messageCh)
-	}
-
-	// Send historical messages for each key
-	now := time.Now().Unix()
-	for _, key := range keys {
-		clientKey := fmt.Sprintf("client:%s", key)
-
-		// Remove expired messages first
-		// TODO support expired messages but not delivered log
-		s.client.ZRemRangeByScore(ctx, clientKey, "0", fmt.Sprintf("%d", now))
-
-		// Get all remaining messages
-		messages, err := s.client.ZRange(ctx, clientKey, 0, -1).Result()
-		if err != nil {
-			if err != redis.Nil {
-				logger.Error("failed to get historical messages", "client_id", key, "err", err)
-			}
-			continue // No messages for this client or error occurred
-		}
-
-		// Parse and send historical messages
-		for _, msgData := range messages {
-			var msg models.SseMessage
-			err := json.Unmarshal([]byte(msgData), &msg)
-			if err != nil {
-				logger.Error("failed to unmarshal historical message", "err", err)
-				continue
-			}
-
-			// Filter by event ID - only send messages after lastEventId
-			if msg.EventId > lastEventId {
-				select {
-				case messageCh <- msg:
-				default:
-					MessagesDropped.WithLabelValues(DropPathReplay, DropReasonSubscriberFull).Inc()
-				}
-			}
-		}
-	}
+	sub := newValkeySubscriber(messageCh)
 
 	// Create channels list for subscription
 	channels := make([]string, len(keys))
 	for i, key := range keys {
 		channels[i] = fmt.Sprintf("client:%s", key)
+	}
+
+	s.subMutex.Lock()
+
+	// Add messageCh to subscribers for each key
+	for _, key := range keys {
+		if s.subscribers[key] == nil {
+			s.subscribers[key] = make([]*valkeySubscriber, 0)
+		}
+		s.subscribers[key] = append(s.subscribers[key], sub)
 	}
 
 	// If this is the first subscription, start the pub-sub connection
@@ -220,8 +289,97 @@ func (s *ValkeyStorage) Sub(ctx context.Context, keys []string, lastEventId int6
 		}
 	}
 
+	pubSubConn := s.pubSubConn
+	s.subMutex.Unlock()
+
+	if !s.awaitSubscribed(ctx, pubSubConn) {
+		logger.Warn("subscription not seen live in time, reading history anyway", "keys", keys)
+	}
+
+	// Send historical messages for each key
+	now := time.Now().Unix()
+	for _, key := range keys {
+		clientKey := fmt.Sprintf("client:%s", key)
+
+		// A transaction runs on the slot's primary, and a replica may not have the write of a
+		// message that missed the subscription yet.
+		var history *redis.StringSliceCmd
+		_, err := s.client.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+			// Remove expired messages first
+			// TODO support expired messages but not delivered log
+			pipe.ZRemRangeByScore(ctx, clientKey, "0", fmt.Sprintf("%d", now))
+
+			// Get all remaining messages
+			history = pipe.ZRange(ctx, clientKey, 0, -1)
+			return nil
+		})
+		if err != nil {
+			if err != redis.Nil {
+				logger.Error("failed to get historical messages", "client_id", key, "err", err)
+			}
+			continue // No messages for this client or error occurred
+		}
+		messages := history.Val()
+
+		// Parse and send historical messages
+		for _, msgData := range messages {
+			var msg models.SseMessage
+			err := json.Unmarshal([]byte(msgData), &msg)
+			if err != nil {
+				logger.Error("failed to unmarshal historical message", "err", err)
+				continue
+			}
+
+			// Filter by event ID - only send messages after lastEventId
+			if msg.EventId > lastEventId {
+				sub.deliverReplay(msg)
+			}
+		}
+	}
+	sub.replayDone()
+
 	logger.Debug("subscribed to channels for keys", "keys", keys)
 	return nil
+}
+
+// awaitSubscribed waits for the ack of a barrier channel nobody else subscribes. An ack for a real channel
+// could answer a previous session's SUBSCRIBE that its UNSUBSCRIBE has since undone.
+func (s *ValkeyStorage) awaitSubscribed(ctx context.Context, pubSubConn *redis.PubSub) bool {
+	ctx, cancel := context.WithTimeout(ctx, subscribeBarrierTimeout)
+	defer cancel()
+
+	barrier := fmt.Sprintf("%s%s:%d", subscribeBarrierPrefix, s.barrierNonce, s.barrierSeq.Add(1))
+	acked := make(chan struct{})
+	s.barriersMutex.Lock()
+	s.barriers[barrier] = acked
+	s.barriersMutex.Unlock()
+	defer func() {
+		s.barriersMutex.Lock()
+		delete(s.barriers, barrier)
+		s.barriersMutex.Unlock()
+	}()
+
+	// The barrier's writes run apart from the wait, under the connection's own timeouts: a stalled
+	// connection cannot hold Sub past its timeout, and a deadline spent waiting cannot drop the connection.
+	failed := make(chan struct{})
+	go func() {
+		if err := pubSubConn.Subscribe(context.Background(), barrier); err != nil {
+			close(failed)
+		}
+		<-ctx.Done()
+		if err := pubSubConn.Unsubscribe(context.Background(), barrier); err != nil {
+			slog.Warn("failed to unsubscribe from subscribe barrier", "err", err)
+		}
+	}()
+
+	select {
+	case <-acked:
+		return true
+	case <-failed:
+		return false
+	case <-ctx.Done():
+		return false
+	}
 }
 
 // Unsub unsubscribes from Redis channels for the given keys
@@ -240,10 +398,10 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 		}
 
 		// Remove only the specific messageCh from subscribers
-		newSubscribers := make([]chan<- models.SseMessage, 0, len(subscribers))
-		for _, ch := range subscribers {
-			if ch != messageCh {
-				newSubscribers = append(newSubscribers, ch)
+		newSubscribers := make([]*valkeySubscriber, 0, len(subscribers))
+		for _, sub := range subscribers {
+			if sub.ch != messageCh {
+				newSubscribers = append(newSubscribers, sub)
 			}
 		}
 
@@ -274,7 +432,15 @@ func (s *ValkeyStorage) Unsub(ctx context.Context, keys []string, messageCh chan
 func (s *ValkeyStorage) handlePubSub() {
 	logger := slog.With("prefix", "ValkeyStorage.handlePubSub")
 
-	for msg := range s.pubSubConn.Channel() {
+	for m := range s.pubSubConn.ChannelWithSubscriptions() {
+		msg, ok := m.(*redis.Message)
+		if !ok {
+			if sub, ok := m.(*redis.Subscription); ok && sub.Kind == "subscribe" {
+				s.barrierAcked(sub.Channel)
+			}
+			continue
+		}
+
 		// Parse channel name to get client key
 		var key string
 		if len(msg.Channel) > 7 && msg.Channel[:7] == "client:" {
@@ -295,15 +461,23 @@ func (s *ValkeyStorage) handlePubSub() {
 		s.subMutex.RLock()
 		subscribers, exists := s.subscribers[key]
 		if exists {
-			for _, ch := range subscribers {
-				select {
-				case ch <- sseMessage:
-				default:
-					MessagesDropped.WithLabelValues(DropPathLive, DropReasonSubscriberFull).Inc()
-				}
+			for _, sub := range subscribers {
+				sub.deliverLive(sseMessage)
 			}
 		}
 		s.subMutex.RUnlock()
+	}
+}
+
+// barrierAcked wakes the Sub waiting for this barrier. Acks for real channels, and a barrier acked
+// again after go-redis resubscribes, match nothing.
+func (s *ValkeyStorage) barrierAcked(channel string) {
+	s.barriersMutex.Lock()
+	acked, ok := s.barriers[channel]
+	delete(s.barriers, channel)
+	s.barriersMutex.Unlock()
+	if ok {
+		close(acked)
 	}
 }
 

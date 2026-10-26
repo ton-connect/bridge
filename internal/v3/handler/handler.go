@@ -109,7 +109,6 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 		logger.Error("failed to write initial SSE frame", "err", err)
 		return err
 	}
-	c.Response().Flush()
 	params := c.QueryParams()
 
 	traceIdParam, ok := params["trace_id"]
@@ -221,6 +220,9 @@ func (h *handler) EventRegistrationHandler(c echo.Context) error {
 	defer ticker.Stop()
 
 	session.Start()
+	// The stream is announced only once the session is subscribed: a client that sends right after
+	// seeing it open would otherwise publish into a channel nobody listens to yet.
+	c.Response().Flush()
 loop:
 	for {
 		select {
