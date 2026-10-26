@@ -385,8 +385,9 @@ func newDelayedValkeyStorage(t *testing.T, delays map[string]time.Duration) *Val
 		t.Fatalf("failed to parse URI: %v", err)
 	}
 	options := clusterOptions(opts)
+	dial := redis.NewDialer(&redis.Options{DialTimeout: options.DialTimeout, TLSConfig: options.TLSConfig})
 	options.Dialer = func(ctx context.Context, network, addr string) (net.Conn, error) {
-		conn, err := (&net.Dialer{}).DialContext(ctx, network, addr)
+		conn, err := dial(ctx, network, addr)
 		if err != nil {
 			return nil, err
 		}
