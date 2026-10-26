@@ -507,3 +507,22 @@ func TestValkeySubscriberSendsHistoryFirstAndEachEventOnce(t *testing.T) {
 		t.Errorf("delivered %v, want %v", got, want)
 	}
 }
+
+func TestValkeySubscriberKeepsSameEventForDifferentRecipients(t *testing.T) {
+	messageCh := make(chan models.SseMessage, 10)
+	sub := newValkeySubscriber(messageCh)
+
+	sub.deliverLive(models.SseMessage{EventId: 5, Message: []byte("m"), To: "a"})
+	sub.deliverLive(models.SseMessage{EventId: 5, Message: []byte("m"), To: "b"})
+	sub.deliverReplay(models.SseMessage{EventId: 5, Message: []byte("m"), To: "a"})
+	sub.replayDone()
+	close(messageCh)
+
+	var got []string
+	for m := range messageCh {
+		got = append(got, fmt.Sprintf("%d:%s", m.EventId, m.To))
+	}
+	if want := []string{"5:a", "5:b"}; fmt.Sprint(got) != fmt.Sprint(want) {
+		t.Errorf("delivered %v, want %v", got, want)
+	}
+}

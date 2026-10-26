@@ -55,10 +55,16 @@ type valkeySubscriber struct {
 	replayed  map[deliveryKey]struct{}
 }
 
-// deliveryKey carries the payload because event IDs from different instances can collide.
+// deliveryKey carries the payload because event IDs from different instances can collide, and the
+// recipient because one session can subscribe several client IDs.
 type deliveryKey struct {
 	eventID int64
+	to      string
 	payload string
+}
+
+func keyOf(msg models.SseMessage) deliveryKey {
+	return deliveryKey{msg.EventId, msg.To, string(msg.Message)}
 }
 
 func newValkeySubscriber(ch chan<- models.SseMessage) *valkeySubscriber {
@@ -68,7 +74,7 @@ func newValkeySubscriber(ch chan<- models.SseMessage) *valkeySubscriber {
 func (v *valkeySubscriber) deliverLive(msg models.SseMessage) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	if _, ok := v.replayed[deliveryKey{msg.EventId, string(msg.Message)}]; ok {
+	if _, ok := v.replayed[keyOf(msg)]; ok {
 		return
 	}
 	if !v.replaying {
@@ -83,7 +89,7 @@ func (v *valkeySubscriber) deliverLive(msg models.SseMessage) {
 func (v *valkeySubscriber) deliverReplay(msg models.SseMessage) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	key := deliveryKey{msg.EventId, string(msg.Message)}
+	key := keyOf(msg)
 	if _, ok := v.replayed[key]; ok {
 		return
 	}
@@ -99,7 +105,7 @@ func (v *valkeySubscriber) replayDone() {
 	defer v.mu.Unlock()
 	v.replaying = false
 	for _, msg := range v.held {
-		if _, ok := v.replayed[deliveryKey{msg.EventId, string(msg.Message)}]; !ok {
+		if _, ok := v.replayed[keyOf(msg)]; !ok {
 			v.send(msg, DropPathLive)
 		}
 	}
