@@ -1,11 +1,13 @@
 package handlerv1
 
 import (
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
 	"testing"
+	"testing/iotest"
 	"time"
 
 	"github.com/labstack/echo/v4"
@@ -212,5 +214,32 @@ func TestSendMessageHandlerKeepsBodyLimitStatus(t *testing.T) {
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestSendMessageHandlerIncompleteBodyIsRequestTimeout(t *testing.T) {
+	memStorage := storage.NewMemStorage(nil, nil)
+	extractor, err := utils.NewRealIPExtractor([]string{})
+	if err != nil {
+		t.Fatalf("failed to create RealIPExtractor: %v", err)
+	}
+	h := NewHandler(memStorage, 10*time.Second, extractor, nil, nil)
+
+	e := echo.New()
+	e.POST("/bridge/message", h.SendMessageHandler)
+
+	values := url.Values{
+		"client_id":         {defaultClientID},
+		"to":                {defaultToID},
+		"ttl":               {"60"},
+		"no_request_source": {"true"},
+	}
+	body := io.MultiReader(strings.NewReader("12345"), iotest.ErrReader(io.ErrUnexpectedEOF))
+	req := httptest.NewRequest(http.MethodPost, "/bridge/message?"+values.Encode(), body)
+	rec := httptest.NewRecorder()
+	e.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusRequestTimeout {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestTimeout)
 	}
 }
