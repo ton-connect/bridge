@@ -1,15 +1,19 @@
 package handlerv3
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
 	"github.com/labstack/echo/v4"
 	"github.com/ton-connect/bridge/internal/app"
+	"github.com/ton-connect/bridge/internal/config"
+	"github.com/ton-connect/bridge/internal/models"
 	"github.com/ton-connect/bridge/internal/ntp"
 	"github.com/ton-connect/bridge/internal/utils"
 	storagev3 "github.com/ton-connect/bridge/internal/v3/storage"
@@ -213,5 +217,79 @@ func TestSendMessageHandlerKeepsBodyLimitStatus(t *testing.T) {
 
 	if rec.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+// subscribeGateStorage holds Sub until released, so a test can see what the client got meanwhile.
+type subscribeGateStorage struct {
+	storagev3.Storage
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (s *subscribeGateStorage) Sub(ctx context.Context, keys []string, lastEventId int64, messageCh chan<- models.SseMessage) error {
+	close(s.entered)
+	<-s.release
+	return s.Storage.Sub(ctx, keys, lastEventId, messageCh)
+}
+
+type flushRecorder struct {
+	*httptest.ResponseRecorder
+	mu      sync.Mutex
+	flushed bool
+}
+
+func (r *flushRecorder) Flush() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.flushed = true
+}
+
+func (r *flushRecorder) Flushed() bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.flushed
+}
+
+func TestEventRegistrationAnnouncesStreamAfterSubscribing(t *testing.T) {
+	lifetime := config.Config.SSEMaxLifetime
+	config.Config.SSEMaxLifetime = 60
+	t.Cleanup(func() { config.Config.SSEMaxLifetime = lifetime })
+
+	storage := &subscribeGateStorage{
+		Storage: storagev3.NewMemStorage(nil, nil),
+		entered: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	extractor, err := utils.NewRealIPExtractor([]string{})
+	if err != nil {
+		t.Fatalf("failed to create RealIPExtractor: %v", err)
+	}
+	h := NewHandler(storage, 10*time.Second, extractor, ntp.NewLocalTimeProvider(), nil, nil)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req := httptest.NewRequest(http.MethodGet, "/bridge/events?client_id="+defaultClientID, nil).WithContext(ctx)
+	rec := &flushRecorder{ResponseRecorder: httptest.NewRecorder()}
+	done := make(chan error, 1)
+	go func() { done <- h.EventRegistrationHandler(echo.New().NewContext(req, rec)) }()
+
+	select {
+	case <-storage.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the handler never subscribed the session")
+	}
+	if rec.Flushed() {
+		t.Error("the stream was flushed to the client before its session subscribed")
+	}
+	close(storage.release)
+	for deadline := time.Now().Add(time.Second); !rec.Flushed(); time.Sleep(time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("the stream was never flushed after the session subscribed")
+		}
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("EventRegistrationHandler returned error: %v", err)
 	}
 }
